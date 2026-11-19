@@ -371,11 +371,13 @@
   .table { flex: 1; min-height: 0; overflow: auto; margin: 0 var(--s3) var(--s1); padding: 2px;
     --cols: minmax(round(calc(180 * var(--u)), 1px), 1fr) round(calc(58 * var(--u)), 1px) round(calc(128 * var(--u)), 1px) round(calc(150 * var(--u)), 1px) round(calc(64 * var(--u)), 1px) round(calc(86 * var(--u)), 1px); }
   .thead { position: sticky; top: 0; z-index: 1; display: grid; grid-template-columns: var(--cols); }
-  .th { text-align: left; padding: var(--g2) var(--s3); white-space: nowrap; overflow: hidden; display: flex; align-items: center; gap: var(--s1); }
-  .th.num { justify-content: flex-end; }
+  /* .th is the columnheader cell; the sort button inside fills it */
+  .th { display: flex; min-width: 0; }
+  .th > button { flex: 1; min-width: 0; text-align: left; padding: var(--g2) var(--s3); white-space: nowrap; overflow: hidden; display: flex; align-items: center; gap: var(--s1); }
+  .th.num > button { justify-content: flex-end; }
   .th .arrow { width: 0; height: 0; border-left: var(--s1) solid transparent; border-right: var(--s1) solid transparent; }
-  .th[data-dir="asc"] .arrow { border-bottom: var(--s1) solid var(--fg); }
-  .th[data-dir="desc"] .arrow { border-top: var(--s1) solid var(--fg); }
+  .th[aria-sort="ascending"] .arrow { border-bottom: var(--s1) solid var(--fg); }
+  .th[aria-sort="descending"] .arrow { border-top: var(--s1) solid var(--fg); }
   .row { display: grid; grid-template-columns: var(--cols); align-items: center; cursor: default; }
   .row .c { padding: var(--s1) var(--s3); min-width: 0; overflow: hidden; }
   .row .num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -486,6 +488,15 @@
   .tp-btn { margin: auto var(--s1) 2px auto; width: 40%; height: round(calc(10 * var(--u)), 1px); }
 
   /* ---------- menus, balloon ---------- */
+  /* screen-reader support: live region, balloon Open button, blocked Generate, Jobs and gallery extras */
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+  .balloon .bopen { align-self: flex-end; margin-top: var(--s2); }
+  .btn-go[aria-disabled="true"] { color: var(--muted); cursor: default; }
+  .btn-go[aria-disabled="true"] .ico { opacity: .45; }
+  button.raised.btn-go[aria-disabled="true"]:active { background: var(--face); box-shadow: inset 1px 1px 0 var(--hi), inset -1px -1px 0 var(--lo), inset 2px 2px 0 var(--mid), inset -2px -2px 0 var(--deep); }
+  .row .c-model { white-space: nowrap; text-overflow: ellipsis; }
+  .empty-act { margin-top: var(--s4); }
+  .grid > .empty-list { grid-column: 1 / -1; }
   .menu { position: fixed; z-index: 150000; padding: 3px; min-width: round(calc(190 * var(--u)), 1px); display: flex; flex-direction: column; }
   .menu button { display: flex; align-items: center; gap: var(--s3); padding: var(--s1) var(--s4) var(--s1) calc(2 * var(--s4)); background: none; border: 0; text-align: left; cursor: default; white-space: nowrap; }
   .menu button.bold { font-weight: 700; }
@@ -592,7 +603,8 @@
 </div>
 
 <div class="menu raised" id="ctxmenu" role="menu" hidden></div>
-<div class="balloon raised" id="balloon" role="status" aria-live="polite" hidden></div>
+<div class="balloon raised" id="balloon" hidden></div>
+<div id="sr-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <div class="taskbar raised">
   <button class="start raised" id="start" aria-haspopup="menu" aria-expanded="false" title="Ctrl+Esc"><svg class="ico"><use href="#i-logo"/></svg>Start</button>
