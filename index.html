@@ -15,6 +15,8 @@
   @font-face { font-family: "MS Sans Serif 95"; src: url("fonts/ms_sans_serif_bold.woff2") format("woff2"); font-weight: 700; }
   /* IBM Plex Sans (SIL Open Font License), one variable file for all weights: the default UI font */
   @font-face { font-family: "IBM Plex Sans"; src: url("fonts/ibm_plex_sans_variable.woff2") format("woff2"); font-weight: 100 700; }
+  /* DotGothic16 (SIL Open Font License), Latin subset: a pixel-style font drawn as outlines, sharp at any size */
+  @font-face { font-family: "DotGothic16"; src: url("fonts/dotgothic16_latin.woff2") format("woff2"); font-weight: 400; }
   /* Atkinson Hyperlegible (Braille Institute, SIL Open Font License): the most readable option */
   @font-face { font-family: "Atkinson Hyperlegible"; src: url("fonts/atkinson_hyperlegible_400.woff2") format("woff2"); font-weight: 400; }
   @font-face { font-family: "Atkinson Hyperlegible"; src: url("fonts/atkinson_hyperlegible_700.woff2") format("woff2"); font-weight: 700; }
@@ -110,6 +112,7 @@
   /* smooth font: Tahoma at any size */
   html.smooth { --ui: Tahoma, Verdana, "Segoe UI", system-ui, sans-serif; }
   html.smooth body { -webkit-font-smoothing: auto; -moz-osx-font-smoothing: auto; }
+  html.dot { --ui: "DotGothic16", Tahoma, Verdana, system-ui, sans-serif; }
   html.plex { --ui: "IBM Plex Sans", Tahoma, Verdana, system-ui, sans-serif; }
   html.hyper { --ui: "Atkinson Hyperlegible", Tahoma, Verdana, system-ui, sans-serif; }
 
@@ -172,7 +175,7 @@
 
   /* ---------- desktop ---------- */
   #desktop { position: fixed; top: env(safe-area-inset-top, 0px); left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px); bottom: calc(var(--bar) + env(safe-area-inset-bottom, 0px)); overflow: hidden; }
-  .icons { position: absolute; left: var(--s3); top: var(--s4); display: flex; flex-direction: column; gap: var(--s3); }
+  .icons { position: absolute; left: var(--s3); top: var(--s4); bottom: var(--s3); display: flex; flex-direction: column; flex-wrap: wrap; align-content: flex-start; gap: var(--s3); }
   .dicon { width: round(calc(78 * var(--u)), 1px); padding: var(--s1) 2px; display: flex; flex-direction: column; align-items: center; gap: var(--s1); background: none; border: 0; color: #fff; cursor: default; text-align: center; }
   .dicon svg { width: var(--ico-xl); height: var(--ico-xl); }
   .dicon span { padding: 0 var(--g2); }
@@ -228,6 +231,28 @@
   .empty-list { padding: calc(2 * var(--s4)); text-align: center; color: var(--muted); margin: auto; max-width: 42ch; }
   /* group boxes: fieldset.group and details.more.group */
   .group { margin: 0; padding: var(--s3) var(--s4) var(--s4); border: 0; min-width: 0; box-shadow: inset 1px 1px 0 var(--lo), inset -1px -1px 0 var(--hi), inset 2px 2px 0 var(--hi), inset -2px -2px 0 var(--lo); }
+  .ubody { flex: 1; min-height: 0; overflow: auto; padding: 0 var(--s3) var(--s2); display: flex; flex-direction: column; gap: var(--s3); }
+  .uchart { width: 100%; height: auto; display: block; background: var(--face-2); }
+  .uchart .ugrid { stroke: var(--mid); stroke-width: 1; vector-effect: non-scaling-stroke; }
+  .uchart .ulab { fill: var(--muted); font: var(--fs) var(--ui); font-size: 11px; }
+  .ulegend { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); margin-top: var(--s2); }
+  .ulegend span, .utable span { display: inline-flex; align-items: center; gap: var(--s1); min-width: 0; }
+  .ulegend i, .utable i { width: 10px; height: 10px; flex: none; display: inline-block; }
+  .ucols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18em), 1fr)); gap: var(--s3); }
+  .utable { display: flex; flex-direction: column; gap: 2px; }
+  .utable > div { display: grid; grid-template-columns: minmax(0, 1fr) auto 4.5em; gap: var(--s2); align-items: baseline; padding: 2px var(--s1); }
+  .utable > div:nth-child(odd) { background: var(--face-2); }
+  .utable span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .utable b { font-weight: 400; font-variant-numeric: tabular-nums; color: var(--blue); text-align: right; }
+  .utable small { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+  .unote { margin: var(--s2) 0 0; }
+  .xnote { margin: 0 0 var(--s2); }
+  .xkeys { display: flex; flex-direction: column; gap: 2px; margin-bottom: var(--s2); max-height: calc(9 * var(--fs) * 1.5); overflow: auto; }
+  .xkey { display: flex; flex-wrap: wrap; gap: 0 var(--s2); align-items: baseline; text-align: left; background: none; border: 0; padding: 2px var(--s1); cursor: pointer; color: var(--fg); }
+  .xkey:hover, .xkey:focus-visible { background: var(--sel); color: #fff; outline: none; }
+  .xkey:hover .muted { color: #c9d4ff; }
+  .xreq { color: var(--run); }
+  .xjson { width: 100%; max-width: none; min-height: calc(5 * var(--fs) * 1.5); resize: vertical; font-family: "Courier New", Courier, monospace; }
   .group legend { padding: 0 var(--s1); margin-left: -2px; color: var(--fg); background: var(--face); position: relative; z-index: 1; }
   details.more > summary { cursor: pointer; color: var(--fg); list-style-position: inside; }
   details.more[open] > summary { margin-bottom: var(--s3); }
@@ -529,6 +554,7 @@
   <symbol id="i-logo" viewBox="0 0 16 16" shape-rendering="crispEdges"></symbol>
   <symbol id="i-term" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect x="0" y="1" width="16" height="14" fill="#c9cbd3"/><rect x="0" y="1" width="16" height="3" fill="#1f6fc4"/><rect x="1" y="4" width="14" height="10" fill="#000"/><rect x="2" y="6" width="1" height="1" fill="#e4e4e8"/><rect x="3" y="7" width="1" height="1" fill="#e4e4e8"/><rect x="2" y="8" width="1" height="1" fill="#e4e4e8"/><rect x="5" y="8" width="3" height="1" fill="#e4e4e8"/></symbol>
   <symbol id="i-gear" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect x="1" y="2" width="14" height="12" fill="#c9cbd3"/><rect x="2" y="3" width="12" height="10" fill="#2a2b30"/><rect x="4" y="5" width="1" height="6" fill="#9a9ca6"/><rect x="3" y="6" width="3" height="2" fill="#ffc94a"/><rect x="8" y="5" width="1" height="6" fill="#9a9ca6"/><rect x="7" y="8" width="3" height="2" fill="#6ea8ff"/><rect x="11" y="5" width="1" height="6" fill="#9a9ca6"/><rect x="10" y="6" width="3" height="2" fill="#5fdc7a"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect x="1" y="1" width="14" height="14" fill="#c9cbd3"/><rect x="2" y="2" width="12" height="12" fill="#1d1e22"/><rect x="3" y="9" width="2" height="4" fill="#6ea8ff"/><rect x="6" y="6" width="2" height="7" fill="#ffc94a"/><rect x="9" y="4" width="2" height="9" fill="#5fdc7a"/><rect x="12" y="7" width="1" height="6" fill="#ff6b6b"/></symbol>
   <symbol id="i-cascade" viewBox="0 0 16 16"><rect x="1" y="1" width="9" height="7" fill="#5a5d66"/><rect x="3.5" y="4" width="9" height="7" fill="#9a9ca6"/><rect x="6" y="7" width="9" height="7" fill="#c9cbd3"/><rect x="6" y="7" width="9" height="2" fill="#1f6fc4"/></symbol>
 </svg>
 
@@ -538,6 +564,7 @@
     <button class="dicon" data-launch="generate" title="Double-click to open"><svg><use href="#i-wand"/></svg><span>Generate</span></button>
     <button class="dicon" data-launch="terminal" title="Double-click to open"><svg><use href="#i-term"/></svg><span>Terminal</span></button>
     <button class="dicon" data-launch="options" title="Double-click to open"><svg><use href="#i-gear"/></svg><span>Options</span></button>
+    <button class="dicon" data-launch="usage" title="Double-click to open"><svg><use href="#i-chart"/></svg><span>Usage</span></button>
     <button class="dicon" data-launch="jobs" title="Double-click to open"><svg><use href="#i-folder"/></svg><span>Jobs</span></button>
     <button class="dicon" data-launch="images" title="Double-click to open"><svg><use href="#i-picture"/></svg><span>Images</span></button>
     <button class="dicon" data-launch="videos" title="Double-click to open"><svg><use href="#i-video"/></svg><span>Videos</span></button>
@@ -551,6 +578,7 @@
   <button role="menuitem" data-launch="generate"><svg><use href="#i-wand"/></svg>Generate</button>
   <button role="menuitem" data-launch="terminal"><svg><use href="#i-term"/></svg>Terminal</button>
   <button role="menuitem" data-launch="jobs"><svg><use href="#i-folder"/></svg>Jobs</button>
+  <button role="menuitem" data-launch="usage"><svg><use href="#i-chart"/></svg>Usage</button>
   <button role="menuitem" data-launch="images"><svg><use href="#i-picture"/></svg>Images</button>
   <button role="menuitem" data-launch="videos"><svg><use href="#i-video"/></svg>Videos</button>
   <button role="menuitem" data-launch="audio"><svg><use href="#i-audio"/></svg>Audio</button>

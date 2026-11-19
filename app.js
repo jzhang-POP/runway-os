@@ -161,6 +161,10 @@
       icon: () => "i-gear", title: () => "Options", min: [380, 360],
       geo: d => centered(d, 420, 470, 30, true),
     },
+    usage: {
+      icon: () => "i-chart", title: w => `Usage — last ${w.days || 30} days`, min: [420, 360],
+      geo: d => centered(d, 760, 620, 20),
+    },
     images: { icon: () => "i-picture", title: () => "Images", min: [300, 240], geo: cascade(720, 480) },
     videos: { icon: () => "i-video", title: () => "Videos", min: [300, 240], geo: cascade(720, 480) },
     audio: { icon: () => "i-audio", title: () => "Audio", min: [300, 240], geo: cascade(620, 440) },
@@ -510,6 +514,7 @@
     key: w => keyRender(w),
     terminal: w => termRender(w),
     options: w => optionsRender(w),
+    usage: w => usageRender(w),
     images: w => gallery(w, "image"),
     audio: w => gallery(w, "audio"),
     videos: w => gallery(w, "video"),
@@ -549,6 +554,7 @@
       const rows = [
         ["Status", statusHTML(r)],
         ["Credits", r.credits != null ? `${fmt(r.credits)}${r.costSource === "runway" ? ' <span class="muted">reported by Runway</span>' : ""}` : r.estimatedCredits != null ? `~${fmt(r.estimatedCredits)} <span class="muted">estimate</span>` : "—"],
+        ...(r.quotedCredits != null ? [["Quoted", `${r.quoteExact ? "" : "≈ "}${fmt(r.quotedCredits)}${r.credits != null ? (r.credits === r.quotedCredits ? ' <span class="muted">matches the charge</span>' : ` <span class="bad">charge differs by ${fmt(r.credits - r.quotedCredits)}</span>`) : ' <span class="muted">before submitting</span>'}`]] : []),
         ["Created", r.createdAt ? `${esc(absTime(tOf(r.createdAt)))} <span class="muted">(${relHTML(r.createdAt)})</span>` : esc(r.date)],
         ...(took ? [["Took", dur(took)]] : []),
         ["Model", esc(r.model)], ["Settings", esc(r.settings)],
@@ -675,7 +681,14 @@
   const cats = () => [...new Set((CAT?.tasks || []).map(t => t.category))];
   const tasksOf = cat => (CAT?.tasks || []).filter(t => t.category === cat);
   const curTask = w => { const ts = tasksOf(w.gen.cat); return ts.find(t => t.endpoint === w.gen.ep[w.gen.cat]) || ts[0]; };
-  const curModel = w => { const t = curTask(w); if (!t) return null; const ms = t.models; return ms.find(m => m.id === w.gen.model[t.endpoint] && !m.unsupported) || ms.find(m => !m.unsupported) || ms[0]; };
+  const curModel = w => { const t = curTask(w); if (!t) return null; const ms = t.models; return ms.find(m => m.id === w.gen.model[t.endpoint]) || ms[0]; };
+  // Additional parameters: free JSON for API fields the form doesn't cover
+  const xtext = w => (w.gen.extra ||= {})[mkey(w)] || "";
+  function genExtra(w) {
+    const t = xtext(w).trim(); if (!t) return { obj: {} };
+    try { const o = JSON.parse(t); return o && typeof o === "object" && !Array.isArray(o) ? { obj: o } : { err: "must be a JSON object, like {\"seed\": 42}" }; }
+    catch (e) { return { err: "isn't valid JSON (" + e.message.replace(/^JSON\.parse: /, "").slice(0, 80) + ")" }; }
+  }
   const mkey = w => { const t = curTask(w), m = curModel(w); return t && m ? `${t.endpoint}|${m.id}` : ""; };
   const vals = w => (w.gen.vals[mkey(w)] ||= {});
   const picks = w => (w.gen.media[mkey(w)] ||= {});
@@ -699,9 +712,15 @@
   function genBlock(w) {
     const m = curModel(w); if (!m) return "Loading models…";
     if (loaded && !data.live) return "Add your Runway API key to generate";
-    if (m.unsupported) return `${m.id} ${m.unsupported}`;
+    const ex = genExtra(w);
+    if (ex.err) return `Additional parameters ${ex.err}`;
+    const need = (m.needs || []).filter(k => !(k in ex.obj));
+    if (need.length) return `Fill in ${need.join(", ")} under Additional parameters`;
+    const bad = Object.keys(ex.obj).filter(k => !(m.keys || []).includes(k));
+    if (bad.length) return `${m.id} doesn't take ${bad.join(", ")}`;
     const v = vals(w), p = picks(w);
     for (const f of m.fields) {
+      if (f.name in ex.obj) continue;
       if (f.kind === "media") {
         const n = (p[f.name] || []).length;
         if (f.required && n < Math.max(1, f.min || 0)) return `Pick ${f.array && (f.min || 1) > 1 ? `${f.min} files for` : "the"} ${f.label.toLowerCase()}`;
@@ -763,7 +782,10 @@
         if (f.name === "ratio") genRatioPreview(w);
         genRefresh(w); save();
       };
-      form.addEventListener("input", onField);
+      form.addEventListener("input", e => {
+        if (e.target.matches("[data-extra]")) { (g.extra ||= {})[mkey(w)] = e.target.value; genRefresh(w); save(); return; }
+        onField(e);
+      });
       form.addEventListener("change", e => {
         const k = e.target.dataset.g;
         if (k === "task") { g.ep[g.cat] = e.target.value; genSwitch(w); return; }
@@ -773,6 +795,8 @@
       form.addEventListener("click", e => {
         const c = e.target.closest("[data-cat]");
         if (c) { g.cat = c.dataset.cat; genSwitch(w); return; }
+        const xk = e.target.closest("[data-xkey]");
+        if (xk) { genAddExtra(w, xk.dataset.xkey); return; }
         const it = e.target.closest("[data-mref]"); if (!it) return;
         const f = curModel(w).fields.find(x => x.name === it.dataset.field), p = picks(w);
         if (it.dataset.mref === "file") { fileIn.dataset.field = f.name; fileIn.accept = f.accept.map(a => a + "/*").join(","); fileIn.click(); return; }
@@ -806,10 +830,8 @@
     const ts = tasksOf(g.cat);
     $('[data-g="task"]', form).innerHTML = ts.map(x => `<option value="${esc(x.endpoint)}" ${x === t ? "selected" : ""}>${esc(x.label)} (${x.models.length})</option>`).join("");
     $(".tcombo", form).hidden = $(".tlabel", form).hidden = ts.length < 2;
-    $('[data-g="model"]', form).innerHTML = t.models.map(x => `<option value="${esc(x.id)}" ${x === m ? "selected" : ""} ${x.unsupported ? "disabled" : ""}>${esc(x.id)}${x.unsupported ? " (not available here)" : ""}</option>`).join("");
-    const note = $(".gnote", form), off = t.models.filter(x => x.unsupported);
-    note.hidden = !off.length;
-    note.textContent = off.map(x => `${x.id} ${x.unsupported}.`).join(" ");
+    $('[data-g="model"]', form).innerHTML = t.models.map(x => `<option value="${esc(x.id)}" ${x === m ? "selected" : ""}>${esc(x.id)}${x.needs?.length ? " (needs additional parameters)" : ""}</option>`).join("");
+    $(".gnote", form).hidden = true;
     genFields(w);
     if (!first) genMsg(w, null);
     genRefresh(w); save();
@@ -831,7 +853,7 @@
   }
   function genFields(w) {
     const m = curModel(w), box = $(".gfields", w.body);
-    if (!m || m.unsupported) { box.innerHTML = ""; return; }
+    if (!m) { box.innerHTML = ""; return; }
     const F = m.fields.filter(f => f.kind !== "const");
     const texts = F.filter(f => f.kind === "longtext" && !f.advanced), media = F.filter(f => f.kind === "media");
     const main = F.filter(f => !f.advanced && f.kind !== "longtext" && f.kind !== "media"), adv = F.filter(f => f.advanced && f.kind !== "media");
@@ -845,9 +867,16 @@
           <div class="strip" role="listbox" aria-label="${esc(f.label)}" data-strip="${esc(f.name)}" ${f.array ? 'aria-multiselectable="true"' : ""}></div>
         </fieldset>`).join("")
       + (main.length ? `<fieldset class="group"><legend>Settings</legend><div class="gform">${main.map(f => genFieldHTML(w, f)).join("")}</div></fieldset>` : "")
-      + (adv.length ? `<details class="more group"${w.gen.adv ? " open" : ""}><summary>More options (${adv.length})</summary><div class="gform">${adv.map(f => genFieldHTML(w, f)).join("")}</div></details>` : "");
+      + (adv.length ? `<details class="more group"${w.gen.adv ? " open" : ""}><summary>More options (${adv.length})</summary><div class="gform">${adv.map(f => genFieldHTML(w, f)).join("")}</div></details>` : "")
+      + `<details class="more group xparams"${w.gen.advX || m.needs?.length || xtext(w).trim() ? " open" : ""}><summary>Additional parameters${m.extra?.length ? ` (${m.extra.length})` : ""}</summary>
+          <p class="muted xnote">Sent with the request as JSON, on top of the form. ${m.extra?.length ? "Click a name to add it." : "This model has no fields beyond the form, but you can still set any of its fields here: " + esc((m.keys || []).join(", ")) + "."}</p>
+          ${m.extra?.length ? `<div class="xkeys">${m.extra.map(x => `<button type="button" class="xkey" data-xkey="${esc(x.name)}" title="${esc(x.desc || x.hint)}"><b>${esc(x.name)}</b>${x.required ? ' <span class="xreq">required</span>' : ""}<span class="muted">${esc(x.hint)}</span></button>`).join("")}</div>` : ""}
+          <textarea class="field xjson" data-extra rows="4" spellcheck="false" placeholder='{ "seed": 42 }' aria-label="Additional parameters as JSON"></textarea>
+        </details>`;
     texts.forEach(f => { const ta = $(`textarea[data-f="${f.name}"]`, box); ta.value = vals(w)[f.name] ?? ""; const c = $(`.gcount[data-for="${f.name}"]`, box); if (c) genCount(c, f, ta.value); });
-    $("details.more", box)?.addEventListener("toggle", e => { w.gen.adv = e.target.open; save(); });
+    $("details.more:not(.xparams)", box)?.addEventListener("toggle", e => { w.gen.adv = e.target.open; save(); });
+    $("details.xparams", box).addEventListener("toggle", e => { w.gen.advX = e.target.open; save(); });
+    $("[data-extra]", box).value = xtext(w);
     const promptTa = $('textarea[data-f="promptText"]', box);
     if (promptTa) promptTa.placeholder = curTask(w).output === "audio" ? "Describe the sound, or write the words to speak" : media.length ? "Describe what should happen" : `Describe the ${curTask(w).output}`;
     genStrips(w, true); genRatioPreview(w);
@@ -907,11 +936,31 @@
     }
   }
 
-  function genRefresh(w) {
+  // add "name": <stub> to the Additional parameters JSON, keeping what is there
+  function genAddExtra(w, name) {
+    const x = curModel(w).extra.find(e => e.name === name), ta = $("[data-extra]", w.body);
+    const h = x?.hint || "";
+    const stub = h.startsWith("array") ? [] : h.startsWith("{") ? {} : /^(integer|number)/.test(h) ? 0 : h.startsWith("one of: ") ? h.slice(8).split(", ")[0] : h.startsWith('"') ? JSON.parse(h) : "";
+    let obj = {};
+    try { obj = JSON.parse(ta.value.trim() || "{}"); } catch { genMsg(w, "Fix the JSON first, then add more parameters."); return; }
+    if (!(name in obj)) obj[name] = stub;
+    ta.value = JSON.stringify(obj, null, 2);
+    (w.gen.extra ||= {})[mkey(w)] = ta.value;
+    ta.focus(); genMsg(w, null); genRefresh(w); save();
+  }
+
+  function genRefresh(w, fromPrice) {
     const f = w.body, hint = $(".ghint", f); if (!hint) return;
-    const why = genBlock(w);
-    hint.textContent = why || genCost(w); hint.title = hint.textContent; hint.classList.toggle("why", !!why);
-    $(".btn-go", f).disabled = !!why || !!w.busy;
+    const why = genBlock(w), pr = w.price, btn = $(".btn-go", f);
+    if (!fromPrice) genPrice(w);
+    let text = why;
+    if (!why) {
+      if (pr && pr.credits != null) text = `${pr.exact ? "" : "≈ "}${fmt(pr.credits)} credits · ${pr.breakdown || ""}${pr.note ? ` · ${pr.note}` : ""}`;
+      else text = (pr?.note ? `Price unknown: ${pr.note}. ` : "") + genCost(w);
+    }
+    hint.textContent = text; hint.title = text; hint.classList.toggle("why", !!why);
+    if (!w.busy) $("span", btn).textContent = !why && pr?.credits != null ? `Generate · ${pr.exact ? "" : "≈"}${fmt(pr.credits)} cr` : "Generate";
+    btn.disabled = !!why || !!w.busy;
     $(".gkey", f).hidden = !loaded || data.live;
   }
   function genMsg(w, text, neutral) {
@@ -919,11 +968,9 @@
     m.hidden = !text; m.textContent = text || ""; m.classList.toggle("info", !!neutral);
   }
 
-  async function genSubmit(w) {
-    const why = genBlock(w); if (why) { genMsg(w, why + "."); return; }
-    if (w.busy) return;
-    const t = curTask(w), m = curModel(w), v = vals(w), p = picks(w), btn = $(".btn-go", w.body), label = $("span", btn);
-    const values = {}, media = {};
+  // the request Generate would send, also used to price it
+  function genBody(w) {
+    const t = curTask(w), m = curModel(w), v = vals(w), p = picks(w), values = {}, media = {};
     m.fields.forEach(f => {
       if (f.kind === "media") { if ((p[f.name] || []).length) media[f.name] = p[f.name]; return; }
       if (f.kind === "const") return;
@@ -932,15 +979,37 @@
       if (f.kind === "range" && v[f.name] === undefined) return; // untouched slider: Runway's default
       if (val !== "" && val != null) values[f.name] = typeof val === "string" ? val.trim() : val;
     });
+    const extra = genExtra(w).obj || {};
+    Object.keys(extra).forEach(k => { delete values[k]; delete media[k]; });
+    return { endpoint: t.endpoint, model: m.id, values, media, extra };
+  }
+  // exact price from the server's pricing table, refreshed shortly after each change
+  function genPrice(w) {
+    clearTimeout(w.priceT);
+    w.priceT = setTimeout(async () => {
+      if (!wins.has(w.id) || !curModel(w)) return;
+      const body = genBody(w), key = JSON.stringify(body);
+      if (key === w.priceKey) return;
+      w.priceKey = key;
+      try { w.price = await api("/api/price", body); } catch { w.price = null; }
+      if (w.priceKey === key) genRefresh(w, true);
+    }, 250);
+  }
+
+  async function genSubmit(w) {
+    const why = genBlock(w); if (why) { genMsg(w, why + "."); return; }
+    if (w.busy) return;
+    const t = curTask(w), m = curModel(w), btn = $(".btn-go", w.body), label = $("span", btn);
+    const { values, media, extra: ex } = genBody(w);
     w.busy = true; btn.disabled = true; label.textContent = Object.keys(media).length ? "Uploading…" : "Sending…"; genMsg(w, null);
     try {
-      const out = await api("/api/generate", { endpoint: t.endpoint, model: m.id, values, media });
+      const out = await api("/api/generate", { endpoint: t.endpoint, model: m.id, values, media, extra: ex });
       balloon({ title: "Job sent to Runway", text: `${t.label} · ${m.id} · queued. Click to follow it.`, icon: "i-wand", ms: 6000, onOpen: () => open("props", out.taskId, $("#tray-run")) });
       poll();
     } catch (err) {
       genMsg(w, err.message);
     } finally {
-      w.busy = false; label.textContent = "Generate"; genRefresh(w);
+      w.busy = false; genRefresh(w);
     }
   }
 
@@ -961,13 +1030,15 @@
     if (pd.mode === "again" && r) {
       if (t.models.some(m => m.id === r.model)) g.model[t.endpoint] = r.model;
       const key = `${t.endpoint}|${g.model[t.endpoint] || t.models[0].id}`;
-      const v = r.params ? { ...r.params } : { promptText: r.prompt.startsWith("(no prompt") ? "" : r.prompt, ratio: String(r.settings || "").split(" · ")[0], ...(secondsOf(r) ? { duration: secondsOf(r) } : {}) };
+      const { extra: rx, ...rp } = r.params || {};
+      if (rx) (g.extra ||= {})[`${t.endpoint}|${g.model[t.endpoint] || t.models[0].id}`] = JSON.stringify(rx, null, 2);
+      const v = r.params ? rp : { promptText: r.prompt.startsWith("(no prompt") ? "" : r.prompt, ratio: String(r.settings || "").split(" · ")[0], ...(secondsOf(r) ? { duration: secondsOf(r) } : {}) };
       g.vals[key] = v;
       const m = {};
       (r.inputs || (r.parent ? [{ field: "promptImage", run: r.parent }] : [])).forEach(i => { (m[i.field] ||= []).push(i.run ? { run: i.run } : { input: i.input }); });
       g.media[key] = m;
     } else if (r) {
-      const m = t.models.find(x => x.id === g.model[t.endpoint] && !x.unsupported) || t.models.find(x => !x.unsupported);
+      const m = t.models.find(x => x.id === g.model[t.endpoint]) || t.models[0];
       const key = `${t.endpoint}|${m.id}`, f = m.fields.find(x => x.kind === "media" && x.accept.includes(r.type));
       if (f) { g.media[key] = { ...(g.media[key] || {}), [f.name]: [{ run: r.taskId }] }; }
       if (pd.mode === "sound" && secondsOf(r)) g.vals[key] = { ...(g.vals[key] || {}), duration: secondsOf(r) };
@@ -1001,6 +1072,7 @@
     ["cat, type <name>", "show a job's details"],
     ["ps", "jobs rendering or queued"],
     ["balance", "credits left"],
+    ["cost [days]", "credits spent per model (org) and per task (yours), default 30 days"],
     ["gen [prompt]", "open Generate, with the prompt filled in"],
     ["finder", "show the Runway folder in Finder"],
     ["history", "commands you typed"],
@@ -1123,7 +1195,9 @@
         say(termTree(d || null)); break;
       }
       case "open": case "start": {
-        if (!arg) { say("usage: open <file or job ID>", "t-err"); break; }
+        if (!arg) { say("usage: open <file, job ID or app: usage, generate, options, system, key>", "t-err"); break; }
+        const app = { usage: "usage", generate: "generate", options: "options", system: "overview", jobs: "jobs", key: "key" }[arg.toLowerCase()];
+        if (app && !(arg in DIRS && app === "jobs")) { open(app, null, w.el); say(`opened ${esc(arg)}`, "t-dim"); break; }
         if (arg.replace(/\/$/, "") in DIRS) { open(arg.replace(/\/$/, "") === "inputs" ? "jobs" : arg.replace(/\/$/, ""), null); say(`opened ${esc(arg)}`, "t-dim"); break; }
         const r = termFind(w, arg); if (!r) { say(`open: ${esc(arg)}: not found`, "t-err"); break; }
         defaultOpen(r, w.el); say(`opened ${esc(r.asset || r.taskId)}`, "t-dim"); break;
@@ -1138,6 +1212,21 @@
         const act = data.runs.filter(r => ACTIVE.has(r.status));
         if (!act.length) { say("nothing rendering", "t-dim"); break; }
         say(act.map(r => { const p = r.progress != null ? Math.round(r.progress * 100) : null; return `${fileLink({ ...r, asset: null })}  ${esc(r.model.padEnd(18))} ${p != null ? "[" + "#".repeat(Math.round(p / 5)).padEnd(20, ".") + `] ${p}%` : statusInfo(r).label}`; }).join("\n"));
+        break;
+      }
+      case "cost": case "usage": {
+        const days = Math.max(1, Math.min(90, parseInt(args[0], 10) || 30));
+        say(`asking Runway for ${days} days of usage…`, "t-dim"); t.lines.push(...out.splice(0)); termPaint(w);
+        usageLoad(days).then(u => {
+          const sum = usageSummary(u, 99), mine = usageMine(days);
+          t.lines.push(`<b class="t-acc">org, last ${days} days</b>: <span class="t-red">${fmt(sum.total)}</span> credits`,
+            ...sum.ranked.slice(0, 15).map(([m, v]) => `  ${esc(m.padEnd(30))}${String(fmt(v)).padStart(10)}  ${sum.total ? String(Math.round(v / sum.total * 100)).padStart(3) : "  0"}%`),
+            sum.ranked.length > 15 ? `  <span class="t-dim">… and ${sum.ranked.length - 15} more models</span>` : "",
+            `<b class="t-acc">your jobs</b>: ${fmt(mine.reduce((s, [, v]) => s + v.credits, 0))} credits`,
+            ...mine.map(([k, v]) => `  ${esc(k.padEnd(30))}${String(fmt(v.credits)).padStart(10)}  ${v.jobs} job${v.jobs === 1 ? "" : "s"}`),
+            `<span class="t-dim">open the Usage window for the chart: open usage</span>`);
+          termPaint(w);
+        }).catch(err => { t.lines.push(`<span class="t-err">cost: ${esc(err.message)}</span>`); termPaint(w); });
         break;
       }
       case "balance": case "credits": say(data.balance == null ? "balance unknown" : `<span class="t-red">${fmt(data.balance)}</span> credits left`); break;
@@ -1247,6 +1336,7 @@
     if (!saved.theme && saved.desk === "#0b2e2e") delete saved.desk; // the old default desktop color now comes from the theme
     if (!saved.fontV2) { delete saved.font; delete saved.textPx; saved.fontV2 = true; } // readable smooth font became the default
     if (!saved.fontV3) { delete saved.font; saved.fontV3 = true; } // IBM Plex Sans became the default
+    if (!saved.sizeV4) { delete saved.textPx; delete saved.textSize; saved.sizeV4 = true; } // bigger default text for the smooth fonts
     opts = { ...OPT_DEFAULT, ...saved };
   } catch {}
   // color schemes, like Win95's Display Properties → Appearance; the tokens live in index.html (html[data-theme])
@@ -1267,7 +1357,7 @@
     if (!fs) {
       fs = ts[opts.textSize] ?? ts.medium;
       if (ts.dpr < 2 && opts.textSize === "medium") fs = pixel ? 11 : 13;
-      if (!pixel) fs = { small: 12, medium: 14, large: 17 }[opts.textSize] || 14;
+      if (!pixel) fs = (ts.dpr >= 2 ? { small: 14, medium: 16, large: 19 } : { small: 12, medium: 14, large: 17 })[opts.textSize] || (ts.dpr >= 2 ? 16 : 14);
     }
     // one factor sizes the whole interface: text, bars, buttons, icons, spacing and window geometry
     const was = scale;
@@ -1283,6 +1373,7 @@
     root.classList.toggle("smooth", !pixel);
     root.classList.toggle("hyper", opts.font === "hyper");
     root.classList.toggle("plex", opts.font === "plex");
+    root.classList.toggle("dot", opts.font === "dot");
     root.classList.toggle("contrast", !!opts.contrast);
     root.classList.toggle("calm", calm());
     root.dataset.term = opts.termScheme;
@@ -1349,6 +1440,7 @@
       </fieldset>
       <fieldset class="group"><legend>Font</legend>
         ${radio("font", "plex", "IBM Plex Sans", "clean and even at small sizes")}
+        ${radio("font", "dot", "DotGothic16", "pixel look, drawn as outlines so it stays sharp at any size")}
         ${radio("font", "smooth", "Tahoma", "the Windows 98/2000 system font")}
         ${radio("font", "hyper", "Atkinson Hyperlegible", "designed for low-vision readability, the easiest to read")}
         ${radio("font", "pixel", "Pixel font", "MS Sans Serif, sharp only at Small, Medium and Large")}
@@ -1407,6 +1499,112 @@
         if (e.target.closest("[data-opt-reset]")) { opts = { ...OPT_DEFAULT }; setOpt("textSize", OPT_DEFAULT.textSize); }
       });
     }
+  }
+
+  /* ---------- usage: credits spent per day and model (whole org, from Runway) and per task (your jobs) ---------- */
+  const USAGE_COLORS = ["#6ea8ff", "#ffc94a", "#5fdc7a", "#ff6b6b", "#c678dd", "#56b6c2", "#e5a46b", "#9a9ca6"];
+  const usageCache = {};
+  async function usageLoad(days, force) {
+    const hit = usageCache[days];
+    if (hit && !force && Date.now() - hit.at < 300000) return hit.data;
+    const res = await fetch(`/api/usage?days=${days}`, { cache: "no-store" });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || `The server answered ${res.status}.`);
+    usageCache[days] = { at: Date.now(), data: out };
+    return out;
+  }
+  // totals per model and per day, with the top models kept and the rest grouped as "other"
+  function usageSummary(u, top = 7) {
+    const byModel = {}, days = [];
+    const start = new Date(u.startDate + "T00:00:00Z"), end = new Date(u.beforeDate + "T00:00:00Z");
+    const perDay = Object.fromEntries((u.results || []).map(r => [r.date, r.usedCredits || []]));
+    for (let d = new Date(start); d < end; d.setUTCDate(d.getUTCDate() + 1)) {
+      const k = d.toISOString().slice(0, 10), items = perDay[k] || [];
+      items.forEach(i => { byModel[i.model] = (byModel[i.model] || 0) + i.amount; });
+      days.push({ date: k, items });
+    }
+    const ranked = Object.entries(byModel).sort((a, b) => b[1] - a[1]);
+    const keep = ranked.slice(0, top).map(([m]) => m), total = ranked.reduce((s, [, v]) => s + v, 0);
+    return { days, ranked, keep, total, color: m => USAGE_COLORS[keep.indexOf(m)] ?? USAGE_COLORS[7] };
+  }
+  function usageChart(sum) {
+    const W = 720, H = 200, padL = 44, padB = 22, n = sum.days.length, bw = (W - padL) / n;
+    const totals = sum.days.map(d => d.items.reduce((s, i) => s + i.amount, 0)), max = Math.max(1, ...totals);
+    const nice = (() => { const p = Math.pow(10, Math.floor(Math.log10(max))); return Math.ceil(max / p) * p; })();
+    const Y = v => (H - padB) - (v / nice) * (H - padB - 8);
+    let bars = "";
+    sum.days.forEach((d, i) => {
+      let y = H - padB;
+      const groups = {};
+      d.items.forEach(it => { const k = sum.keep.includes(it.model) ? it.model : "other"; groups[k] = (groups[k] || 0) + it.amount; });
+      [...sum.keep, "other"].forEach(k => {
+        const v = groups[k]; if (!v) return;
+        const h = (H - padB) - Y(v);
+        bars += `<rect x="${(padL + i * bw + bw * 0.15).toFixed(1)}" y="${(y - h).toFixed(1)}" width="${Math.max(1, bw * 0.7).toFixed(1)}" height="${h.toFixed(1)}" fill="${sum.color(k)}"><title>${d.date} · ${k}: ${fmt(v)} credits</title></rect>`;
+        y -= h;
+      });
+    });
+    const ticks = [0, 0.5, 1].map(f => `<line class="ugrid" x1="${padL}" x2="${W}" y1="${Y(nice * f)}" y2="${Y(nice * f)}"/><text class="ulab" x="${padL - 6}" y="${Y(nice * f) + 4}" text-anchor="end">${fmt(nice * f)}</text>`).join("");
+    const every = Math.ceil(n / 8);
+    const xl = sum.days.map((d, i) => ((i % every === 0 && n - 1 - i >= every * 0.6) || i === n - 1) ? `<text class="ulab" x="${(padL + i * bw + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${d.date.slice(5).replace("-", "/")}</text>` : "").join("");
+    return `<svg class="uchart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Credits spent per day">${ticks}${bars}${xl}</svg>`;
+  }
+  function usageCSV(u) {
+    const rows = [["date", "model", "credits"]];
+    (u.results || []).forEach(r => (r.usedCredits || []).forEach(i => rows.push([r.date, i.model, i.amount])));
+    const blob = new Blob([rows.map(r => r.join(",")).join("\n") + "\n"], { type: "text/csv" });
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: `runway-usage_${u.startDate}_to_${u.beforeDate}.csv` });
+    document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+  // your own jobs from runs.json, grouped by task, for the same range
+  function usageMine(days) {
+    const since = Date.now() - days * 86400000, by = {};
+    data.runs.filter(r => r.credits != null && createdMs(r) >= since).forEach(r => {
+      const k = r.task || (r.type === "image" ? "Text to image" : r.parent ? "Image to video" : "Text to video");
+      (by[k] ||= { credits: 0, jobs: 0 }); by[k].credits += r.credits; by[k].jobs++;
+    });
+    return Object.entries(by).sort((a, b) => b[1].credits - a[1].credits);
+  }
+
+  async function usageRender(w, force) {
+    w.days ||= 30;
+    if (!w.shell) {
+      w.shell = true;
+      w.body.innerHTML = `
+        <div class="toolbar"><div class="seg-tabs" role="toolbar" aria-label="Range">${[7, 30, 90].map(d => `<button class="raised" data-days="${d}">${d} days</button>`).join("")}</div>
+          <span class="grow"></span><button class="raised btn-s" data-u="refresh">Refresh</button><button class="raised btn-s" data-u="csv">Export CSV</button></div>
+        <div class="ubody" data-keep="usage"></div>
+        <div class="statusbar"><span class="sunken seg grow"></span></div>`;
+      w.body.addEventListener("click", e => {
+        const d = e.target.closest("[data-days]"); if (d) { w.days = +d.dataset.days; usageRender(w); save(); return; }
+        const b = e.target.closest("[data-u]"); if (!b) return;
+        if (b.dataset.u === "refresh") usageRender(w, true);
+        if (b.dataset.u === "csv" && usageCache[w.days]) usageCSV(usageCache[w.days].data);
+      });
+    }
+    $$("[data-days]", w.body).forEach(b => b.setAttribute("aria-pressed", +b.dataset.days === w.days));
+    const box = $(".ubody", w.body), seg = $(".statusbar .seg", w.body), days = w.days;
+    if (!usageCache[days] || force) { box.innerHTML = `<div class="empty-list">Asking Runway for ${days} days of usage…</div>`; seg.textContent = "Loading"; }
+    let u;
+    try { u = await usageLoad(days, force); }
+    catch (err) { if (w.days === days) { box.innerHTML = `<div class="empty-list">${esc(err.message)}</div>`; seg.textContent = "Couldn't load usage"; } return; }
+    if (w.days !== days || !wins.has(w.id)) return;
+    const sum = usageSummary(u), mine = usageMine(days), mineTotal = mine.reduce((s, [, v]) => s + v.credits, 0);
+    box.innerHTML = `
+      <fieldset class="group"><legend>Whole org · last ${days} days · ${fmt(sum.total)} credits</legend>
+        ${sum.total ? usageChart(sum) : '<div class="empty-list">No credits spent in this range.</div>'}
+        ${sum.total ? `<div class="ulegend">${[...sum.keep, ...(sum.ranked.length > sum.keep.length ? ["other"] : [])].map(m => `<span><i style="background:${sum.color(m)}"></i>${esc(m)}</span>`).join("")}</div>` : ""}
+      </fieldset>
+      <div class="ucols">
+        <fieldset class="group"><legend>By model</legend>
+          <div class="utable">${sum.ranked.map(([m, v]) => `<div><span><i style="background:${sum.color(m)}"></i>${esc(m)}</span><b>${fmt(v)}</b><small>${sum.total ? Math.round((v / sum.total) * 100) : 0}%</small></div>`).join("") || '<div class="muted">Nothing yet.</div>'}</div>
+        </fieldset>
+        <fieldset class="group"><legend>Your jobs by task · ${fmt(mineTotal)} credits</legend>
+          <div class="utable">${mine.map(([k, v]) => `<div><span>${esc(k)}</span><b>${fmt(v.credits)}</b><small>${v.jobs} job${v.jobs === 1 ? "" : "s"}</small></div>`).join("") || '<div class="muted">No finished jobs in this range.</div>'}</div>
+          <p class="muted unote">From runs.json: jobs made from this dashboard or logged by Claude. The org total above includes everyone using this Runway account.</p>
+        </fieldset>
+      </div>`;
+    seg.textContent = `${u.startDate} to ${new Date(new Date(u.beforeDate) - 86400000).toISOString().slice(0, 10)} (UTC) · fetched ${new Date(u.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   }
 
   /* ---------- Runway API key ---------- */
@@ -1859,6 +2057,7 @@
   const SIG = {
     options: () => "",
     terminal: () => "",
+    usage: () => "",
     images: w => JSON.stringify(assetsOf("image").map(r => [r.taskId, r.asset, r.prompt])),
     videos: w => JSON.stringify(assetsOf("video").map(r => [r.taskId, r.asset, r.prompt])),
     audio: w => JSON.stringify(assetsOf("audio").map(r => [r.taskId, r.asset, r.prompt])),

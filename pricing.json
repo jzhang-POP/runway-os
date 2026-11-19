@@ -1,0 +1,3448 @@
+{
+ "source_url": "https://docs.dev.runwayml.com/guides/pricing/",
+ "source_markdown_url": "https://docs.dev.runwayml.com/guides/pricing.md",
+ "fetched": "2026-11-19",
+ "spec": "runway_openapi.json (local cache)",
+ "credit_usd": 0.01,
+ "conventions": {
+  "inputs": {
+   "referenceImages": "number of reference images",
+   "referenceAudio": "number of reference audio clips",
+   "referenceVideos": "number of reference videos",
+   "referenceVideoSeconds": "seconds of reference video (number or list per clip)",
+   "promptImages": "number of keyframes in promptImage (image_to_video default 1)",
+   "inputVideoSeconds": "seconds of the source video (promptVideo/videoUri/act_two reference)",
+   "inputVideoWidth": "source video width px",
+   "inputVideoHeight": "source video height px",
+   "inputVideoFps": "source video fps",
+   "inputImageWidth": "source image width px",
+   "inputImageHeight": "source image height px",
+   "inputAudioSeconds": "seconds of input audio",
+   "outputSeconds": "known output length (auto durations, draft enhance, seed_audio)",
+   "outputImages": "images returned by a layers decomposition"
+  },
+  "ratio_tiers": "Where a model has resolution-tiered prices but takes `ratio`, tier maps are derived from the spec enum (see each model's tier.map_note). The pricing page itself does not map ratios to tiers."
+ },
+ "output_format_surcharges": {
+  "applies_to": [
+   "gen4.5",
+   "aleph2"
+  ],
+  "per_second": {
+   "prores": 5,
+   "png_sequence": 5
+  },
+  "hdr_10bit": {
+   "formats": [
+    "hdr10",
+    "hlg",
+    "sdr_rec709_10bit",
+    "hdr_pq_12bit_master",
+    "hdr_prores",
+    "hdr_png_sequence",
+    "hdr_exr_sequence",
+    "hdr_exr_acescg_sequence_1_3",
+    "hdr_exr_acescg_sequence_2_0"
+   ],
+   "per_second": 20,
+   "per_second_over_4MP": 40
+  }
+ },
+ "spec_defaults": {
+  "veo3.1": {
+   "text_to_video": {
+    "audio": true
+   },
+   "image_to_video": {
+    "audio": true
+   }
+  },
+  "veo3.1_fast": {
+   "text_to_video": {
+    "audio": true
+   },
+   "image_to_video": {
+    "audio": true
+   }
+  },
+  "klingO3_4k": {
+   "text_to_video": {
+    "audio": true
+   },
+   "image_to_video": {
+    "audio": true
+   },
+   "video_to_video": {
+    "providerSettings": {
+     "keepOriginalSound": true
+    }
+   }
+  },
+  "kling3.0_4k": {
+   "text_to_video": {
+    "audio": true,
+    "cfgScale": 0.5
+   },
+   "image_to_video": {
+    "audio": true,
+    "cfgScale": 0.5
+   }
+  },
+  "kling2.5_turbo_pro": {
+   "text_to_video": {
+    "ratio": "1920:1080",
+    "cfgScale": 0.5
+   },
+   "image_to_video": {
+    "cfgScale": 0.5
+   }
+  },
+  "kling3.0_pro": {
+   "text_to_video": {
+    "audio": true,
+    "cfgScale": 0.5
+   },
+   "image_to_video": {
+    "audio": true,
+    "cfgScale": 0.5
+   }
+  },
+  "kling3.0_standard": {
+   "text_to_video": {
+    "audio": true,
+    "cfgScale": 0.5
+   },
+   "image_to_video": {
+    "audio": true,
+    "cfgScale": 0.5
+   }
+  },
+  "klingO3_pro": {
+   "text_to_video": {
+    "audio": true
+   },
+   "image_to_video": {
+    "audio": true
+   },
+   "video_to_video": {
+    "providerSettings": {
+     "keepOriginalSound": true
+    }
+   }
+  },
+  "klingO3_standard": {
+   "text_to_video": {
+    "audio": true
+   },
+   "image_to_video": {
+    "audio": true
+   },
+   "video_to_video": {
+    "providerSettings": {
+     "keepOriginalSound": true
+    }
+   }
+  },
+  "seedance2": {
+   "text_to_video": {
+    "audio": true,
+    "bitrate": "standard"
+   },
+   "image_to_video": {
+    "audio": true,
+    "bitrate": "standard"
+   },
+   "video_to_video": {
+    "audio": true,
+    "bitrate": "standard"
+   }
+  },
+  "seedance2_fast": {
+   "text_to_video": {
+    "audio": true,
+    "bitrate": "standard"
+   },
+   "image_to_video": {
+    "audio": true,
+    "bitrate": "standard"
+   },
+   "video_to_video": {
+    "audio": true,
+    "bitrate": "standard"
+   }
+  },
+  "seedance2_mini": {
+   "text_to_video": {
+    "audio": true,
+    "bitrate": "standard"
+   },
+   "image_to_video": {
+    "audio": true,
+    "bitrate": "standard"
+   },
+   "video_to_video": {
+    "audio": true,
+    "bitrate": "standard"
+   }
+  },
+  "hailuo3_highspeed": {
+   "text_to_video": {
+    "resolution": "768p",
+    "duration": 5
+   },
+   "image_to_video": {
+    "resolution": "768p",
+    "duration": 5
+   },
+   "video_to_video": {
+    "resolution": "768p",
+    "duration": 5
+   }
+  },
+  "hailuo3_lite": {
+   "text_to_video": {
+    "resolution": "768p",
+    "duration": 5
+   },
+   "image_to_video": {
+    "resolution": "768p",
+    "duration": 5
+   },
+   "video_to_video": {
+    "resolution": "768p",
+    "duration": 5
+   }
+  },
+  "seedance2_5": {
+   "image_to_video": {
+    "audio": true
+   },
+   "video_to_video": {
+    "audio": true,
+    "mode": "reference"
+   }
+  },
+  "gemini_omni_flash_1.1": {
+   "video_to_video": {
+    "mode": "reference"
+   }
+  },
+  "gemini_omni_flash_1.2": {
+   "video_to_video": {
+    "mode": "reference"
+   }
+  },
+  "act_two": {
+   "character_performance": {
+    "expressionIntensity": 3
+   }
+  },
+  "recraft_v4_1_vector": {
+   "text_to_image": {
+    "colors": []
+   }
+  },
+  "gpt_image_2_6_sunburst": {
+   "text_to_image": {
+    "outputFormat": "png"
+   }
+  },
+  "gpt_image_2_6_flare": {
+   "text_to_image": {
+    "outputFormat": "png"
+   }
+  },
+  "mirelo_sfx_2_0": {
+   "sound_effect": {
+    "numVariants": 1,
+    "format": "mp3"
+   },
+   "video_to_audio": {
+    "numVariants": 1,
+    "format": "mp3"
+   }
+  },
+  "eleven_text_to_sound_v2": {
+   "sound_effect": {
+    "loop": false
+   }
+  },
+  "eleven_music_v2_5": {
+   "text_to_music": {
+    "duration": 30
+   }
+  }
+ },
+ "models": {
+  "gen4.5": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "default": 12
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "default"
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "output_format_surcharge": true,
+   "notes": "Duration is required by the spec (2-10 s). outputFormat surcharges from 'Professional and HDR output formats'.",
+   "endpoints": [
+    "text_to_video",
+    "image_to_video"
+   ]
+  },
+  "gen4_turbo": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "default": 5
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "default"
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "notes": "Spec gives no duration default; estimate requires `duration`.",
+   "endpoints": [
+    "image_to_video"
+   ]
+  },
+  "act_two": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "default": 5
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "default"
+   },
+   "duration": {
+    "param": null,
+    "default": null,
+    "from_input": "inputVideoSeconds"
+   },
+   "notes": "No duration param; output length follows the reference performance video, so pass inputs.inputVideoSeconds. Rounding of fractional seconds is not stated.",
+   "endpoints": [
+    "character_performance"
+   ]
+  },
+  "aleph2": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "default": 28
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "default"
+   },
+   "minimum": 56,
+   "duration": {
+    "param": null,
+    "default": null,
+    "from_input": "inputVideoSeconds"
+   },
+   "output_format_surcharge": true,
+   "notes": "No duration param; output length assumed equal to the source video (inputs.inputVideoSeconds). 56-credit minimum per generation.",
+   "endpoints": [
+    "video_to_video"
+   ]
+  },
+  "veo3.1": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "default": {
+     "audio": 40,
+     "no_audio": 20
+    }
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "default"
+   },
+   "audio": {
+    "param": "audio",
+    "default": true,
+    "default_source": "spec",
+    "affects_price": true
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "notes": "Spec duration enum 4/6/8 with no default; estimate requires `duration`.",
+   "endpoints": [
+    "text_to_video",
+    "image_to_video"
+   ]
+  },
+  "veo3.1_fast": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "default": {
+     "audio": 15,
+     "no_audio": 10
+    }
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "default"
+   },
+   "audio": {
+    "param": "audio",
+    "default": true,
+    "default_source": "spec",
+    "affects_price": true
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "notes": "Spec duration enum 4/6/8 with no default; estimate requires `duration`.",
+   "endpoints": [
+    "text_to_video",
+    "image_to_video"
+   ]
+  },
+  "kling2.5_turbo_pro": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "default": 12
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "default"
+   },
+   "duration": {
+    "param": "duration",
+    "default": 5,
+    "default_source": "spec description: 'Defaults to 5'"
+   },
+   "endpoints": [
+    "text_to_video",
+    "image_to_video"
+   ]
+  },
+  "kling3.0_standard": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "default": {
+     "audio": 13,
+     "no_audio": 9
+    }
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "default"
+   },
+   "audio": {
+    "param": "audio",
+    "default": true,
+    "default_source": "spec + pricing page ('audio defaults to true')",
+    "affects_price": true
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "notes": "Spec gives no duration default (3-15 s).",
+   "endpoints": [
+    "text_to_video",
+    "image_to_video"
+   ]
+  },
+  "kling3.0_pro": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "default": {
+     "audio": 17,
+     "no_audio": 12
+    }
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "default"
+   },
+   "audio": {
+    "param": "audio",
+    "default": true,
+    "default_source": "spec + pricing page ('audio defaults to true')",
+    "affects_price": true
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "notes": "Spec gives no duration default (3-15 s).",
+   "endpoints": [
+    "text_to_video",
+    "image_to_video"
+   ]
+  },
+  "kling3.0_4k": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "default": 43
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "default"
+   },
+   "audio": {
+    "param": "audio",
+    "default": true,
+    "affects_price": false,
+    "note": "Kling 3.0 4K uses the same rate either way."
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "endpoints": [
+    "text_to_video",
+    "image_to_video"
+   ]
+  },
+  "klingO3_standard": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output (video_to_video: per second of input video)",
+   "rates": {
+    "default": 13
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "default"
+   },
+   "audio": {
+    "param": "audio",
+    "default": true,
+    "affects_price": false,
+    "note": "Kling O3 is billed at the same rate whether or not audio is false."
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "video_to_video_bills_input_seconds": true,
+   "notes": "Kling O3 video-to-video is billed per second of the input video (inputs.inputVideoSeconds).",
+   "endpoints": [
+    "text_to_video",
+    "image_to_video",
+    "video_to_video"
+   ]
+  },
+  "klingO3_pro": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output (video_to_video: per second of input video)",
+   "rates": {
+    "default": 17
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "default"
+   },
+   "audio": {
+    "param": "audio",
+    "default": true,
+    "affects_price": false,
+    "note": "Kling O3 is billed at the same rate whether or not audio is false."
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "video_to_video_bills_input_seconds": true,
+   "notes": "Kling O3 video-to-video is billed per second of the input video (inputs.inputVideoSeconds).",
+   "endpoints": [
+    "text_to_video",
+    "image_to_video",
+    "video_to_video"
+   ]
+  },
+  "klingO3_4k": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output (video_to_video: per second of input video)",
+   "rates": {
+    "default": 43
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "default"
+   },
+   "audio": {
+    "param": "audio",
+    "default": true,
+    "affects_price": false,
+    "note": "Kling O3 is billed at the same rate whether or not audio is false."
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "video_to_video_bills_input_seconds": true,
+   "notes": "Kling O3 video-to-video is billed per second of the input video (inputs.inputVideoSeconds).",
+   "endpoints": [
+    "text_to_video",
+    "image_to_video",
+    "video_to_video"
+   ]
+  },
+  "kling_4": {
+   "formula": "kling4",
+   "unit": "credits per second",
+   "rates": {
+    "720p": {
+     "no_input_video": 15.7,
+     "with_input_video": 9.4
+    },
+    "1080p": {
+     "no_input_video": 23.5,
+     "with_input_video": 14.1
+    }
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "1280:720": "720p",
+     "720:1280": "720p",
+     "940:940": "720p",
+     "1460:624": "720p",
+     "1920:1080": "1080p",
+     "1080:1920": "1080p",
+     "1440:1440": "1080p",
+     "2200:940": "1080p",
+     "auto_720p": "720p",
+     "auto_1080p": "1080p"
+    },
+    "default": null,
+    "map_note": "Derived (not stated on the pricing page): each pixel ratio is assigned to the tier whose reference frame area is nearest in log scale (360p=640x360, 480p=854x480, 720p=1280x720, 1080p=1920x1080, 4K=3840x2160). This reproduces how the spec groups the enum values, e.g. 640:640 sits with the 480p sizes and 960:960 with the 720p sizes. auto_<tier> values map to that tier.",
+    "default_note": "Spec gives no ratio default for kling_4; estimate requires `ratio`."
+   },
+   "input_video": {
+    "rule": "output_rate*output_s + input_rate*max(input_video_s, output_s)",
+    "per_clip_cap_s": 30,
+    "combined_cap_s": 30,
+    "what_counts": "a video-to-video source or any reference video"
+   },
+   "rounding": "ceil to next credit; during the promotion the list-price charge is rounded up, then discounted 20% and rounded up again",
+   "discount": {
+    "percent": 20,
+    "applies_before_utc": "2026-12-01T00:00:00Z",
+    "text": "20% off through November 30, 2026 UTC. List prices apply from December 1, 2026 UTC."
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "video_edit_duration": "A video edit uses the source video's length as the output duration (used when `duration` is omitted on video_to_video).",
+   "audio": {
+    "note": "Kling 4.0 includes audio and has no audio toggle."
+   },
+   "example": "5 s 720p without input video = ceil(ceil(78.5)*0.8) = 64 credits during the promotion",
+   "endpoints": [
+    "text_to_video",
+    "image_to_video",
+    "video_to_video"
+   ]
+  },
+  "kling_4_flash": {
+   "formula": "kling4",
+   "unit": "credits per second",
+   "rates": {
+    "720p": {
+     "no_input_video": 9.4,
+     "with_input_video": 6.3
+    }
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "720p"
+   },
+   "input_video": {
+    "rule": "output_rate*output_s + input_rate*max(input_video_s, output_s)",
+    "per_clip_cap_s": 20,
+    "combined_cap_s": 20,
+    "what_counts": "sum of the source and reference clips; image references have no charge"
+   },
+   "rounding": "total rounded up once per generation",
+   "minimum": 29,
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "audio": {
+    "note": "Includes audio at the same price on every endpoint."
+   },
+   "example": "5 s no input = 47; with 3 s input = 63; with 10 s input = 95. The Kling 4.0 promotion does not apply to Flash.",
+   "endpoints": [
+    "text_to_video",
+    "image_to_video",
+    "video_to_video"
+   ]
+  },
+  "wan3": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "480p": 5,
+    "720p": 10,
+    "1080p": 20
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "832:480": "480p",
+     "720:544": "480p",
+     "624:624": "480p",
+     "544:720": "480p",
+     "480:832": "480p",
+     "1280:720": "720p",
+     "1104:832": "720p",
+     "960:960": "720p",
+     "832:1104": "720p",
+     "720:1280": "720p",
+     "1920:1080": "1080p",
+     "1648:1248": "1080p",
+     "1440:1440": "1080p",
+     "1248:1648": "1080p",
+     "1080:1920": "1080p",
+     "auto_480p": "480p",
+     "auto_720p": "720p",
+     "auto_1080p": "1080p"
+    },
+    "default": null,
+    "map_note": "Derived (not stated on the pricing page): each pixel ratio is assigned to the tier whose reference frame area is nearest in log scale (360p=640x360, 480p=854x480, 720p=1280x720, 1080p=1920x1080, 4K=3840x2160). This reproduces how the spec groups the enum values, e.g. 640:640 sits with the 480p sizes and 960:960 with the 720p sizes. auto_<tier> values map to that tier.",
+    "default_note": "Spec gives no ratio default."
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "audio": {
+    "param": "audio",
+    "affects_price": false,
+    "note": "Pricing page lists no audio difference."
+   },
+   "reference_surcharges": {
+    "unknown": true,
+    "note": "Pricing page states no charge for image, video or audio references for WAN 3.0; none applied."
+   },
+   "endpoints": [
+    "text_to_video",
+    "image_to_video"
+   ]
+  },
+  "wan3_prime": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "480p": 6.8,
+    "720p": 14,
+    "1080p": 28
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "832:480": "480p",
+     "720:544": "480p",
+     "624:624": "480p",
+     "544:720": "480p",
+     "480:832": "480p",
+     "1280:720": "720p",
+     "1104:832": "720p",
+     "960:960": "720p",
+     "832:1104": "720p",
+     "720:1280": "720p",
+     "1920:1080": "1080p",
+     "1648:1248": "1080p",
+     "1440:1440": "1080p",
+     "1248:1648": "1080p",
+     "1080:1920": "1080p",
+     "auto_480p": "480p",
+     "auto_720p": "720p",
+     "auto_1080p": "1080p"
+    },
+    "default": null,
+    "map_note": "Derived (not stated on the pricing page): each pixel ratio is assigned to the tier whose reference frame area is nearest in log scale (360p=640x360, 480p=854x480, 720p=1280x720, 1080p=1920x1080, 4K=3840x2160). This reproduces how the spec groups the enum values, e.g. 640:640 sits with the 480p sizes and 960:960 with the 720p sizes. auto_<tier> values map to that tier.",
+    "default_note": "Spec gives no ratio default."
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "rounding": {
+    "unknown": true,
+    "note": "Rounding of the fractional 480p rate (6.8/s) is not stated."
+   },
+   "reference_surcharges": {
+    "unknown": true,
+    "note": "Pricing page states no reference charges for WAN 3.0 Prime; none applied."
+   },
+   "endpoints": [
+    "text_to_video",
+    "image_to_video"
+   ]
+  },
+  "seedance2": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "480p": 14,
+    "720p": 30,
+    "1080p": 40,
+    "4K": 150
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "992:432": "480p",
+     "864:496": "480p",
+     "752:560": "480p",
+     "640:640": "480p",
+     "560:752": "480p",
+     "496:864": "480p",
+     "1470:630": "720p",
+     "1280:720": "720p",
+     "1112:834": "720p",
+     "960:960": "720p",
+     "834:1112": "720p",
+     "720:1280": "720p",
+     "2206:946": "1080p",
+     "1920:1080": "1080p",
+     "1664:1248": "1080p",
+     "1440:1440": "1080p",
+     "1248:1664": "1080p",
+     "1080:1920": "1080p",
+     "3840:1646": "4K",
+     "3840:2160": "4K",
+     "3840:2880": "4K",
+     "3840:3840": "4K",
+     "2880:3840": "4K",
+     "2160:3840": "4K"
+    },
+    "default": null,
+    "map_note": "Derived (not stated on the pricing page): each pixel ratio is assigned to the tier whose reference frame area is nearest in log scale (360p=640x360, 480p=854x480, 720p=1280x720, 1080p=1920x1080, 4K=3840x2160). This reproduces how the spec groups the enum values, e.g. 640:640 sits with the 480p sizes and 960:960 with the 720p sizes. auto_<tier> values map to that tier.",
+    "default_note": "Spec gives no ratio default for Seedance 2.0 variants."
+   },
+   "minimum": 56,
+   "duration": {
+    "param": "duration",
+    "default": null,
+    "auto_max_s": 15,
+    "auto_allowed": true,
+    "auto_billing": "duration 'auto' is billed at the variant maximum up front and settled after the generation; exact cost unknown in advance"
+   },
+   "bitrate": "bitrate standard (default) and high bill the same",
+   "reference_surcharges": {
+    "unknown": true,
+    "note": "Pricing page lists no input/reference video or image surcharge for Seedance 2.0 variants; none applied."
+   },
+   "endpoints": [
+    "text_to_video",
+    "image_to_video",
+    "video_to_video"
+   ]
+  },
+  "seedance2_fast": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "480p": 11,
+    "720p": 24
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "992:432": "480p",
+     "864:496": "480p",
+     "752:560": "480p",
+     "640:640": "480p",
+     "560:752": "480p",
+     "496:864": "480p",
+     "1470:630": "720p",
+     "1280:720": "720p",
+     "1112:834": "720p",
+     "960:960": "720p",
+     "834:1112": "720p",
+     "720:1280": "720p"
+    },
+    "default": null,
+    "map_note": "Derived (not stated on the pricing page): each pixel ratio is assigned to the tier whose reference frame area is nearest in log scale (360p=640x360, 480p=854x480, 720p=1280x720, 1080p=1920x1080, 4K=3840x2160). This reproduces how the spec groups the enum values, e.g. 640:640 sits with the 480p sizes and 960:960 with the 720p sizes. auto_<tier> values map to that tier.",
+    "default_note": "Spec gives no ratio default for Seedance 2.0 variants."
+   },
+   "minimum": 44,
+   "duration": {
+    "param": "duration",
+    "default": null,
+    "auto_max_s": 15,
+    "auto_allowed": true,
+    "auto_billing": "duration 'auto' is billed at the variant maximum up front and settled after the generation; exact cost unknown in advance"
+   },
+   "bitrate": "bitrate standard (default) and high bill the same",
+   "reference_surcharges": {
+    "unknown": true,
+    "note": "Pricing page lists no input/reference video or image surcharge for Seedance 2.0 variants; none applied."
+   },
+   "endpoints": [
+    "text_to_video",
+    "image_to_video",
+    "video_to_video"
+   ]
+  },
+  "seedance2_mini": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "480p": 7,
+    "720p": 15
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "992:432": "480p",
+     "864:496": "480p",
+     "752:560": "480p",
+     "640:640": "480p",
+     "560:752": "480p",
+     "496:864": "480p",
+     "1470:630": "720p",
+     "1280:720": "720p",
+     "1112:834": "720p",
+     "960:960": "720p",
+     "834:1112": "720p",
+     "720:1280": "720p"
+    },
+    "default": null,
+    "map_note": "Derived (not stated on the pricing page): each pixel ratio is assigned to the tier whose reference frame area is nearest in log scale (360p=640x360, 480p=854x480, 720p=1280x720, 1080p=1920x1080, 4K=3840x2160). This reproduces how the spec groups the enum values, e.g. 640:640 sits with the 480p sizes and 960:960 with the 720p sizes. auto_<tier> values map to that tier.",
+    "default_note": "Spec gives no ratio default for Seedance 2.0 variants."
+   },
+   "minimum": 28,
+   "duration": {
+    "param": "duration",
+    "default": null,
+    "auto_max_s": 15,
+    "auto_allowed": true,
+    "auto_billing": "duration 'auto' is billed at the variant maximum up front and settled after the generation; exact cost unknown in advance"
+   },
+   "bitrate": "bitrate standard (default) and high bill the same",
+   "reference_surcharges": {
+    "unknown": true,
+    "note": "Pricing page lists no input/reference video or image surcharge for Seedance 2.0 variants; none applied."
+   },
+   "endpoints": [
+    "text_to_video",
+    "image_to_video",
+    "video_to_video"
+   ]
+  },
+  "seedance2_5": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output plus per second of input/reference video",
+   "rates": {
+    "480p": 20,
+    "720p": 30,
+    "1080p": 68,
+    "4K": 110
+   },
+   "input_video_rates": {
+    "480p": 10,
+    "720p": 15,
+    "1080p": 34,
+    "4K": 57
+   },
+   "input_video": {
+    "combined_cap_s": 30,
+    "what_counts": "input (promptVideo) and reference video; reference images and audio are free"
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "992:432": "480p",
+     "854:480": "480p",
+     "752:560": "480p",
+     "640:640": "480p",
+     "560:752": "480p",
+     "480:854": "480p",
+     "1470:630": "720p",
+     "1280:720": "720p",
+     "1112:834": "720p",
+     "960:960": "720p",
+     "834:1112": "720p",
+     "720:1280": "720p",
+     "2206:946": "1080p",
+     "1920:1080": "1080p",
+     "1664:1248": "1080p",
+     "1440:1440": "1080p",
+     "1248:1664": "1080p",
+     "1080:1920": "1080p",
+     "3840:1646": "4K",
+     "3840:2160": "4K",
+     "3840:2880": "4K",
+     "3840:3840": "4K",
+     "2880:3840": "4K",
+     "2160:3840": "4K"
+    },
+    "default": "1280:720",
+    "default_source": "spec: 'Defaults to `1280:720`'",
+    "map_note": "Derived (not stated on the pricing page): each pixel ratio is assigned to the tier whose reference frame area is nearest in log scale (360p=640x360, 480p=854x480, 720p=1280x720, 1080p=1920x1080, 4K=3840x2160). This reproduces how the spec groups the enum values, e.g. 640:640 sits with the 480p sizes and 960:960 with the 720p sizes. auto_<tier> values map to that tier."
+   },
+   "draft": {
+    "param": "draft",
+    "tier": "480p",
+    "note": "draft:true bills at the 480p rate"
+   },
+   "draft_enhance": {
+    "param": "draftTaskId",
+    "tier": "1080p",
+    "note": "Enhancing a preview bills the 1080p rate for the preview's output duration and input video; pass inputs.outputSeconds."
+   },
+   "video_to_video_modes": {
+    "reference": "ratio tier",
+    "extend": "1080p when the input video is larger than 720p, else 720p",
+    "edit": "same tier rule as extend; requires duration 'auto' so output length is unknown in advance"
+   },
+   "minimum": 80,
+   "duration": {
+    "param": "duration",
+    "default": 5,
+    "auto_max_s": 30,
+    "default_source": "spec: 'Defaults to 5'",
+    "auto_allowed": true,
+    "auto_billing": "duration 'auto' is billed at the variant maximum up front and settled after the generation; exact cost unknown in advance"
+   },
+   "output_format": "mov bills the same as mp4",
+   "example": "4K 5 s with 5 s video reference = 5*110 + 5*57 = 835",
+   "endpoints": [
+    "text_to_video",
+    "image_to_video",
+    "video_to_video"
+   ]
+  },
+  "grok_imagine_1_5": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "480p": 10,
+    "720p": 16,
+    "1080p": 29
+   },
+   "tier": {
+    "source": "resolution",
+    "default": null,
+    "default_note": "Spec gives no resolution default; estimate requires `resolution`."
+   },
+   "per_reference": {
+    "image": 1,
+    "audio": 1,
+    "start_frame": 1,
+    "note": "1 credit per image or audio reference (including an image-to-video start frame)"
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "endpoints": [
+    "text_to_video",
+    "image_to_video"
+   ]
+  },
+  "grok_imagine_1_5_lite": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "480p": 2,
+    "720p": 3,
+    "1080p": 14
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "848:480": "480p",
+     "480:848": "480p",
+     "480:480": "480p",
+     "640:480": "480p",
+     "480:640": "480p",
+     "720:480": "480p",
+     "480:720": "480p",
+     "1280:720": "720p",
+     "720:1280": "720p",
+     "720:720": "720p",
+     "960:720": "720p",
+     "720:960": "720p",
+     "1088:720": "720p",
+     "720:1088": "720p",
+     "1904:1072": "1080p",
+     "1072:1904": "1080p",
+     "1424:1424": "1080p",
+     "1648:1232": "1080p",
+     "1232:1648": "1080p",
+     "1744:1152": "1080p",
+     "1152:1744": "1080p",
+     "auto_480p": "480p",
+     "auto_720p": "720p",
+     "auto_1080p": "1080p"
+    },
+    "default": null,
+    "map_note": "Derived from the spec's enum grouping by short side (480 -> 480p, 720 -> 720p, 1072 and up -> 1080p); area-nearest would misplace 720:720. The spec notes 1080p sizes are rendered at 720p and upscaled; the pricing page still lists a 1080p rate, which is applied.",
+    "default_note": "Spec gives no ratio default."
+   },
+   "per_reference": {
+    "start_frame": 1,
+    "note": "plus 1 credit for an image-to-video start frame"
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "endpoints": [
+    "text_to_video",
+    "image_to_video"
+   ]
+  },
+  "h3_max": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "480p": 5,
+    "768p": 8
+   },
+   "tier": {
+    "source": "resolution",
+    "default": null,
+    "default_note": "Spec gives no resolution default."
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "endpoints": [
+    "text_to_video",
+    "image_to_video"
+   ]
+  },
+  "hailuo3": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "768p": 10,
+    "2K": 15
+   },
+   "tier": {
+    "source": "resolution",
+    "aliases": {
+     "768p": "768p",
+     "768P": "768p",
+     "2k": "2K",
+     "2K": "2K"
+    },
+    "default": null,
+    "default_note": "Spec gives no resolution default."
+   },
+   "per_reference": {
+    "image": 2,
+    "keyframe": 2,
+    "start_frame": 2,
+    "note": "2 credits per reference image or keyframe (including an image-to-video start frame)"
+   },
+   "reference_video": {
+    "rate": "same as output per-second rate",
+    "cap_s": 15,
+    "note": "video_to_video's promptVideo is treated as a reference video (assumption: the page only mentions 'reference video')."
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "endpoints": [
+    "text_to_video",
+    "image_to_video",
+    "video_to_video"
+   ]
+  },
+  "happyhorse_1_0": {
+   "formula": "video_per_second",
+   "unit": "credits per second of output",
+   "rates": {
+    "720p": 15,
+    "1080p": 30
+   },
+   "tier": {
+    "source": "ratio_or_resolution",
+    "map": {
+     "1280:720": "720p",
+     "720:1280": "720p",
+     "960:960": "720p",
+     "1108:832": "720p",
+     "832:1108": "720p",
+     "1920:1080": "1080p",
+     "1080:1920": "1080p",
+     "1440:1440": "1080p",
+     "1662:1248": "1080p",
+     "1248:1662": "1080p"
+    },
+    "aliases": {
+     "720p": "720p",
+     "720P": "720p",
+     "1080p": "1080p",
+     "1080P": "1080p"
+    },
+    "default": null,
+    "map_note": "Derived (not stated on the pricing page): each pixel ratio is assigned to the tier whose reference frame area is nearest in log scale (360p=640x360, 480p=854x480, 720p=1280x720, 1080p=1920x1080, 4K=3840x2160). This reproduces how the spec groups the enum values, e.g. 640:640 sits with the 480p sizes and 960:960 with the 720p sizes. auto_<tier> values map to that tier. text_to_video uses `ratio`; image_to_video uses `resolution`.",
+    "default_note": "Spec gives no ratio/resolution default."
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "endpoints": [
+    "text_to_video",
+    "image_to_video"
+   ]
+  },
+  "gemini_omni_flash": {
+   "formula": "gemini_omni_flash",
+   "unit": "credits per second",
+   "rates": {
+    "text_to_video": 10,
+    "image_to_video": 10,
+    "video_to_video_per_input_second": 11
+   },
+   "per_reference": {
+    "start_frame": 1,
+    "image": 1
+   },
+   "input_video": {
+    "cap_s": 10
+   },
+   "duration": {
+    "param": "duration",
+    "default": null
+   },
+   "notes": "text to video 10/s; image to video 10/s + 1 for the first-frame image; video to video 11/s of input video (capped at 10 s) + 1 per reference image.",
+   "endpoints": [
+    "text_to_video",
+    "image_to_video",
+    "video_to_video"
+   ]
+  },
+  "gemini_omni_flash_1.1": {
+   "formula": "gemini_omni",
+   "unit": "credits per second of output",
+   "rates": {
+    "360p": 3.4,
+    "720p": 10,
+    "1080p": 15,
+    "4K": 30
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "640:360": "360p",
+     "360:640": "360p",
+     "1280:720": "720p",
+     "720:1280": "720p",
+     "1920:1080": "1080p",
+     "1080:1920": "1080p",
+     "3840:2160": "4K",
+     "2160:3840": "4K"
+    },
+    "default": null,
+    "map_note": "Derived (not stated on the pricing page): each pixel ratio is assigned to the tier whose reference frame area is nearest in log scale (360p=640x360, 480p=854x480, 720p=1280x720, 1080p=1920x1080, 4K=3840x2160). This reproduces how the spec groups the enum values, e.g. 640:640 sits with the 480p sizes and 960:960 with the 720p sizes. auto_<tier> values map to that tier.",
+    "default_note": "No default resolution stated for 1.1."
+   },
+   "per_reference": {
+    "image": 1,
+    "start_frame": 1,
+    "note": "1 credit per reference image (including an image-to-video start frame)"
+   },
+   "per_input_video_second": 1,
+   "rounding": {
+    "unknown": true,
+    "note": "Rounding not stated for 1.1 (360p rate 3.4/s can give fractions)."
+   },
+   "mode_billing": {
+    "unknown": true,
+    "note": "Mode-specific (extend/edit) billing is only described for 1.2; 1.1 is estimated as output duration x rate + input video + references."
+   },
+   "duration": {
+    "param": "duration",
+    "default": null,
+    "auto_allowed": true,
+    "auto_billing": "duration 'auto' is billed at the variant maximum up front and settled after the generation; exact cost unknown in advance"
+   },
+   "endpoints": [
+    "text_to_video",
+    "image_to_video",
+    "video_to_video"
+   ]
+  },
+  "gemini_omni_flash_1.2": {
+   "formula": "gemini_omni",
+   "unit": "credits per second of output",
+   "rates": {
+    "360p": 2,
+    "720p": 7,
+    "1080p": 10,
+    "4K": 21
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "640:360": "360p",
+     "360:640": "360p",
+     "1280:720": "720p",
+     "720:1280": "720p",
+     "1920:1080": "1080p",
+     "1080:1920": "1080p",
+     "3840:2160": "4K",
+     "2160:3840": "4K"
+    },
+    "default": "720p",
+    "default_source": "pricing page: 'defaults to 720p'",
+    "map_note": "Derived (not stated on the pricing page): each pixel ratio is assigned to the tier whose reference frame area is nearest in log scale (360p=640x360, 480p=854x480, 720p=1280x720, 1080p=1920x1080, 4K=3840x2160). This reproduces how the spec groups the enum values, e.g. 640:640 sits with the 480p sizes and 960:960 with the 720p sizes. auto_<tier> values map to that tier.",
+    "resolution_param": "video_to_video extend/edit use `resolution` (360p/720p/1080p/4k)"
+   },
+   "per_reference": {
+    "image": 1,
+    "keyframe": 1,
+    "start_frame": 1,
+    "note": "1 credit per reference image or keyframe"
+   },
+   "per_input_video_second": 1,
+   "minimum": 6,
+   "rounding": "total rounded up to the next credit",
+   "mode_billing": {
+    "extend": "bills only newly added output footage (duration) plus the input video",
+    "edit": "bills the input video's duration at the output rate, plus input-video and reference-image charges"
+   },
+   "duration": {
+    "param": "duration",
+    "default": null,
+    "auto_max_s": 15,
+    "auto_allowed": true,
+    "auto_billing": "generation and extension reserve 15 s of output, then settle to the generated duration (3-15 s)"
+   },
+   "endpoints": [
+    "text_to_video",
+    "image_to_video",
+    "video_to_video"
+   ]
+  },
+  "gen4_image": {
+   "formula": "image",
+   "unit": "credits per image",
+   "rates": {
+    "720p": 5,
+    "1080p": 8
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "1024:1024": "1080p",
+     "1080:1080": "1080p",
+     "1168:880": "1080p",
+     "1360:768": "1080p",
+     "1440:1080": "1080p",
+     "1080:1440": "1080p",
+     "1808:768": "1080p",
+     "1920:1080": "1080p",
+     "1080:1920": "1080p",
+     "2112:912": "1080p",
+     "1280:720": "720p",
+     "720:1280": "720p",
+     "720:720": "720p",
+     "960:720": "720p",
+     "720:960": "720p",
+     "1680:720": "720p"
+    },
+    "default": null,
+    "map_note": "Derived: ratios whose short side is 720 are 720p; all others (short side 768-1080, including 1024:1024) are 1080p. Confirmed by a real charge: 1024:1024 -> 8 credits."
+   },
+   "output_count": null,
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "gen4_image_turbo": {
+   "formula": "image",
+   "unit": "credits per image",
+   "rates": {
+    "any": 2
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "any"
+   },
+   "output_count": null,
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "muse_image": {
+   "formula": "image",
+   "unit": "credits per image",
+   "rates": {
+    "any": 1
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "any"
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "gemini_2.5_flash": {
+   "formula": "image",
+   "unit": "credits per image",
+   "rates": {
+    "any": 5
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "any"
+   },
+   "output_count": null,
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "seedream5_lite": {
+   "formula": "image",
+   "unit": "credits per image",
+   "rates": {
+    "any": 4
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "any"
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "seedream5_flash": {
+   "formula": "image",
+   "unit": "credits per image",
+   "rates": {
+    "any": 2
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "any"
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "bria_fibo_edit_1_5": {
+   "formula": "image",
+   "unit": "credits per image",
+   "rates": {
+    "any": 5
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "any"
+   },
+   "output_count": null,
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "seedream5_pro": {
+   "formula": "image",
+   "unit": "credits per image",
+   "rates": {
+    "1K": 5,
+    "2K": 9
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "1024:1024": "1K",
+     "1184:896": "1K",
+     "896:1184": "1K",
+     "1376:768": "1K",
+     "768:1376": "1K",
+     "1296:864": "1K",
+     "864:1296": "1K",
+     "2048:2048": "2K",
+     "2304:1728": "2K",
+     "1728:2304": "2K",
+     "2720:1530": "2K",
+     "1530:2720": "2K",
+     "2496:1664": "2K",
+     "1664:2496": "2K",
+     "auto_1k": "1K",
+     "auto_2k": "2K"
+    },
+    "default": null,
+    "map_note": "Derived: each pixel ratio is assigned to the tier whose reference area is nearest in log scale (512px=512^2, 1K=1024^2, 1.5K=1536^2, 2K=2048^2, 4K=4096^2; 1MP=1024^2, 4MP=2048^2), matching the spec's enum grouping."
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "gemini_image3_pro": {
+   "formula": "image",
+   "unit": "credits per image",
+   "rates": {
+    "1K": 20,
+    "2K": 20,
+    "4K": 40
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "1344:768": "1K",
+     "768:1344": "1K",
+     "1024:1024": "1K",
+     "1184:864": "1K",
+     "864:1184": "1K",
+     "1536:672": "1K",
+     "832:1248": "1K",
+     "1248:832": "1K",
+     "896:1152": "1K",
+     "1152:896": "1K",
+     "2048:2048": "2K",
+     "1696:2528": "2K",
+     "2528:1696": "2K",
+     "1792:2400": "2K",
+     "2400:1792": "2K",
+     "1856:2304": "2K",
+     "2304:1856": "2K",
+     "1536:2752": "2K",
+     "2752:1536": "2K",
+     "3168:1344": "2K",
+     "4096:4096": "4K",
+     "3392:5056": "4K",
+     "5056:3392": "4K",
+     "3584:4800": "4K",
+     "4800:3584": "4K",
+     "3712:4608": "4K",
+     "4608:3712": "4K",
+     "3072:5504": "4K",
+     "5504:3072": "4K",
+     "6336:2688": "4K"
+    },
+    "default": null,
+    "map_note": "Derived: each pixel ratio is assigned to the tier whose reference area is nearest in log scale (512px=512^2, 1K=1024^2, 1.5K=1536^2, 2K=2048^2, 4K=4096^2; 1MP=1024^2, 4MP=2048^2), matching the spec's enum grouping."
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "gemini_image3.1_flash": {
+   "formula": "image",
+   "unit": "credits per image",
+   "rates": {
+    "512px": 5,
+    "1K": 7,
+    "2K": 11,
+    "4K": 16
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "512:512": "512px",
+     "416:624": "512px",
+     "624:416": "512px",
+     "432:592": "512px",
+     "592:432": "512px",
+     "448:576": "512px",
+     "576:448": "512px",
+     "384:672": "512px",
+     "672:384": "512px",
+     "768:336": "512px",
+     "256:1024": "512px",
+     "1024:256": "512px",
+     "176:1408": "512px",
+     "1408:176": "512px",
+     "1024:1024": "1K",
+     "832:1248": "1K",
+     "1248:832": "1K",
+     "864:1184": "1K",
+     "1184:864": "1K",
+     "896:1152": "1K",
+     "1152:896": "1K",
+     "768:1344": "1K",
+     "1344:768": "1K",
+     "1536:672": "1K",
+     "512:2048": "1K",
+     "2048:512": "1K",
+     "352:2816": "1K",
+     "2816:352": "1K",
+     "2048:2048": "2K",
+     "1696:2528": "2K",
+     "2528:1696": "2K",
+     "1792:2400": "2K",
+     "2400:1792": "2K",
+     "1856:2304": "2K",
+     "2304:1856": "2K",
+     "1536:2752": "2K",
+     "2752:1536": "2K",
+     "3168:1344": "2K",
+     "1024:4096": "2K",
+     "4096:1024": "2K",
+     "704:5632": "2K",
+     "5632:704": "2K",
+     "4096:4096": "4K",
+     "3392:5056": "4K",
+     "5056:3392": "4K",
+     "3584:4800": "4K",
+     "4800:3584": "4K",
+     "3712:4608": "4K",
+     "4608:3712": "4K",
+     "3072:5504": "4K",
+     "5504:3072": "4K",
+     "6336:2688": "4K",
+     "2048:8192": "4K",
+     "8192:2048": "4K",
+     "1408:11264": "4K",
+     "11264:1408": "4K"
+    },
+    "default": null,
+    "map_note": "Derived: each pixel ratio is assigned to the tier whose reference area is nearest in log scale (512px=512^2, 1K=1024^2, 1.5K=1536^2, 2K=2048^2, 4K=4096^2; 1MP=1024^2, 4MP=2048^2), matching the spec's enum grouping."
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "gemini_image3.1_flash_lite": {
+   "formula": "image",
+   "unit": "credits per image",
+   "rates": {
+    "1K": 4
+   },
+   "tier": {
+    "source": "fixed",
+    "value": "1K"
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "nano_banana_2.1": {
+   "formula": "image",
+   "unit": "credits per image",
+   "rates": {
+    "1K": 4,
+    "2K": 6,
+    "4K": 12
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "1024:1024": "1K",
+     "848:1264": "1K",
+     "1264:848": "1K",
+     "896:1200": "1K",
+     "1200:896": "1K",
+     "928:1152": "1K",
+     "1152:928": "1K",
+     "768:1376": "1K",
+     "1376:768": "1K",
+     "1584:672": "1K",
+     "512:2064": "1K",
+     "2064:512": "1K",
+     "352:2928": "1K",
+     "2928:352": "1K",
+     "2048:2048": "2K",
+     "1696:2528": "2K",
+     "2528:1696": "2K",
+     "1792:2400": "2K",
+     "2400:1792": "2K",
+     "1856:2304": "2K",
+     "2304:1856": "2K",
+     "1536:2752": "2K",
+     "2752:1536": "2K",
+     "3168:1344": "2K",
+     "1024:4128": "2K",
+     "4128:1024": "2K",
+     "704:5856": "2K",
+     "5856:704": "2K",
+     "4096:4096": "4K",
+     "3392:5056": "4K",
+     "5056:3392": "4K",
+     "3584:4800": "4K",
+     "4800:3584": "4K",
+     "3712:4608": "4K",
+     "4608:3712": "4K",
+     "3072:5504": "4K",
+     "5504:3072": "4K",
+     "6336:2688": "4K",
+     "2048:8256": "4K",
+     "8256:2048": "4K",
+     "1408:11712": "4K",
+     "11712:1408": "4K"
+    },
+    "default": null,
+    "map_note": "Derived: each pixel ratio is assigned to the tier whose reference area is nearest in log scale (512px=512^2, 1K=1024^2, 1.5K=1536^2, 2K=2048^2, 4K=4096^2; 1MP=1024^2, 4MP=2048^2), matching the spec's enum grouping."
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "bria_fibo_1_5": {
+   "formula": "image",
+   "unit": "credits per image",
+   "rates": {
+    "1MP": 5,
+    "4MP": 10
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "1024:1024": "1MP",
+     "768:1152": "1MP",
+     "1152:768": "1MP",
+     "768:1024": "1MP",
+     "1024:768": "1MP",
+     "768:960": "1MP",
+     "960:768": "1MP",
+     "576:1024": "1MP",
+     "1024:576": "1MP",
+     "2048:2048": "4MP",
+     "1536:2304": "4MP",
+     "2304:1536": "4MP",
+     "1536:2048": "4MP",
+     "2048:1536": "4MP",
+     "1536:1920": "4MP",
+     "1920:1536": "4MP",
+     "1152:2048": "4MP",
+     "2048:1152": "4MP"
+    },
+    "default": null,
+    "map_note": "Derived: each pixel ratio is assigned to the tier whose reference area is nearest in log scale (512px=512^2, 1K=1024^2, 1.5K=1536^2, 2K=2048^2, 4K=4096^2; 1MP=1024^2, 4MP=2048^2), matching the spec's enum grouping. The spec also says '1MP sizes cost 5 credits per image and 4MP sizes 10'."
+   },
+   "output_count": null,
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "grok_imagine_image_2": {
+   "formula": "image",
+   "unit": "credits per image + 1 per reference image per request",
+   "rates": {
+    "1K": {
+     "low": 4,
+     "medium": 6
+    },
+    "2K": {
+     "low": 6,
+     "medium": 8
+    }
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "1024:1024": "1K",
+     "1280:720": "1K",
+     "720:1280": "1K",
+     "1152:864": "1K",
+     "864:1152": "1K",
+     "1248:832": "1K",
+     "832:1248": "1K",
+     "1248:576": "1K",
+     "576:1248": "1K",
+     "1280:576": "1K",
+     "576:1280": "1K",
+     "1408:704": "1K",
+     "704:1408": "1K",
+     "2048:2048": "2K",
+     "2816:1584": "2K",
+     "1584:2816": "2K",
+     "2368:1776": "2K",
+     "1776:2368": "2K",
+     "2496:1664": "2K",
+     "1664:2496": "2K",
+     "2912:1344": "2K",
+     "1344:2912": "2K",
+     "3200:1440": "2K",
+     "1440:3200": "2K",
+     "2912:1456": "2K",
+     "1456:2912": "2K",
+     "auto_1k": "1K",
+     "auto_2k": "2K"
+    },
+    "default": null,
+    "map_note": "Derived: each pixel ratio is assigned to the tier whose reference area is nearest in log scale (512px=512^2, 1K=1024^2, 1.5K=1536^2, 2K=2048^2, 4K=4096^2; 1MP=1024^2, 4MP=2048^2), matching the spec's enum grouping."
+   },
+   "quality": {
+    "param": "quality",
+    "default": "medium",
+    "rule": "anything other than 'low' (including omitted) bills as medium"
+   },
+   "per_reference": {
+    "image": 1,
+    "per": "request"
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "example": "four 1K medium images with two references = 4*6 + 2 = 26",
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "ideogram_4_5": {
+   "formula": "image",
+   "unit": "credits per image, any resolution",
+   "rates": {
+    "very_low": 1,
+    "low": 4,
+    "medium": 8,
+    "high": 25
+   },
+   "tier": {
+    "source": "quality"
+   },
+   "quality": {
+    "param": "quality",
+    "default": "high (medium when reference images are given and preciseEdit is not set)"
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "ideogram_4_0": {
+   "formula": "image",
+   "unit": "credits per image, any resolution",
+   "rates": {
+    "low": 4,
+    "medium": 7,
+    "high": 11
+   },
+   "tier": {
+    "source": "quality"
+   },
+   "quality": {
+    "param": "quality",
+    "default": "medium"
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "ideogram_vector": {
+   "formula": "ideogram_vector",
+   "unit": "credits per SVG (one per request)",
+   "rates": {
+    "text_to_image": {
+     "low": 14,
+     "medium": 17,
+     "high": 22,
+     "high_with_references": 35
+    },
+    "image_to_vector": 11
+   },
+   "quality": {
+    "param": "quality",
+    "default": "medium"
+   },
+   "endpoints": [
+    "text_to_image",
+    "image_to_vector"
+   ]
+  },
+  "gpt_image_2": {
+   "formula": "gpt_image_2",
+   "unit": "credits per image x outputCount",
+   "rates": {
+    "1K": {
+     "low": 1,
+     "medium": 5,
+     "high": 20,
+     "auto": 20
+    },
+    "2K": {
+     "low": 1,
+     "medium": 5,
+     "high": 20,
+     "auto": 20
+    },
+    "4K": {
+     "low": 2,
+     "medium": 11,
+     "high": 41,
+     "auto": 41
+    }
+   },
+   "tier": {
+    "source": "ratio",
+    "map": {
+     "1920:1920": "1K",
+     "1536:1920": "1K",
+     "1920:1536": "1K",
+     "1440:1920": "1K",
+     "1920:1440": "1K",
+     "1280:1920": "1K",
+     "1920:1280": "1K",
+     "1088:1920": "1K",
+     "1920:1088": "1K",
+     "2048:880": "1K",
+     "2560:2560": "2K",
+     "2048:2560": "2K",
+     "2560:2048": "2K",
+     "1920:2560": "2K",
+     "2560:1920": "2K",
+     "1712:2560": "2K",
+     "2560:1712": "2K",
+     "1440:2560": "2K",
+     "2560:1440": "2K",
+     "2912:1248": "2K",
+     "2880:2880": "4K",
+     "2560:3200": "4K",
+     "3200:2560": "4K",
+     "2448:3264": "4K",
+     "3264:2448": "4K",
+     "2336:3504": "4K",
+     "3504:2336": "4K",
+     "2160:3840": "4K",
+     "3840:2160": "4K",
+     "3840:1648": "4K",
+     "auto": "4K"
+    },
+    "map_note": "Tier lists are the GPT Image 2.5 resolution lists on the pricing page (same enum); 'auto' bills at 4K."
+   },
+   "quality": {
+    "param": "quality",
+    "default": "high"
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "references": "no reference-image charge stated",
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "gpt_image_2_5_flare": {
+   "formula": "gpt_image_aspect",
+   "unit": "(credits per image + 1 per reference image) x outputCount",
+   "rates": {
+    "1K": {
+     "low": {
+      "1:1": 2,
+      "4:5": 1,
+      "3:4": 1,
+      "2:3": 1,
+      "9:16": 1,
+      "21:9": 1
+     },
+     "medium": {
+      "1:1": 3,
+      "4:5": 2,
+      "3:4": 2,
+      "2:3": 2,
+      "9:16": 2,
+      "21:9": 1
+     },
+     "high": {
+      "1:1": 11,
+      "4:5": 8,
+      "3:4": 7,
+      "2:3": 6,
+      "9:16": 5,
+      "21:9": 4
+     },
+     "xhigh": {
+      "1:1": 19,
+      "4:5": 13,
+      "3:4": 12,
+      "2:3": 10,
+      "9:16": 8,
+      "21:9": 6
+     },
+     "max": {
+      "1:1": 42,
+      "4:5": 29,
+      "3:4": 26,
+      "2:3": 22,
+      "9:16": 17,
+      "21:9": 12
+     }
+    },
+    "2K": {
+     "low": {
+      "1:1": 2,
+      "4:5": 2,
+      "3:4": 2,
+      "2:3": 1,
+      "9:16": 1,
+      "21:9": 1
+     },
+     "medium": {
+      "1:1": 4,
+      "4:5": 3,
+      "3:4": 3,
+      "2:3": 2,
+      "9:16": 2,
+      "21:9": 2
+     },
+     "high": {
+      "1:1": 16,
+      "4:5": 11,
+      "3:4": 10,
+      "2:3": 8,
+      "9:16": 6,
+      "21:9": 5
+     },
+     "xhigh": {
+      "1:1": 28,
+      "4:5": 19,
+      "3:4": 17,
+      "2:3": 14,
+      "9:16": 11,
+      "21:9": 8
+     },
+     "max": {
+      "1:1": 63,
+      "4:5": 43,
+      "3:4": 38,
+      "2:3": 31,
+      "9:16": 24,
+      "21:9": 18
+     }
+    },
+    "4K": {
+     "low": {
+      "1:1": 3,
+      "4:5": 2,
+      "3:4": 2,
+      "2:3": 2,
+      "9:16": 2,
+      "21:9": 1
+     },
+     "medium": {
+      "1:1": 5,
+      "4:5": 4,
+      "3:4": 4,
+      "2:3": 4,
+      "9:16": 3,
+      "21:9": 2
+     },
+     "high": {
+      "1:1": 19,
+      "4:5": 15,
+      "3:4": 14,
+      "2:3": 13,
+      "9:16": 11,
+      "21:9": 7
+     },
+     "xhigh": {
+      "1:1": 34,
+      "4:5": 27,
+      "3:4": 25,
+      "2:3": 23,
+      "9:16": 19,
+      "21:9": 12
+     },
+     "max": {
+      "1:1": 75,
+      "4:5": 60,
+      "3:4": 55,
+      "2:3": 50,
+      "9:16": 43,
+      "21:9": 26
+     }
+    }
+   },
+   "ratio_map": {
+    "1920:1920": {
+     "tier": "1K",
+     "aspect": "1:1"
+    },
+    "1536:1920": {
+     "tier": "1K",
+     "aspect": "4:5"
+    },
+    "1920:1536": {
+     "tier": "1K",
+     "aspect": "4:5"
+    },
+    "1440:1920": {
+     "tier": "1K",
+     "aspect": "3:4"
+    },
+    "1920:1440": {
+     "tier": "1K",
+     "aspect": "3:4"
+    },
+    "1280:1920": {
+     "tier": "1K",
+     "aspect": "2:3"
+    },
+    "1920:1280": {
+     "tier": "1K",
+     "aspect": "2:3"
+    },
+    "1088:1920": {
+     "tier": "1K",
+     "aspect": "9:16"
+    },
+    "1920:1088": {
+     "tier": "1K",
+     "aspect": "9:16"
+    },
+    "2048:880": {
+     "tier": "1K",
+     "aspect": "21:9"
+    },
+    "2560:2560": {
+     "tier": "2K",
+     "aspect": "1:1"
+    },
+    "2048:2560": {
+     "tier": "2K",
+     "aspect": "4:5"
+    },
+    "2560:2048": {
+     "tier": "2K",
+     "aspect": "4:5"
+    },
+    "1920:2560": {
+     "tier": "2K",
+     "aspect": "3:4"
+    },
+    "2560:1920": {
+     "tier": "2K",
+     "aspect": "3:4"
+    },
+    "1712:2560": {
+     "tier": "2K",
+     "aspect": "2:3"
+    },
+    "2560:1712": {
+     "tier": "2K",
+     "aspect": "2:3"
+    },
+    "1440:2560": {
+     "tier": "2K",
+     "aspect": "9:16"
+    },
+    "2560:1440": {
+     "tier": "2K",
+     "aspect": "9:16"
+    },
+    "2912:1248": {
+     "tier": "2K",
+     "aspect": "21:9"
+    },
+    "2880:2880": {
+     "tier": "4K",
+     "aspect": "1:1"
+    },
+    "2560:3200": {
+     "tier": "4K",
+     "aspect": "4:5"
+    },
+    "3200:2560": {
+     "tier": "4K",
+     "aspect": "4:5"
+    },
+    "2448:3264": {
+     "tier": "4K",
+     "aspect": "3:4"
+    },
+    "3264:2448": {
+     "tier": "4K",
+     "aspect": "3:4"
+    },
+    "2336:3504": {
+     "tier": "4K",
+     "aspect": "2:3"
+    },
+    "3504:2336": {
+     "tier": "4K",
+     "aspect": "2:3"
+    },
+    "2160:3840": {
+     "tier": "4K",
+     "aspect": "9:16"
+    },
+    "3840:2160": {
+     "tier": "4K",
+     "aspect": "9:16"
+    },
+    "3840:1648": {
+     "tier": "4K",
+     "aspect": "21:9"
+    }
+   },
+   "auto_ratio": {
+    "deposit": "4K 1:1 price",
+    "settles_to": "square price of the tier rendered",
+    "exact": false
+   },
+   "quality": {
+    "param": "quality",
+    "default": "high"
+   },
+   "per_reference": {
+    "image": 1,
+    "per": "generated image"
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "gpt_image_2_5_sunburst": {
+   "formula": "gpt_image_aspect",
+   "unit": "(credits per image + 1 per reference image) x outputCount",
+   "rates": {
+    "1K": {
+     "low": {
+      "1:1": 2,
+      "4:5": 1,
+      "3:4": 1,
+      "2:3": 1,
+      "9:16": 1,
+      "21:9": 1
+     },
+     "medium": {
+      "1:1": 3,
+      "4:5": 2,
+      "3:4": 2,
+      "2:3": 2,
+      "9:16": 2,
+      "21:9": 1
+     },
+     "high": {
+      "1:1": 11,
+      "4:5": 8,
+      "3:4": 7,
+      "2:3": 6,
+      "9:16": 5,
+      "21:9": 4
+     },
+     "xhigh": {
+      "1:1": 19,
+      "4:5": 13,
+      "3:4": 12,
+      "2:3": 10,
+      "9:16": 8,
+      "21:9": 6
+     },
+     "max": {
+      "1:1": 42,
+      "4:5": 29,
+      "3:4": 26,
+      "2:3": 22,
+      "9:16": 17,
+      "21:9": 12
+     }
+    },
+    "2K": {
+     "low": {
+      "1:1": 2,
+      "4:5": 2,
+      "3:4": 2,
+      "2:3": 1,
+      "9:16": 1,
+      "21:9": 1
+     },
+     "medium": {
+      "1:1": 4,
+      "4:5": 3,
+      "3:4": 3,
+      "2:3": 2,
+      "9:16": 2,
+      "21:9": 2
+     },
+     "high": {
+      "1:1": 16,
+      "4:5": 11,
+      "3:4": 10,
+      "2:3": 8,
+      "9:16": 6,
+      "21:9": 5
+     },
+     "xhigh": {
+      "1:1": 28,
+      "4:5": 19,
+      "3:4": 17,
+      "2:3": 14,
+      "9:16": 11,
+      "21:9": 8
+     },
+     "max": {
+      "1:1": 63,
+      "4:5": 43,
+      "3:4": 38,
+      "2:3": 31,
+      "9:16": 24,
+      "21:9": 18
+     }
+    },
+    "4K": {
+     "low": {
+      "1:1": 3,
+      "4:5": 2,
+      "3:4": 2,
+      "2:3": 2,
+      "9:16": 2,
+      "21:9": 1
+     },
+     "medium": {
+      "1:1": 5,
+      "4:5": 4,
+      "3:4": 4,
+      "2:3": 4,
+      "9:16": 3,
+      "21:9": 2
+     },
+     "high": {
+      "1:1": 19,
+      "4:5": 15,
+      "3:4": 14,
+      "2:3": 13,
+      "9:16": 11,
+      "21:9": 7
+     },
+     "xhigh": {
+      "1:1": 34,
+      "4:5": 27,
+      "3:4": 25,
+      "2:3": 23,
+      "9:16": 19,
+      "21:9": 12
+     },
+     "max": {
+      "1:1": 75,
+      "4:5": 60,
+      "3:4": 55,
+      "2:3": 50,
+      "9:16": 43,
+      "21:9": 26
+     }
+    }
+   },
+   "ratio_map": {
+    "1920:1920": {
+     "tier": "1K",
+     "aspect": "1:1"
+    },
+    "1536:1920": {
+     "tier": "1K",
+     "aspect": "4:5"
+    },
+    "1920:1536": {
+     "tier": "1K",
+     "aspect": "4:5"
+    },
+    "1440:1920": {
+     "tier": "1K",
+     "aspect": "3:4"
+    },
+    "1920:1440": {
+     "tier": "1K",
+     "aspect": "3:4"
+    },
+    "1280:1920": {
+     "tier": "1K",
+     "aspect": "2:3"
+    },
+    "1920:1280": {
+     "tier": "1K",
+     "aspect": "2:3"
+    },
+    "1088:1920": {
+     "tier": "1K",
+     "aspect": "9:16"
+    },
+    "1920:1088": {
+     "tier": "1K",
+     "aspect": "9:16"
+    },
+    "2048:880": {
+     "tier": "1K",
+     "aspect": "21:9"
+    },
+    "2560:2560": {
+     "tier": "2K",
+     "aspect": "1:1"
+    },
+    "2048:2560": {
+     "tier": "2K",
+     "aspect": "4:5"
+    },
+    "2560:2048": {
+     "tier": "2K",
+     "aspect": "4:5"
+    },
+    "1920:2560": {
+     "tier": "2K",
+     "aspect": "3:4"
+    },
+    "2560:1920": {
+     "tier": "2K",
+     "aspect": "3:4"
+    },
+    "1712:2560": {
+     "tier": "2K",
+     "aspect": "2:3"
+    },
+    "2560:1712": {
+     "tier": "2K",
+     "aspect": "2:3"
+    },
+    "1440:2560": {
+     "tier": "2K",
+     "aspect": "9:16"
+    },
+    "2560:1440": {
+     "tier": "2K",
+     "aspect": "9:16"
+    },
+    "2912:1248": {
+     "tier": "2K",
+     "aspect": "21:9"
+    },
+    "2880:2880": {
+     "tier": "4K",
+     "aspect": "1:1"
+    },
+    "2560:3200": {
+     "tier": "4K",
+     "aspect": "4:5"
+    },
+    "3200:2560": {
+     "tier": "4K",
+     "aspect": "4:5"
+    },
+    "2448:3264": {
+     "tier": "4K",
+     "aspect": "3:4"
+    },
+    "3264:2448": {
+     "tier": "4K",
+     "aspect": "3:4"
+    },
+    "2336:3504": {
+     "tier": "4K",
+     "aspect": "2:3"
+    },
+    "3504:2336": {
+     "tier": "4K",
+     "aspect": "2:3"
+    },
+    "2160:3840": {
+     "tier": "4K",
+     "aspect": "9:16"
+    },
+    "3840:2160": {
+     "tier": "4K",
+     "aspect": "9:16"
+    },
+    "3840:1648": {
+     "tier": "4K",
+     "aspect": "21:9"
+    }
+   },
+   "auto_ratio": {
+    "deposit": "4K 1:1 price",
+    "settles_to": "square price of the tier rendered",
+    "exact": false
+   },
+   "quality": {
+    "param": "quality",
+    "default": "high"
+   },
+   "per_reference": {
+    "image": 1,
+    "per": "generated image"
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "gpt_image_2_6_flare": {
+   "formula": "gpt_image_aspect",
+   "unit": "(credits per image + 1 per reference image) x outputCount",
+   "rates": {
+    "1K": {
+     "low": {
+      "1:1": 5,
+      "4:5": 4,
+      "3:4": 4,
+      "2:3": 3,
+      "9:16": 2,
+      "21:9": 2
+     },
+     "medium": {
+      "1:1": 9,
+      "4:5": 6,
+      "3:4": 6,
+      "2:3": 5,
+      "9:16": 4,
+      "21:9": 3
+     },
+     "high": {
+      "1:1": 11,
+      "4:5": 8,
+      "3:4": 7,
+      "2:3": 6,
+      "9:16": 5,
+      "21:9": 4
+     }
+    },
+    "2K": {
+     "low": {
+      "1:1": 8,
+      "4:5": 5,
+      "3:4": 5,
+      "2:3": 4,
+      "9:16": 3,
+      "21:9": 3
+     },
+     "medium": {
+      "1:1": 13,
+      "4:5": 9,
+      "3:4": 8,
+      "2:3": 7,
+      "9:16": 5,
+      "21:9": 4
+     },
+     "high": {
+      "1:1": 16,
+      "4:5": 11,
+      "3:4": 10,
+      "2:3": 8,
+      "9:16": 6,
+      "21:9": 5
+     }
+    },
+    "4K": {
+     "low": {
+      "1:1": 9,
+      "4:5": 8,
+      "3:4": 7,
+      "2:3": 6,
+      "9:16": 5,
+      "21:9": 4
+     },
+     "medium": {
+      "1:1": 16,
+      "4:5": 13,
+      "3:4": 12,
+      "2:3": 11,
+      "9:16": 9,
+      "21:9": 6
+     },
+     "high": {
+      "1:1": 19,
+      "4:5": 15,
+      "3:4": 14,
+      "2:3": 13,
+      "9:16": 11,
+      "21:9": 7
+     }
+    }
+   },
+   "ratio_map": {
+    "1920:1920": {
+     "tier": "1K",
+     "aspect": "1:1"
+    },
+    "1536:1920": {
+     "tier": "1K",
+     "aspect": "4:5"
+    },
+    "1920:1536": {
+     "tier": "1K",
+     "aspect": "4:5"
+    },
+    "1440:1920": {
+     "tier": "1K",
+     "aspect": "3:4"
+    },
+    "1920:1440": {
+     "tier": "1K",
+     "aspect": "3:4"
+    },
+    "1280:1920": {
+     "tier": "1K",
+     "aspect": "2:3"
+    },
+    "1920:1280": {
+     "tier": "1K",
+     "aspect": "2:3"
+    },
+    "1088:1920": {
+     "tier": "1K",
+     "aspect": "9:16"
+    },
+    "1920:1088": {
+     "tier": "1K",
+     "aspect": "9:16"
+    },
+    "2048:880": {
+     "tier": "1K",
+     "aspect": "21:9"
+    },
+    "2560:2560": {
+     "tier": "2K",
+     "aspect": "1:1"
+    },
+    "2048:2560": {
+     "tier": "2K",
+     "aspect": "4:5"
+    },
+    "2560:2048": {
+     "tier": "2K",
+     "aspect": "4:5"
+    },
+    "1920:2560": {
+     "tier": "2K",
+     "aspect": "3:4"
+    },
+    "2560:1920": {
+     "tier": "2K",
+     "aspect": "3:4"
+    },
+    "1712:2560": {
+     "tier": "2K",
+     "aspect": "2:3"
+    },
+    "2560:1712": {
+     "tier": "2K",
+     "aspect": "2:3"
+    },
+    "1440:2560": {
+     "tier": "2K",
+     "aspect": "9:16"
+    },
+    "2560:1440": {
+     "tier": "2K",
+     "aspect": "9:16"
+    },
+    "2912:1248": {
+     "tier": "2K",
+     "aspect": "21:9"
+    },
+    "2880:2880": {
+     "tier": "4K",
+     "aspect": "1:1"
+    },
+    "2560:3200": {
+     "tier": "4K",
+     "aspect": "4:5"
+    },
+    "3200:2560": {
+     "tier": "4K",
+     "aspect": "4:5"
+    },
+    "2448:3264": {
+     "tier": "4K",
+     "aspect": "3:4"
+    },
+    "3264:2448": {
+     "tier": "4K",
+     "aspect": "3:4"
+    },
+    "2336:3504": {
+     "tier": "4K",
+     "aspect": "2:3"
+    },
+    "3504:2336": {
+     "tier": "4K",
+     "aspect": "2:3"
+    },
+    "2160:3840": {
+     "tier": "4K",
+     "aspect": "9:16"
+    },
+    "3840:2160": {
+     "tier": "4K",
+     "aspect": "9:16"
+    },
+    "3840:1648": {
+     "tier": "4K",
+     "aspect": "21:9"
+    }
+   },
+   "minimum_per_image": 2,
+   "auto_ratio": {
+    "deposit": {
+     "low": 9,
+     "medium": 16,
+     "high": 19
+    },
+    "exact": false
+   },
+   "quality": {
+    "param": "quality",
+    "default": "high",
+    "unsupported": [
+     "xhigh",
+     "max"
+    ]
+   },
+   "reasoning_effort": "does not change the price",
+   "per_reference": {
+    "image": 1,
+    "per": "generated image",
+    "not_for_formats": [
+     "gif",
+     "svg"
+    ]
+   },
+   "output_format": {
+    "param": "outputFormat",
+    "default": "png",
+    "same_price": [
+     "png",
+     "jpeg",
+     "webp"
+    ],
+    "gif": {
+     "frame_param": "frameCount",
+     "frame_default": 9,
+     "table": [
+      {
+       "frames": [
+        2,
+        8
+       ],
+       "low": 2,
+       "medium": 4,
+       "high": 4
+      },
+      {
+       "frames": [
+        9,
+        12
+       ],
+       "low": 4,
+       "medium": 7,
+       "high": 8
+      },
+      {
+       "frames": [
+        13,
+        16
+       ],
+       "low": 6,
+       "medium": 10,
+       "high": 12
+      }
+     ],
+     "note": "per animation x outputCount; frameDurationMs does not change the price"
+    },
+    "svg": {
+     "authoring_surcharge_per_output": 50
+    }
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "gpt_image_2_6_sunburst": {
+   "formula": "gpt_image_aspect",
+   "unit": "(credits per image + 1 per reference image) x outputCount",
+   "rates": {
+    "1K": {
+     "low": {
+      "1:1": 5,
+      "4:5": 4,
+      "3:4": 4,
+      "2:3": 3,
+      "9:16": 2,
+      "21:9": 2
+     },
+     "medium": {
+      "1:1": 9,
+      "4:5": 6,
+      "3:4": 6,
+      "2:3": 5,
+      "9:16": 4,
+      "21:9": 3
+     },
+     "high": {
+      "1:1": 11,
+      "4:5": 8,
+      "3:4": 7,
+      "2:3": 6,
+      "9:16": 5,
+      "21:9": 4
+     }
+    },
+    "2K": {
+     "low": {
+      "1:1": 8,
+      "4:5": 5,
+      "3:4": 5,
+      "2:3": 4,
+      "9:16": 3,
+      "21:9": 3
+     },
+     "medium": {
+      "1:1": 13,
+      "4:5": 9,
+      "3:4": 8,
+      "2:3": 7,
+      "9:16": 5,
+      "21:9": 4
+     },
+     "high": {
+      "1:1": 16,
+      "4:5": 11,
+      "3:4": 10,
+      "2:3": 8,
+      "9:16": 6,
+      "21:9": 5
+     }
+    },
+    "4K": {
+     "low": {
+      "1:1": 9,
+      "4:5": 8,
+      "3:4": 7,
+      "2:3": 6,
+      "9:16": 5,
+      "21:9": 4
+     },
+     "medium": {
+      "1:1": 16,
+      "4:5": 13,
+      "3:4": 12,
+      "2:3": 11,
+      "9:16": 9,
+      "21:9": 6
+     },
+     "high": {
+      "1:1": 19,
+      "4:5": 15,
+      "3:4": 14,
+      "2:3": 13,
+      "9:16": 11,
+      "21:9": 7
+     }
+    }
+   },
+   "ratio_map": {
+    "1920:1920": {
+     "tier": "1K",
+     "aspect": "1:1"
+    },
+    "1536:1920": {
+     "tier": "1K",
+     "aspect": "4:5"
+    },
+    "1920:1536": {
+     "tier": "1K",
+     "aspect": "4:5"
+    },
+    "1440:1920": {
+     "tier": "1K",
+     "aspect": "3:4"
+    },
+    "1920:1440": {
+     "tier": "1K",
+     "aspect": "3:4"
+    },
+    "1280:1920": {
+     "tier": "1K",
+     "aspect": "2:3"
+    },
+    "1920:1280": {
+     "tier": "1K",
+     "aspect": "2:3"
+    },
+    "1088:1920": {
+     "tier": "1K",
+     "aspect": "9:16"
+    },
+    "1920:1088": {
+     "tier": "1K",
+     "aspect": "9:16"
+    },
+    "2048:880": {
+     "tier": "1K",
+     "aspect": "21:9"
+    },
+    "2560:2560": {
+     "tier": "2K",
+     "aspect": "1:1"
+    },
+    "2048:2560": {
+     "tier": "2K",
+     "aspect": "4:5"
+    },
+    "2560:2048": {
+     "tier": "2K",
+     "aspect": "4:5"
+    },
+    "1920:2560": {
+     "tier": "2K",
+     "aspect": "3:4"
+    },
+    "2560:1920": {
+     "tier": "2K",
+     "aspect": "3:4"
+    },
+    "1712:2560": {
+     "tier": "2K",
+     "aspect": "2:3"
+    },
+    "2560:1712": {
+     "tier": "2K",
+     "aspect": "2:3"
+    },
+    "1440:2560": {
+     "tier": "2K",
+     "aspect": "9:16"
+    },
+    "2560:1440": {
+     "tier": "2K",
+     "aspect": "9:16"
+    },
+    "2912:1248": {
+     "tier": "2K",
+     "aspect": "21:9"
+    },
+    "2880:2880": {
+     "tier": "4K",
+     "aspect": "1:1"
+    },
+    "2560:3200": {
+     "tier": "4K",
+     "aspect": "4:5"
+    },
+    "3200:2560": {
+     "tier": "4K",
+     "aspect": "4:5"
+    },
+    "2448:3264": {
+     "tier": "4K",
+     "aspect": "3:4"
+    },
+    "3264:2448": {
+     "tier": "4K",
+     "aspect": "3:4"
+    },
+    "2336:3504": {
+     "tier": "4K",
+     "aspect": "2:3"
+    },
+    "3504:2336": {
+     "tier": "4K",
+     "aspect": "2:3"
+    },
+    "2160:3840": {
+     "tier": "4K",
+     "aspect": "9:16"
+    },
+    "3840:2160": {
+     "tier": "4K",
+     "aspect": "9:16"
+    },
+    "3840:1648": {
+     "tier": "4K",
+     "aspect": "21:9"
+    }
+   },
+   "minimum_per_image": 2,
+   "auto_ratio": {
+    "deposit": {
+     "low": 9,
+     "medium": 16,
+     "high": 19
+    },
+    "exact": false
+   },
+   "quality": {
+    "param": "quality",
+    "default": "high",
+    "unsupported": [
+     "xhigh",
+     "max"
+    ]
+   },
+   "reasoning_effort": "does not change the price",
+   "per_reference": {
+    "image": 1,
+    "per": "generated image",
+    "not_for_formats": [
+     "gif",
+     "svg"
+    ]
+   },
+   "output_format": {
+    "param": "outputFormat",
+    "default": "png",
+    "same_price": [
+     "png",
+     "jpeg",
+     "webp"
+    ],
+    "gif": {
+     "frame_param": "frameCount",
+     "frame_default": 9,
+     "table": [
+      {
+       "frames": [
+        2,
+        8
+       ],
+       "low": 2,
+       "medium": 4,
+       "high": 4
+      },
+      {
+       "frames": [
+        9,
+        12
+       ],
+       "low": 4,
+       "medium": 7,
+       "high": 8
+      },
+      {
+       "frames": [
+        13,
+        16
+       ],
+       "low": 6,
+       "medium": 10,
+       "high": 12
+      }
+     ],
+     "note": "per animation x outputCount; frameDurationMs does not change the price"
+    },
+    "svg": {
+     "authoring_surcharge_per_output": 50
+    }
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "seedream5_pro_layers": {
+   "formula": "layers",
+   "unit": "credits per returned image (base + each layer)",
+   "rates": {
+    "1k": 3,
+    "1.5k": 3,
+    "2k": 5,
+    "auto": 5
+   },
+   "resolution": {
+    "param": "resolution",
+    "default": "auto"
+   },
+   "reservation": {
+    "max_images": 17,
+    "1k": 51,
+    "1.5k": 51,
+    "2k": 85,
+    "auto": 85
+   },
+   "notes": "Exact only when inputs.outputImages (images returned) is known; otherwise the reservation is reported as an upper bound.",
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "seedream5.5": {
+   "formula": "seedream55",
+   "unit": "outputCount x (perImage + 0.8 x referenceCount), rounded up per request",
+   "rates": {
+    "1K": 2,
+    "1.5K": 2,
+    "2K": 4
+   },
+   "auto_map": {
+    "auto_1k": "1K",
+    "auto_1.5k": "1.5K",
+    "auto_2k": "2K"
+   },
+   "per_reference": {
+    "image": 0.8,
+    "per": "generated image"
+   },
+   "rounding": "ceil per request",
+   "tier": {
+    "source": "ratio",
+    "map_note": "Model is on the pricing page but not in the cached spec; ratio tiers from auto_* values or by pixel area."
+   },
+   "output_count": {
+    "param": "outputCount",
+    "default": 1
+   },
+   "not_in_cached_spec": true,
+   "example": "4 x (4 + 1.6) = 22.4 -> 23",
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "seedream5.5_layers": {
+   "formula": "layers",
+   "unit": "credits per returned image + 0.8 for the source image, rounded up",
+   "rates": {
+    "1k": 2,
+    "1.5k": 2,
+    "2k": 4,
+    "auto": 4
+   },
+   "source_image_surcharge": 0.8,
+   "resolution": {
+    "param": "resolution",
+    "default": "auto"
+   },
+   "reservation": {
+    "max_images_param": "maxImages",
+    "max_images_default": 30
+   },
+   "not_in_cached_spec": true,
+   "example": "2K base + 8 layers = 9*4 + 0.8 = 36.8 -> 37",
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "recraft_v4_1_flash": {
+   "formula": "unknown",
+   "unknown": true,
+   "note": "Model is in the cached OpenAPI spec but not on the pricing page (fetched 2026-11-19). The spec only says each image is billed separately.",
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "recraft_v4_1_vector": {
+   "formula": "unknown",
+   "unknown": true,
+   "note": "Model is in the cached OpenAPI spec but not on the pricing page (fetched 2026-11-19).",
+   "endpoints": [
+    "text_to_image"
+   ]
+  },
+  "magnific_precision_upscaler_v2": {
+   "formula": "image_upscale",
+   "unit": "credits per image",
+   "rates": {
+    "standard": 25,
+    "over_4096px": 150
+   },
+   "rule": "150 when the output exceeds 4096px (output long side = input long side x scaleFactor); pass inputs.inputImageWidth/Height",
+   "scale_factor": {
+    "param": "scaleFactor",
+    "default": null,
+    "default_note": "Spec gives no scaleFactor default."
+   },
+   "endpoints": [
+    "image_upscale"
+   ]
+  },
+  "magnific_video_upscaler_creative": {
+   "formula": "per_frame_usd",
+   "unit": "USD per output frame; credits = ceil(USD / 0.01)",
+   "rates": {
+    "720p": 0.007,
+    "1k": 0.007,
+    "2k": 0.009,
+    "4k": 0.012
+   },
+   "resolution": {
+    "param": "resolution",
+    "default": "2k",
+    "default_source": "spec: 'Defaults to `2k`'"
+   },
+   "minimum": 1,
+   "fps_boost": "When fpsBoost is enabled, output frame count may differ from input; estimate not exact.",
+   "inputs_needed": [
+    "inputVideoSeconds",
+    "inputVideoFps"
+   ],
+   "endpoints": [
+    "video_upscale"
+   ]
+  },
+  "enhance_frame_rate": {
+   "formula": "per_input_second",
+   "unit": "credits per second of input",
+   "rate": 0.5,
+   "rounding": {
+    "unknown": true,
+    "note": "1 credit per 2 seconds; rounding of odd/fractional seconds is not stated."
+   },
+   "inputs_needed": [
+    "inputVideoSeconds"
+   ],
+   "endpoints": [
+    "video_upscale"
+   ]
+  },
+  "ruby": {
+   "formula": "ruby",
+   "unit": "credits per second of output at the source resolution",
+   "rates": {
+    "standard": 20,
+    "over_4MP": 40
+   },
+   "rule": "40/s when the source is larger than 4 megapixels; pass inputs.inputVideoWidth/Height",
+   "rounding": {
+    "unknown": true,
+    "note": "Rounding of fractional seconds is not stated."
+   },
+   "inputs_needed": [
+    "inputVideoSeconds"
+   ],
+   "endpoints": [
+    "video_to_hdr"
+   ]
+  },
+  "seed_audio": {
+   "formula": "per_output_second",
+   "unit": "credits per second of generated audio",
+   "rate": 0.25,
+   "minimum": 5,
+   "rounding": {
+    "unknown": true,
+    "note": "Rounding not stated."
+   },
+   "notes": "Output length is not a request parameter, so the estimate needs inputs.outputSeconds; otherwise only the 5-credit minimum is known.",
+   "endpoints": [
+    "text_to_speech",
+    "sound_effect"
+   ]
+  },
+  "eleven_v4": {
+   "formula": "per_character",
+   "unit": "credits per 1,000 characters",
+   "rate_schedule": [
+    {
+     "per_1000_chars": 2.2,
+     "until": "2026-10-13T07:00:00Z",
+     "text": "until October 12, 2026 PT"
+    },
+    {
+     "per_1000_chars": 5,
+     "from": "2026-10-13T07:00:00Z"
+    }
+   ],
+   "minimum": 1,
+   "text_param": "promptText",
+   "rounding": {
+    "unknown": true,
+    "note": "Rounding of fractional credits is not stated; estimate rounds up and is marked inexact when the raw value is fractional."
+   },
+   "notes": "End of the 2.2 rate interpreted as the end of Oct 12 2026 Pacific time (07:00 UTC Oct 13).",
+   "endpoints": [
+    "text_to_speech"
+   ]
+  },
+  "eleven_v3": {
+   "formula": "per_character",
+   "unit": "1 credit per 50 characters",
+   "rate_per_char": 0.02,
+   "minimum": 1,
+   "text_param": "promptText",
+   "rounding": {
+    "unknown": true,
+    "note": "Rounding not stated; estimate rounds up, inexact when fractional."
+   },
+   "endpoints": [
+    "text_to_speech"
+   ]
+  },
+  "eleven_multilingual_v2": {
+   "formula": "per_character",
+   "unit": "1 credit per 50 characters",
+   "rate_per_char": 0.02,
+   "text_param": "promptText",
+   "rounding": {
+    "unknown": true,
+    "note": "Rounding not stated; estimate rounds up, inexact when fractional."
+   },
+   "endpoints": [
+    "text_to_speech"
+   ]
+  },
+  "gemini_3.8_flash_tts": {
+   "formula": "unknown",
+   "unknown": true,
+   "note": "In the cached spec but not on the pricing page.",
+   "endpoints": [
+    "text_to_speech"
+   ]
+  },
+  "gemini_3.8_flash_lite_tts": {
+   "formula": "unknown",
+   "unknown": true,
+   "note": "In the cached spec but not on the pricing page.",
+   "endpoints": [
+    "text_to_speech"
+   ]
+  },
+  "eleven_text_to_sound_v2": {
+   "formula": "sound_effect",
+   "unit": "1 credit per second of audio when duration is provided, else 2 credits",
+   "rates": {
+    "per_second": 1,
+    "no_duration": 2
+   },
+   "rounding": {
+    "unknown": true,
+    "note": "Rounding of fractional durations (e.g. 0.5 s) is not stated."
+   },
+   "endpoints": [
+    "sound_effect"
+   ]
+  },
+  "mirelo_sfx_2_0": {
+   "formula": "unknown",
+   "unknown": true,
+   "note": "In the cached spec (duration, numVariants default 1) but not on the pricing page.",
+   "endpoints": [
+    "sound_effect",
+    "video_to_audio"
+   ]
+  },
+  "eleven_music_v2_5": {
+   "formula": "unknown",
+   "unknown": true,
+   "note": "In the cached spec (duration default 30 s, 'You are billed for the requested length') but no rate on the pricing page.",
+   "endpoints": [
+    "text_to_music"
+   ]
+  },
+  "eleven_multilingual_sts_v2": {
+   "formula": "per_input_second",
+   "unit": "1 credit per 3 s of audio",
+   "rate": 0.3333333333333333,
+   "rounding": {
+    "unknown": true,
+    "note": "Rounding not stated."
+   },
+   "inputs_needed": [
+    "inputAudioSeconds"
+   ],
+   "endpoints": [
+    "speech_to_speech"
+   ]
+  },
+  "eleven_voice_isolation": {
+   "formula": "per_input_second",
+   "unit": "1 credit per 6 s of audio",
+   "rate": 0.16666666666666666,
+   "rounding": {
+    "unknown": true,
+    "note": "Rounding not stated."
+   },
+   "inputs_needed": [
+    "inputAudioSeconds"
+   ],
+   "endpoints": [
+    "voice_isolation"
+   ]
+  },
+  "eleven_voice_dubbing": {
+   "formula": "per_input_second",
+   "unit": "1 credit per 2 s of audio",
+   "rate": 0.5,
+   "rounding": {
+    "unknown": true,
+    "note": "Rounding not stated."
+   },
+   "inputs_needed": [
+    "inputAudioSeconds"
+   ],
+   "endpoints": [
+    "voice_dubbing"
+   ]
+  },
+  "hailuo3_highspeed": {
+   "formula": "unknown",
+   "unknown": true,
+   "note": "In the cached spec (resolution default 768p, duration default 5) but not on the pricing page.",
+   "endpoints": [
+    "text_to_video",
+    "image_to_video",
+    "video_to_video"
+   ]
+  },
+  "hailuo3_lite": {
+   "formula": "unknown",
+   "unknown": true,
+   "note": "In the cached spec (resolution default 768p, duration default 5) but not on the pricing page.",
+   "endpoints": [
+    "text_to_video",
+    "image_to_video",
+    "video_to_video"
+   ]
+  }
+ }
+}

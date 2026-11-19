@@ -240,6 +240,35 @@ class Normalizer:
                 return None
         return {"kind": "select", "options": pick[1], "wrapKey": pick[0], "consts": consts} if pick else None
 
+    def summary(self, p, depth=0):
+        """A short, human type hint for a schema, e.g. 'array (max 2) of string' or 'one of: a, b'."""
+        p = self.R(p)
+        if "const" in p:
+            return json.dumps(p["const"])
+        if "enum" in p:
+            e = p["enum"]
+            return "one of: " + ", ".join(map(str, e[:8])) + (f" … ({len(e)})" if len(e) > 8 else "")
+        alts = p.get("anyOf") or p.get("oneOf")
+        if alts:
+            if self.is_uri(p):
+                return "URL, data URI or runway:// URI"
+            return " | ".join(self.summary(a, depth + 1) for a in alts[:3]) + (" | …" if len(alts) > 3 else "")
+        t = p.get("type")
+        if t == "array":
+            cap = f" (max {p['maxItems']})" if "maxItems" in p else ""
+            return f"array{cap} of {self.summary(p.get('items', {}), depth + 1) if depth < 2 else '…'}"
+        if t == "object" or "properties" in p:
+            if depth >= 2:
+                return "object"
+            req = set(p.get("required", []))
+            return "{" + ", ".join(f"{k}{'' if k in req else '?'}: {self.summary(v, depth + 1)}" for k, v in list(p.get("properties", {}).items())[:6]) + "}"
+        if t in ("integer", "number"):
+            rng = [f"min {p['minimum']}" if "minimum" in p else "", f"max {p['maximum']}" if "maximum" in p and p["maximum"] < 1e12 else ""]
+            return t + (f" ({', '.join(x for x in rng if x)})" if any(rng) else "")
+        if t == "string":
+            return "text" + (f" (max {p['maxLength']})" if "maxLength" in p else "")
+        return t or "value"
+
     def field(self, name, p, required):
         p = self.R(p)
         f = {"name": name, "label": human(name), "required": required, "desc": (p.get("description") or "")[:400]}
@@ -333,19 +362,22 @@ def build_catalog():
             mid = N.R(props.get("model", {})).get("const")
             if not mid:
                 continue
-            fields, missing = [], []
+            fields, missing, extra = [], [], []
             for k, v in props.items():
                 if k == "model":
                     continue
                 f = N.field(k, v, k in req)
                 if f is None or (f["kind"] == "const" and k not in req):
-                    if k in req:
-                        missing.append(human(k))
+                    if f is None:  # no form control for it: offered under Additional parameters as JSON
+                        extra.append({"name": k, "required": k in req, "hint": N.summary(v)[:240],
+                                      "desc": (N.R(v).get("description") or "")[:400]})
+                        if k in req:
+                            missing.append(k)
                     continue
                 f["advanced"] = not (k in req or k in MAIN)
                 fields.append(f)
-            models.append({"id": mid, "fields": fields,
-                           "unsupported": f"needs {', '.join(missing)}, which this window can't fill in" if missing else None})
+            models.append({"id": mid, "fields": fields, "extra": extra, "needs": missing,
+                           "keys": sorted(k for k in props if k != "model")})
         tasks.append({"category": cat, "endpoint": ep, "label": label, "output": out, "models": models})
     catalog_cache.update(at=time.time(), data={"tasks": tasks})
     return catalog_cache["data"]
@@ -407,12 +439,20 @@ def submit(body, key):
     task, m = find_model(str(body.get("endpoint")), str(body.get("model")))
     if not m:
         raise ValueError("Pick a task and a model from the lists.")
-    if m.get("unsupported"):
-        raise ValueError(f"{m['id']} {m['unsupported']}.")
-    values, media = body.get("values") or {}, body.get("media") or {}
+    values, media, extra = body.get("values") or {}, body.get("media") or {}, body.get("extra") or {}
+    if not isinstance(extra, dict):
+        raise ValueError("Additional parameters must be a JSON object, like {\"seed\": 42}.")
+    bad = [k for k in extra if k not in m["keys"]]
+    if bad:
+        raise ValueError(f"{m['id']} doesn't take {', '.join(bad)}. It takes: {', '.join(m['keys'])}.")
+    missing = [k for k in m.get("needs", []) if k not in extra]
+    if missing:
+        raise ValueError(f"{m['id']} needs {', '.join(missing)}. Add them under Additional parameters.")
     req, params, inputs, parent, first_input = {"model": m["id"]}, {}, [], None, None
     for f in m["fields"]:
         n = f["name"]
+        if n in extra:  # set by hand under Additional parameters
+            continue
         if f["kind"] == "const":
             req[n] = f["value"]
             continue
@@ -474,6 +514,9 @@ def submit(body, key):
                 raise ValueError(f"{f['label']} needs at least {f['minLength']} characters.")
             req[n] = v
         params[n] = v
+    if extra:
+        req.update(extra)
+        params["extra"] = extra
     try:
         task_resp = call(f"/{task['endpoint']}", key, req)
     except urllib.error.HTTPError as e:
@@ -493,6 +536,9 @@ def submit(body, key):
            "createdAt": now.isoformat(timespec="seconds"), "origin": "dashboard"}
     if isinstance(params.get("duration"), (int, float)):
         row["duration"] = params["duration"]
+    q = quote(body)
+    if q.get("credits") is not None:
+        row["quotedCredits"], row["quoteExact"] = q["credits"], bool(q.get("exact"))
     if parent:
         row["parent"] = parent
     with lock:
@@ -501,6 +547,102 @@ def submit(body, key):
         save(data)
     wake.set()
     return row
+
+
+usage_cache = {}
+probe_cache = {}
+
+
+def probe(path):
+    """Width, height, seconds and fps of a local media file (ffprobe), cached by path and mtime."""
+    st = os.stat(path)
+    ck = (path, st.st_mtime)
+    if ck in probe_cache:
+        return probe_cache[ck]
+    out = {}
+    if shutil.which("ffprobe"):
+        r = subprocess.run(["ffprobe", "-v", "error", "-print_format", "json", "-show_streams", "-show_format", path],
+                           capture_output=True, text=True, check=False)
+        try:
+            j = json.loads(r.stdout or "{}")
+            v = next((x for x in j.get("streams", []) if x.get("codec_type") == "video"), {})
+            out = {"w": v.get("width"), "h": v.get("height"), "seconds": float(j.get("format", {}).get("duration") or 0) or None}
+            if v.get("r_frame_rate") and "/" in v["r_frame_rate"]:
+                a, b = v["r_frame_rate"].split("/")
+                out["fps"] = round(int(a) / int(b), 3) if int(b) else None
+        except Exception:
+            out = {}
+    probe_cache[ck] = out
+    return out
+
+
+def quote(body):
+    """Exact price before submitting, from pricing.py and the real sizes and lengths of the chosen inputs."""
+    try:
+        from pricing import estimate
+    except Exception as e:
+        return {"credits": None, "exact": False, "note": f"pricing table unavailable ({type(e).__name__})"}
+    task, m = find_model(str(body.get("endpoint")), str(body.get("model")))
+    if not m:
+        return {"credits": None, "exact": False, "note": "unknown model"}
+    params = {**(body.get("values") or {}), **(body.get("extra") or {})}
+    inputs = {}
+    for f in m["fields"]:
+        if f["kind"] != "media":
+            continue
+        refs = (body.get("media") or {}).get(f["name"]) or []
+        refs = refs if isinstance(refs, list) else [refs]
+        info = []
+        for ref in refs:
+            try:
+                path, kind, _ = local_media(ref)
+                info.append((kind, probe(path)))
+            except Exception:
+                pass
+        if not info:
+            continue
+        n, kinds = f["name"], [k for k, _ in info]
+        if n in ("references", "referenceImages"):
+            inputs["referenceImages"] = inputs.get("referenceImages", 0) + kinds.count("image")
+        elif n == "referenceVideos":
+            inputs["referenceVideos"] = len(info)
+            inputs["referenceVideoSeconds"] = [p.get("seconds") or 0 for _, p in info]
+        elif n == "referenceAudio" or n == "referenceAudios":
+            inputs["referenceAudio"] = len(info)
+        elif n == "promptImage":
+            inputs["promptImages"] = len(info)
+        elif n == "imageUri":
+            inputs["inputImageWidth"], inputs["inputImageHeight"] = info[0][1].get("w"), info[0][1].get("h")
+        elif kinds[0] == "video":
+            p = info[0][1]
+            inputs.update(inputVideoSeconds=p.get("seconds"), inputVideoWidth=p.get("w"), inputVideoHeight=p.get("h"), inputVideoFps=p.get("fps"))
+        elif kinds[0] == "audio":
+            inputs["inputAudioSeconds"] = info[0][1].get("seconds")
+    inputs = {k: v for k, v in inputs.items() if v not in (None, [])}
+    try:
+        return estimate(task["endpoint"], m["id"], params, inputs)
+    except Exception as e:
+        return {"credits": None, "exact": False, "note": f"couldn't price this ({type(e).__name__}: {e})"}
+
+
+def org_usage(days, key):
+    """Credits the whole org spent per model per day (Runway's /organization/usage), cached 5 minutes."""
+    days = max(1, min(90, int(days)))
+    hit = usage_cache.get(days)
+    if hit and time.time() - hit[0] < 300:
+        return hit[1]
+    from datetime import date, timedelta
+    before = date.today() + timedelta(days=1)  # beforeDate is exclusive, so include today
+    start = before - timedelta(days=days)
+    try:
+        r = call("/organization/usage", key, {"startDate": start.isoformat(), "beforeDate": before.isoformat()})
+    except urllib.error.HTTPError as e:
+        raise ValueError(api_error(e))
+    out = {"startDate": start.isoformat(), "beforeDate": before.isoformat(), "days": days,
+           "results": r.get("results", []), "models": r.get("models", []),
+           "fetchedAt": datetime.now().astimezone().isoformat(timespec="seconds")}
+    usage_cache[days] = (time.time(), out)
+    return out
 
 
 def save_upload(handler, length):
@@ -623,8 +765,10 @@ def tick(key):
         try:
             updates[tid] = task_updates(run, call(f"/tasks/{tid}", key))
         except urllib.error.HTTPError as e:
-            if e.code == 404:  # Runway no longer keeps this task
-                updates[tid] = {"synced": True}
+            if e.code == 404:  # Runway no longer keeps this task (cancelled tasks are deleted)
+                updates[tid] = {"synced": True, "progress": None}
+                if run.get("status") in ACTIVE:
+                    updates[tid].update(status="cancelled", finishedAt=datetime.now().astimezone().isoformat(timespec="seconds"))
             else:
                 raise
     with lock:
@@ -683,6 +827,19 @@ class Handler(SimpleHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        if self.path.startswith("/api/usage"):
+            key = api_key()
+            if not key:
+                self.send_json(400, {"error": "No Runway API key. Add it from Start → Runway API key…"})
+                return
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            try:
+                self.send_json(200, org_usage(q.get("days", ["30"])[0], key))
+            except ValueError as e:
+                self.send_json(502, {"error": str(e)})
+            except Exception as e:
+                self.send_json(502, {"error": f"Couldn't reach Runway ({type(e).__name__})."})
+            return
         if self.path.startswith("/api/models"):
             cat = build_catalog()
             self.send_json(200 if cat else 503, cat or {"error": "Couldn't download Runway's model list. Check the connection."})
@@ -734,7 +891,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         action = self.path.split("?")[0].rsplit("/", 1)[-1]
-        if not self.path.startswith("/api/") or action not in ("reveal", "open", "generate", "cancel", "key", "upload"):
+        if not self.path.startswith("/api/") or action not in ("reveal", "open", "generate", "cancel", "key", "upload", "price"):
             self.send_error(404)
             return
         if not self.same_origin():
@@ -751,6 +908,12 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if length > 12 * 1024 * 1024:
             self.send_json(413, {"error": "The request is too big. Start frames must be under 5 MB."})
+            return
+        if action == "price":
+            try:
+                self.send_json(200, quote(json.loads(self.rfile.read(length) or b"{}")))
+            except Exception as e:
+                self.send_json(400, {"error": f"Couldn't read the request ({type(e).__name__})."})
             return
         if action == "key":
             try:
@@ -777,6 +940,13 @@ class Handler(SimpleHTTPRequestHandler):
                         self.send_json(400, {"error": "Only queued or rendering jobs can be cancelled."})
                         return
                     call(f"/tasks/{tid}", key, method="DELETE")
+                    with lock:  # mark it right away; Runway may delete the task, so a later sync can't tell
+                        d = load()
+                        for r in d.get("runs", []):
+                            if r.get("taskId") == tid and r.get("status") in ACTIVE:
+                                r.update(status="cancelled", synced=True, progress=None,
+                                         finishedAt=datetime.now().astimezone().isoformat(timespec="seconds"))
+                        save(d)
                     wake.set()
                     self.send_json(200, {"ok": True})
             except urllib.error.HTTPError as e:
