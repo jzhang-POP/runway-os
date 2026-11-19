@@ -1337,6 +1337,7 @@
     if (!saved.fontV2) { delete saved.font; delete saved.textPx; saved.fontV2 = true; } // readable smooth font became the default
     if (!saved.fontV3) { delete saved.font; saved.fontV3 = true; } // IBM Plex Sans became the default
     if (!saved.sizeV4) { delete saved.textPx; delete saved.textSize; saved.sizeV4 = true; } // bigger default text for the smooth fonts
+    if (!saved.sizeV5) { if (saved.font !== "pixel" && +saved.textPx < 13) delete saved.textPx; saved.sizeV5 = true; } // sizes under 13 px came from the pixel-font marks and are too small for the outline fonts
     opts = { ...OPT_DEFAULT, ...saved };
   } catch {}
   // color schemes, like Win95's Display Properties → Appearance; the tokens live in index.html (html[data-theme])
@@ -1349,6 +1350,14 @@
   function textSizes() {
     const dpr = Math.max(1, Math.round(devicePixelRatio || 1)), steps = dpr >= 2 ? [2, 3, 4] : [1, 2, 3];
     return { small: (11 * steps[0]) / dpr, medium: (11 * steps[1]) / dpr, large: (11 * steps[2]) / dpr, dpr };
+  }
+  // the Scale slider for the current font and screen. def is the size applyOptions uses when no size is saved, marked "Medium".
+  // The outline fonts start at 12 px; the pixel font keeps its sharp sizes, whole multiples of 11 screen pixels.
+  function tszRange() {
+    const hi = textSizes().dpr >= 2;
+    if (opts.font === "pixel") { const def = hi ? 16.5 : 11; return { min: 10, max: 24, def, marks: hi ? [[11, "Small"], [def, "Medium"], [22, "Large"]] : [[def, "Medium"], [22, "Large"]] }; }
+    const def = hi ? 16 : 14;
+    return { min: 12, max: 24, def, marks: [[13, "Small"], [def, "Medium"], [18, "Large"], [22, "Larger"]] };
   }
   function applyOptions() {
     const root = document.documentElement, ts = textSizes(), pixel = opts.font === "pixel";
@@ -1386,6 +1395,8 @@
     tick();
   }
   function setOpt(k, v) {
+    // the pixel font and the outline fonts have different default sizes, so a chosen size doesn't carry over between them
+    if (k === "font" && (v === "pixel") !== (opts.font === "pixel")) opts.textPx = 0;
     opts[k] = v;
     try { localStorage.setItem(OPT_KEY, JSON.stringify(opts)); } catch {}
     applyOptions();
@@ -1416,7 +1427,9 @@
     const applied = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--fs")) || 11;
     const fs = preview ?? applied, dpr = Math.max(1, Math.round(devicePixelRatio || 1));
     const sharp = Math.abs((fs * dpr) / 11 - Math.round((fs * dpr) / 11)) < 1e-6;
-    el.textContent = `${fs} px text · ${Math.round((fs / 11) * 100)}% · ${opts.font !== "pixel" ? "smooth font, any size works" : sharp ? "sharp with the pixel font" : `slightly soft with the pixel font. Sharp sizes here: ${[1, 2, 3, 4].map(n => (11 * n) / dpr).filter(x => x >= 10 && x <= 24).join(", ")} px`}${preview != null && preview !== applied ? " · release to apply" : ""}`;
+    const sl = $(".tsz", w.body), min = sl ? +sl.min : 10, max = sl ? +sl.max : 24, pct = Math.round((fs / 11) * 100);
+    el.textContent = `${fs} px text · ${pct}% · ${opts.font !== "pixel" ? "smooth font, any size works" : sharp ? "sharp with the pixel font" : `slightly soft with the pixel font. Sharp sizes here: ${[1, 2, 3, 4].map(n => (11 * n) / dpr).filter(x => x >= min && x <= max).join(", ")} px`}${preview != null && preview !== applied ? " · release to apply" : ""}`;
+    sl?.setAttribute("aria-valuetext", `${fs} px text, ${pct}%`);
     $$("[data-tsz]", w.body).forEach(b => b.setAttribute("aria-pressed", +b.dataset.tsz === fs));
   }
   function optionsRender(w) {
@@ -1425,16 +1438,18 @@
     const radio = (k, v, label, hint) => `<label class="opt-radio"><input type="radio" name="o-${k}" data-opt="${k}" value="${esc(v)}" ${String(opts[k]) === String(v) ? "checked" : ""}><span>${label}${hint ? ` <span class="muted">${hint}</span>` : ""}</span></label>`;
     const check = (k, label, hint) => `<label class="check opt-check"><input type="checkbox" data-opt="${k}" ${opts[k] ? "checked" : ""}><span>${label}${hint ? `<br><span class="muted">${hint}</span>` : ""}</span></label>`;
     const cur = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--fs")) || 11;
+    // marks sit under the slider's thumb positions; two marks too close to center both labels share the gap between them
+    const R = tszRange(), at = v => (v - R.min) / (R.max - R.min), near = (a, b) => !!b && Math.abs(at(a[0]) - at(b[0])) < 0.15;
     let panel;
     if (tab === "access") panel = `
       <fieldset class="group"><legend>Scale</legend>
         <div class="tsize">
           <span class="tsz-a" aria-hidden="true">A</span>
-          <input type="range" class="tsz" min="10" max="24" step="0.5" value="${cur}" list="tsz-ticks" aria-label="Scale, as text size in pixels">
+          <input type="range" class="tsz" min="${R.min}" max="${R.max}" step="0.5" value="${cur}" list="tsz-ticks" aria-label="Scale, as text size in pixels">
           <span class="tsz-b" aria-hidden="true">A</span>
           <span></span>
-          <div class="tsz-marks">${[[11, "Small"], [16.5, "Medium"], [22, "Large"]].map(([v, l]) => `<button class="linkish" data-tsz="${v}" style="left:calc(5.5 * var(--u) + ${(v - 10) / 14} * (100% - 11 * var(--u)))">${l}</button>`).join("")}</div>
-          <datalist id="tsz-ticks"><option value="11"></option><option value="16.5"></option><option value="22"></option></datalist>
+          <div class="tsz-marks">${R.marks.map((m, i, a) => `<button class="linkish${near(m, a[i + 1]) ? " tsz-end" : near(m, a[i - 1]) ? " tsz-start" : ""}" data-tsz="${m[0]}" style="left:calc(5.5 * var(--u) + ${at(m[0])} * (100% - 11 * var(--u)))">${m[1]}</button>`).join("")}</div>
+          <datalist id="tsz-ticks">${R.marks.map(([v]) => `<option value="${v}"></option>`).join("")}</datalist>
         </div>
         <div class="tsz-read muted"></div>
       </fieldset>
@@ -1443,7 +1458,7 @@
         ${radio("font", "dot", "DotGothic16", "pixel look, drawn as outlines so it stays sharp at any size")}
         ${radio("font", "smooth", "Tahoma", "the Windows 98/2000 system font")}
         ${radio("font", "hyper", "Atkinson Hyperlegible", "designed for low-vision readability, the easiest to read")}
-        ${radio("font", "pixel", "Pixel font", "MS Sans Serif, sharp only at Small, Medium and Large")}
+        ${radio("font", "pixel", "Pixel font", "MS Sans Serif, sharp only at the marked sizes")}
       </fieldset>
       <fieldset class="group"><legend>Display</legend>
         ${check("contrast", "High contrast", "Black background, white text, yellow highlights")}
@@ -1480,11 +1495,17 @@
     tszRead(w);
     if (!w.optBound) {
       w.optBound = true;
+      // the default size is saved as no size, so it keeps following the font and the screen; the re-render keeps keyboard focus on the slider or mark
+      const tszSet = (v, sel) => {
+        const had = document.activeElement?.matches?.(sel);
+        setOpt("textPx", v === tszRange().def ? 0 : v);
+        if (had) $(sel, w.body)?.focus({ preventScroll: true });
+      };
       // drag: resize live without rebuilding the window; release: save
       // dragging only previews the value; the scale applies on release, so the slider doesn't move under the pointer
       w.body.addEventListener("input", e => { if (e.target.matches(".tsz")) tszRead(w, +e.target.value); });
-      w.body.addEventListener("change", e => { if (e.target.matches(".tsz")) setOpt("textPx", +e.target.value); });
-      w.body.addEventListener("click", e => { const t = e.target.closest("[data-tsz]"); if (t) setOpt("textPx", +t.dataset.tsz); });
+      w.body.addEventListener("change", e => { if (e.target.matches(".tsz")) tszSet(+e.target.value, ".tsz"); });
+      w.body.addEventListener("click", e => { const t = e.target.closest("[data-tsz]"); if (t) tszSet(+t.dataset.tsz, `[data-tsz="${t.dataset.tsz}"]`); });
       w.body.addEventListener("change", e => {
         const el = e.target.closest("[data-opt]"); if (!el) return;
         const k = el.dataset.opt;
@@ -1496,7 +1517,8 @@
       w.body.addEventListener("click", e => {
         const sw = e.target.closest("button[data-opt]"); if (sw) { setOpt(sw.dataset.opt, sw.dataset.val); return; }
         if (e.target.closest("[data-chime]")) chime();
-        if (e.target.closest("[data-opt-reset]")) { opts = { ...OPT_DEFAULT }; setOpt("textSize", OPT_DEFAULT.textSize); }
+        // keep the saved-options migration flags (fontV2, sizeV5…), or the next page load would run those migrations again on the new choices
+        if (e.target.closest("[data-opt-reset]")) { opts = { ...OPT_DEFAULT, ...Object.fromEntries(Object.entries(opts).filter(([k]) => /V\d+$/.test(k))) }; setOpt("textSize", OPT_DEFAULT.textSize); }
       });
     }
   }
