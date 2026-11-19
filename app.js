@@ -463,7 +463,7 @@
   const loadingOr = msg => `<div class="empty-list">${loaded ? msg : "Loading…"}</div>`;
   // a button under an empty list's message
   const emptyAct = html => `<div class="empty-act">${html}</div>`;
-  const GEN_BTN = '<button class="raised btn-s" data-open="generate">Open Generate</button>';
+  const GEN_BTN = '<button class="raised btn-s b-default" data-open="generate"><svg class="ico" aria-hidden="true"><use href="#i-wand"/></svg><span>Open Generate</span></button>';
   // id of a row or tile, stable for the window's life, so the list can point aria-activedescendant at it
   const itemId = (w, id) => `it${w.oid ||= ++uid}-${String(id).replace(/[^\w-]/g, "_")}`;
   // button content: a 16 px icon before the label (index.html, "button icons and tones"); label is trusted HTML
@@ -848,7 +848,7 @@
           <div class="footbar">
             <span class="sunken seg grow ghint" id="${id}h"></span>
             <button type="button" class="raised btn-s gkey" data-open="key" hidden>Add key…</button>
-            <button type="submit" class="raised btn-go" title="Ctrl+Enter" aria-describedby="${id}h" aria-keyshortcuts="Control+Enter"><svg class="ico"><use href="#i-wand"/></svg><span>Generate</span></button>
+            <button type="submit" class="raised btn-go b-default" title="Ctrl+Enter" aria-describedby="${id}h" aria-keyshortcuts="Control+Enter"><svg class="ico"><use href="#i-wand"/></svg><span>Generate</span></button>
           </div>
           <input type="file" class="gfile" hidden>
         </form>`;
@@ -1847,7 +1847,7 @@
       w.shell = true;
       w.body.innerHTML = `
         <div class="toolbar"><div class="seg-tabs" role="group" aria-label="Range">${[7, 30, 90].map(d => `<button class="raised" data-days="${d}">${d} days</button>`).join("")}</div>
-          <span class="grow"></span><button class="raised btn-s" data-u="refresh">Refresh</button><button class="raised btn-s" data-u="csv">Export CSV</button></div>
+          <span class="grow"></span><button class="raised btn-s" data-u="refresh">Refresh</button><button class="raised btn-s" data-u="csv"><svg class="ico" aria-hidden="true"><use href="#i-save"/></svg><span>Export CSV</span></button></div>
         <div class="ubody" data-keep="usage"></div>
         <div class="statusbar"><span class="sunken seg grow"></span></div>`;
       w.body.addEventListener("click", e => {
