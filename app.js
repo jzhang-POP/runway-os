@@ -1416,7 +1416,7 @@
         if (!bootLog.length) { say("no startup checks logged yet", "t-dim"); break; }
         const at = new Date(performance.timeOrigin).toLocaleString([], { dateStyle: "medium", timeStyle: "medium" });
         say(`page loaded ${esc(at)}, times in seconds since then`, "t-dim");
-        say(bootLog.map(l => `<span class="t-dim">[${(l.ms / 1000).toFixed(3).padStart(8)}]</span> ${esc(l.text)}${l.bad ? `<span class="t-err">${esc(l.res)}</span>` : esc(l.res)}`).join("\n"));
+        say(bootLog.map(l => `<span class="t-dim">[${(l.ms / 1000).toFixed(3).padStart(8)}]</span> ${esc(l.text)}${l.res ? " " : ""}${l.bad ? `<span class="t-err">${esc(l.res)}</span>` : esc(l.res)}`).join("\n"));
         break;
       }
       case "clear": case "cls": t.lines = []; break;
@@ -2379,11 +2379,6 @@
     const start = async withKey => {
       if (bootDone) return;
       bootDone = true;
-      if (!fast) { // a short splash, then the desktop
-        $$(".boot-log, .boot-act, .boot-hint", el).forEach(x => { x.hidden = true; });
-        $(".boot-splash", el).hidden = false;
-        await sleep(400);
-      }
       removeEventListener("keydown", onKey, true); removeEventListener("pointerdown", onPointer, true);
       document.body.classList.remove("booting");
       el.classList.add("out");
@@ -2417,33 +2412,44 @@
       bootDone = false;
       el = document.createElement("div");
       el.className = "boot";
-      el.innerHTML = `<div class="boot-log" role="log" aria-live="polite"></div>
-        <div class="boot-act"></div>
-        <div class="boot-hint" aria-live="polite">Press any key to start when loading finishes, or Esc to start now.</div>
-        <div class="boot-splash" hidden><span class="boot-logo">${logoSVG("#ffffff")}</span><b>runway os</b><div class="prog sunken busy"><i></i></div></div>`;
+      // one centered column: logo, name, progress bar, the checks as they run, then the Start button
+      el.innerHTML = `<div class="boot-col">
+          <span class="boot-logo" aria-hidden="true">${logoSVG("#ffffff")}</span>
+          <b class="boot-name">runway os</b>
+          <div class="boot-bar" role="progressbar" aria-label="Starting runway os" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
+          <ul class="boot-log" role="log" aria-live="polite"></ul>
+          <div class="boot-sum" aria-live="polite"></div>
+          <div class="boot-act"></div>
+          <div class="boot-hint" aria-live="polite">Press any key to start when loading finishes, or Esc to start now.</div>
+        </div>`;
       document.body.append(el); document.body.classList.add("booting");
       log = $(".boot-log", el); hint = $(".boot-hint", el);
       addEventListener("keydown", onKey, true); addEventListener("pointerdown", onPointer, true);
     }
     // a line prints when its check starts; its result is added, and the line logged, when the check finishes
+    const STEPS = 5;
+    let doneSteps = 0;
     const begin = text => {
-      const d = log && document.createElement("div");
-      if (d) { d.textContent = text; log.append(d); }
+      const d = log && document.createElement("li");
+      if (d) { d.innerHTML = `<span></span><span class="res wait">…</span>`; d.firstChild.textContent = text; log.append(d); }
       return { d, text };
     };
     const end = (row, res, bad = false) => {
       bootLog.push({ ms: Math.round(performance.now()), text: row.text, res, bad });
-      if (!row.d || !res) return;
-      const s = document.createElement("span"); s.textContent = res; if (bad) s.className = "bad"; row.d.append(s);
+      doneSteps++;
+      if (el) { const pct = Math.min(100, Math.round((doneSteps / STEPS) * 100)); $(".boot-bar i", el).style.width = pct + "%"; $(".boot-bar", el).setAttribute("aria-valuenow", pct); }
+      if (!row.d) return;
+      const r = row.d.lastChild; r.textContent = res || "OK"; r.className = "res" + (bad ? " bad" : "");
     };
-    const say = (text, cls) => { const row = begin(text); if (row.d && cls) row.d.className = cls; end(row, ""); };
+    const summary = text => { bootLog.push({ ms: Math.round(performance.now()), text, res: "", bad: false }); if (el) $(".boot-sum", el).textContent = text; };
     const wait = p => upTo(p, Math.max(0, deadline - Date.now()));
 
-    say(location.protocol === "file:" ? "runway os, opened as a file" : `runway os on ${location.host}`);
-    let row = begin("Loading model list… ");
+    let row = begin("Server");
+    end(row, location.protocol === "file:" ? "opened as a file" : location.host, location.protocol === "file:");
+    row = begin("Loading model list…");
     if (!(await wait(modelsLoaded)) || !CAT) end(row, "failed. Generate can't list models", true);
     else { const t = CAT.tasks || []; end(row, `${new Set(t.flatMap(x => x.models.map(m => m.id))).size} models, ${t.length} tasks`); }
-    row = begin("Connecting to Runway API… ");
+    row = begin("Connecting to Runway API…");
     // the first /api/state answer, or the first failed poll (poll keeps retrying every 3 s)
     while (!loaded && conn.cls !== "off" && Date.now() < deadline) await upTo(ready, 50);
     if (!loaded) end(row, conn.cls === "off" ? "server not reachable" : "no answer after 8 s", true);
@@ -2451,23 +2457,21 @@
     else if (data.error) end(row, data.error, true);
     else end(row, "OK");
     const live = loaded && data.live && !data.error, n = data.runs.length;
-    if (loaded) {
-      const when = data.balanceAt ? `, last known ${absTime(tOf(data.balanceAt))}` : ", last known";
-      say(`Credits: ${data.balance == null ? "unavailable" : fmt(data.balance) + (live ? "" : when)}`);
-      say(`Jobs: ${n} found`);
-    }
-    say(!loaded ? (conn.cls === "off" ? `Server not reachable. Run python3 server.py${location.protocol === "file:" ? " and open the address it prints" : "; runway os keeps trying"}.` : "The server hasn't answered yet; runway os keeps trying.")
+    const when = data.balanceAt ? `, last known ${absTime(tOf(data.balanceAt))}` : ", last known";
+    end(begin("Credits"), !loaded || data.balance == null ? "unknown" : fmt(data.balance) + (live ? "" : when), !loaded || data.balance == null);
+    end(begin("Jobs"), loaded ? `${fmt(n)} found` : "unknown", !loaded);
+    summary(!loaded ? (conn.cls === "off" ? `Server not reachable. Run python3 server.py${location.protocol === "file:" ? " and open the address it prints" : "; runway os keeps trying"}.` : "The server hasn't answered yet; runway os keeps trying.")
       : !data.live ? "Ready without a Runway key."
       : data.error ? "Ready, but the Runway API reported an error."
-      : `Ready. ${data.balance == null ? "Credits unavailable" : fmt(data.balance) + " credits"}, ${fmt(n)} job${n === 1 ? "" : "s"}.`, "sum");
+      : `Ready. ${data.balance == null ? "Credits unavailable" : fmt(data.balance) + " credits"}, ${fmt(n)} job${n === 1 ? "" : "s"}.`);
     phase = "ready";
     if (!show || bootDone) return;
     if (early) { start(false); return; }
     const act = $(".boot-act", el), keyBtn = loaded && !live;
-    act.innerHTML = `<button class="raised btn-s" data-start>Start runway os</button>${keyBtn ? '<button class="raised btn-s" data-start="key">Start and add API key</button>' : ""}`;
+    act.innerHTML = `<button class="raised btn-s default" data-start>Start runway os</button>${keyBtn ? '<button class="raised btn-s" data-start="key">Start and add API key</button>' : ""}`;
     act.addEventListener("click", e => { const b = e.target.closest("[data-start]"); if (b) start(b.dataset.start === "key"); });
     $("button", act).focus();
-    setHint(keyBtn ? "Press Enter to start, or Tab to choose the other button." : "Press Enter to start.");
+    setHint(keyBtn ? "Press Enter to start, or Tab to choose the other button." : "Press Enter to start");
   }
 
   /* ---------- live data ---------- */

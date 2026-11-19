@@ -588,25 +588,33 @@
   .startmenu button svg { width: round(calc(22 * var(--u)), 1px); height: round(calc(22 * var(--u)), 1px); }
   .startmenu button:hover, .startmenu button:focus-visible { background: var(--sel); color: #fff; outline: none; }
 
-  /* ---------- boot screen: BIOS self-test, then a splash; black like a real boot ---------- */
-  .boot { position: fixed; inset: 0; z-index: 300000; background: #000; color: #c0c0c0; font-family: var(--ui); font-size: var(--fsL); padding: var(--s5); overflow: auto; cursor: default; }
+  /* ---------- boot screen: one centered column (logo, name, progress bar, the checks, Start); black like a real boot ---------- */
+  .boot { position: fixed; inset: 0; z-index: 300000; background: #000; color: #c0c0c0; font-family: var(--ui); font-size: var(--fs); overflow: auto; cursor: default;
+    display: grid; place-items: center; padding: var(--s5) max(var(--s4), env(safe-area-inset-right, 0px)) var(--s5) max(var(--s4), env(safe-area-inset-left, 0px)); }
   .boot.out { opacity: 0; transition: opacity .2s; pointer-events: none; }
-  .boot-log div { white-space: pre-wrap; }
-  .boot-log .bad { color: #ff6b6b; }
-  .boot-splash { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--s4); color: #fff; }
+  html.calm .boot.out { transition: none; }
+  .boot-col { width: min(100%, round(calc(460 * var(--u) / var(--scale) * 1.2), 1px)); display: flex; flex-direction: column; align-items: center; gap: var(--s3); }
   .boot-logo svg { display: block; width: round(calc(96 * var(--u)), 1px); height: round(calc(96 * var(--u)), 1px); }
-  .boot-splash b { font-size: var(--fs2); font-weight: 400; }
-  .boot-splash .prog { width: round(calc(220 * var(--u)), 1px); --face-2: #000; --lo: #808080; --hi: #fff; --deep: #404040; --mid: #c0c0c0; --blue: #1f6fc4; }
-  .boot-hint { margin-top: var(--s5); color: #9a9a9a; }
-  body.booting .taskbar, body.booting #desktop { visibility: hidden; }
-
-  /* ---------- boot screen: summary line and start buttons, Win95 gray on the black screen in every theme ---------- */
-  .boot-log .sum { margin-top: var(--s4); color: #fff; }
-  .boot-act { display: flex; flex-wrap: wrap; gap: var(--s3); margin-top: var(--s5);
+  .boot-name { color: #fff; font-size: var(--fs2); font-weight: 600; margin-bottom: var(--s2); }
+  .boot-bar { width: 100%; height: round(calc(22 * var(--u)), 1px); padding: 3px; background: #000; box-shadow: inset 1px 1px 0 #808080, inset -1px -1px 0 #fff, inset 2px 2px 0 #000, inset -2px -2px 0 #dfdfdf; }
+  .boot-bar i { display: block; height: 100%; width: 0; background: repeating-linear-gradient(90deg, #1f6fc4 0 round(calc(10 * var(--u)), 1px), transparent 0 round(calc(12 * var(--u)), 1px)); transition: width .25s steps(6); }
+  html.calm .boot-bar i { transition: none; }
+  .boot-log { width: 100%; margin: var(--s1) 0 0; padding: 0; list-style: none; }
+  .boot-log li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s4); align-items: baseline; padding: 1px 0; }
+  .boot-log li > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .boot-log .res { color: #fff; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .boot-log .res.wait { color: #808080; }
+  .boot-log .res.bad { color: #ff6b6b; }
+  .boot-sum { color: #fff; min-height: 1.5em; text-align: center; margin-top: var(--s2); }
+  .boot-act { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s3); margin-top: var(--s2);
     --face: #c0c0c0; --pressed: #c0c0c0; --hi: #fff; --lo: #000; --mid: #dfdfdf; --deep: #808080; --fg: #000; }
   .boot-act:empty { display: none; }
-  .boot-act .btn-s { padding: var(--s1) var(--s5); }
-  .boot-act .btn-s:focus { outline: var(--g1) dotted #000; outline-offset: calc(-1 * var(--s1)); }
+  .boot-act .btn-s { padding: var(--s2) var(--s5); font-weight: 600; color: #000; }
+  .boot-act .btn-s.default { outline: 1px solid #000; }
+  .boot-act .btn-s:focus-visible, .boot-act .btn-s:focus { outline: 1px dotted #000; outline-offset: calc(-1 * var(--s1)); }
+  .boot-act .btn-s.default:focus { box-shadow: 0 0 0 1px #000, inset 1px 1px 0 #fff, inset -1px -1px 0 #000, inset 2px 2px 0 #dfdfdf, inset -2px -2px 0 #808080; }
+  .boot-hint { color: #9a9a9a; text-align: center; min-height: 1.5em; }
+  body.booting .taskbar, body.booting #desktop { visibility: hidden; }
   html.contrast .boot, html.contrast .boot-hint { color: #fff; }
 
   @media (max-width: 600px) {
