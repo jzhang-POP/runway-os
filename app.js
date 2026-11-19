@@ -199,7 +199,7 @@
       id, kind, arg: arg || null, el, body: $(".wbody", el), prev: null, rendered: null, shell: false,
       x: num(g.x, 40), y: num(g.y, 40), wd: num(g.wd, 480), ht: num(g.ht, 320),
       max: !!g.max, minimized: !!g.minimized, snapped: !!g.snapped, pre: g.pre || null,
-      filter: g.filter || "all", q: g.q || "", sort: g.sort || { key: "created", dir: -1 }, size: num(g.size, 132), sel: g.sel || null, tab: g.tab || "general",
+      filter: g.filter || "all", q: g.q || "", sort: g.sort || { key: "created", dir: -1 }, size: num(g.size, 132), sel: g.sel || null, tab: g.tab || "general", days: [7, 30, 90].includes(g.days) ? g.days : undefined,
       gen: { cat: "Video", ep: {}, model: {}, vals: {}, media: {}, adv: false, pending: null, ...(g.gen || {}) },
     };
     w.seq = num(g.seq, ++seqTop); seqTop = Math.max(seqTop, w.seq);
@@ -636,7 +636,7 @@
       w.body.innerHTML = `
         <div class="toolbar"><label class="sizer">Size <input type="range" min="84" max="260" step="4" value="${w.size}" aria-label="Thumbnail size" aria-valuetext="${w.size} px thumbnails"></label></div>
         <div class="gridwrap sunken" data-keep="grid" tabindex="0" role="listbox" aria-label="${plural(type)}"><div class="grid"></div></div>
-        <div class="statusbar"><span class="sunken seg grow"></span><span class="sunken seg">${type === "video" ? "Hover to preview · " : ""}${type === "audio" ? "Double-click to open" : "Double-click or Enter to open"}</span></div>`;
+        <div class="statusbar"><span class="sunken seg grow"></span><span class="sunken seg">${type === "video" ? "Hover to preview · " : ""}Double-click or Enter to open</span></div>`;
       $("input", w.body).addEventListener("input", e => { w.size = +e.target.value; e.target.setAttribute("aria-valuetext", `${w.size} px thumbnails`); $(".grid", w.body).style.setProperty("--tile", w.size + "px"); save(); });
     }
     const items = assetsOf(type), grid = $(".grid", w.body), wrap = $(".gridwrap", w.body);
@@ -1723,7 +1723,7 @@
         <div class="ubody" data-keep="usage"></div>
         <div class="statusbar"><span class="sunken seg grow"></span></div>`;
       w.body.addEventListener("click", e => {
-        const d = e.target.closest("[data-days]"); if (d) { w.days = +d.dataset.days; usageRender(w); save(); return; }
+        const d = e.target.closest("[data-days]"); if (d) { w.days = +d.dataset.days; retitle(w); renderTasks(); usageRender(w); save(); return; }
         // view filters only: a model (legend or By model row) and a day (its bar); no refetch, the CSV stays complete
         const m = e.target.closest("[data-um]"); if (m) { w.umodel = w.umodel === m.dataset.um ? null : m.dataset.um; usageView(w); return; }
         const g = e.target.closest(".uday"); if (g) { w.uday = w.uday === g.dataset.date ? null : g.dataset.date; usageView(w); return; }
@@ -1993,7 +1993,7 @@
   }
   function resetLayout() {
     [...wins.values()].forEach(w => { w.el.remove(); wins.delete(w.id); });
-    refreshFront(); save();
+    refreshFront(); save(); startBtn.focus();
   }
 
   /* ---------- clipboard, files, balloons ---------- */
@@ -2036,7 +2036,7 @@
     if (opts.sound) chime(ok);
     if (opts.notify && document.hidden && "Notification" in window && Notification.permission === "granted") {
       try { const n = new Notification(ok ? `${cap(r.type)} finished` : `Job ${r.status}`, { body: ok ? `${r.asset || r.taskId}${r.credits != null ? ` · ${fmt(r.credits)} credits` : ""}` : (r.failure || r.taskId), tag: r.taskId });
-        n.onclick = () => { focus(); open(ok && r.asset ? "viewer" : "props", r.taskId); n.close(); }; } catch {}
+        n.onclick = () => { window.focus(); open(ok && r.asset ? "viewer" : "props", r.taskId); n.close(); }; } catch {}
     }
     if (document.hidden) { unseen++; setTitle(); }
     if (!opts.balloons) return;
@@ -2198,7 +2198,7 @@
     if (e.target.closest("input, textarea")) return;
     if (!f) return;
     const sel = runOf(f.sel);
-    if ((f.kind === "jobs" || f.kind === "images" || f.kind === "videos") && !e.target.closest(".dicon")) {
+    if ((f.kind === "jobs" || f.kind === "images" || f.kind === "videos" || f.kind === "audio") && !e.target.closest(".dicon")) {
       const grid = f.kind !== "jobs";
       if (e.key === "ArrowDown") { e.preventDefault(); moveSel(f, grid ? 2 : 1); }
       else if (e.key === "ArrowUp") { e.preventDefault(); moveSel(f, grid ? -2 : -1); }
@@ -2224,7 +2224,7 @@
   function save() {
     clearTimeout(saveT);
     saveT = setTimeout(() => {
-      const list = [...wins.values()].map(w => ({ kind: w.kind, arg: w.arg, x: w.x, y: w.y, wd: w.wd, ht: w.ht, max: w.max, minimized: w.minimized, snapped: w.snapped, pre: w.pre, z: w.z, seq: w.seq, filter: w.filter, q: w.q, sort: w.sort, size: w.size, sel: w.sel, tab: w.tab, gen: w.kind === "generate" ? w.gen : undefined }));
+      const list = [...wins.values()].map(w => ({ kind: w.kind, arg: w.arg, x: w.x, y: w.y, wd: w.wd, ht: w.ht, max: w.max, minimized: w.minimized, snapped: w.snapped, pre: w.pre, z: w.z, seq: w.seq, filter: w.filter, q: w.q, sort: w.sort, size: w.size, sel: w.sel, tab: w.tab, days: w.days, gen: w.kind === "generate" ? w.gen : undefined }));
       try { localStorage.setItem(KEY, JSON.stringify(list)); } catch {}
     }, 150);
   }
