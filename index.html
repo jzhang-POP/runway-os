@@ -461,6 +461,9 @@
   .knote a { color: var(--blue); }
 
   /* ---------- Options ---------- */
+  /* Scale marks too close to center both labels: the left label ends at its mark, the right one starts at its mark */
+  .tsz-marks button.tsz-end { transform: translateX(-100%); }
+  .tsz-marks button.tsz-start { transform: none; }
   .opt-radio, .opt-check { display: flex; gap: var(--s3); align-items: flex-start; padding: var(--g2) 0; cursor: pointer; }
   .opt-radio input, .opt-check input { margin: var(--g2) 0 0; accent-color: var(--blue); flex: none; }
   .opt-radio input { width: round(calc(13 * var(--u)), 1px); height: round(calc(13 * var(--u)), 1px); }
