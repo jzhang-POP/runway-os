@@ -244,7 +244,11 @@
 
   /* ---------- desktop ---------- */
   #desktop { position: fixed; top: env(safe-area-inset-top, 0px); left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px); bottom: calc(var(--bar) + env(safe-area-inset-bottom, 0px)); overflow: hidden; }
-  .icons { position: absolute; left: var(--s3); top: var(--s4); bottom: var(--s3); display: flex; flex-direction: column; flex-wrap: wrap; align-content: flex-start; gap: var(--s3); }
+  /* desktop icons sit on a grid (app.js layoutIcons): each has a slot, moved by dragging */
+  .icons { position: absolute; inset: 0; pointer-events: none; }
+  .icons .dicon { position: absolute; left: 0; top: 0; pointer-events: auto; touch-action: none; }
+  .icons .dicon.dragging { z-index: 5; opacity: .75; transition: none; }
+  .icons:not(.ready) .dicon { visibility: hidden; }
   .dicon { width: round(calc(78 * var(--u)), 1px); padding: var(--s1) 2px; display: flex; flex-direction: column; align-items: center; gap: var(--s1); background: none; border: 0; color: #fff; cursor: default; text-align: center; }
   .dicon svg { width: var(--ico-xl); height: var(--ico-xl); }
   .dicon span { padding: 0 var(--g2); }
@@ -699,7 +703,6 @@
 
   @media (max-width: 600px) {
     .dig { width: round(calc(15 * var(--u)), 1px); height: round(calc(27 * var(--u)), 1px); }
-    .icons { flex-direction: row; }
     #tray-bal span, .task span { display: none; }
   }
   /* Activity window: the job lines reuse the .gs-* styles; the list fills the window */
@@ -709,6 +712,9 @@
   .act .gs-name > span { display: flex; flex-direction: column; min-width: 0; }
   .act .gs-name b { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .act .gs-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* drag and drop into Generate: the input under the pointer is outlined */
+  [data-strip].over { outline: 2px dotted var(--blue); outline-offset: 2px; }
+  [draggable="true"] { -webkit-user-drag: element; }
   /* a value being refreshed stays on screen, dimmed, until the new one arrives */
   .stale { opacity: .6; }
   /* interface text doesn't select like a web page; typed and quoted text stays selectable */

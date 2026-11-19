@@ -470,6 +470,16 @@
       sheetTab(w, tabs[(i + n) % n].dataset.tab);
     });
   }
+  // drag and drop of saved files between windows (Jobs rows, gallery tiles, the viewer) into Generate's inputs
+  const DRAG_TYPE = "application/x-runway-run";
+  addEventListener("dragstart", e => {
+    const src = e.target.closest?.("[draggable][data-id]"); if (!src) return;
+    const r = runOf(src.dataset.id); if (!r?.asset) { e.preventDefault(); return; }
+    e.dataTransfer.setData(DRAG_TYPE, r.taskId);
+    e.dataTransfer.setData("text/plain", r.asset);
+    e.dataTransfer.effectAllowed = "copy";
+    const img = src.querySelector("img"); if (img?.complete) e.dataTransfer.setDragImage(img, 16, 16);
+  });
   const loadingOr = msg => `<div class="empty-list">${loaded ? msg : "Loading…"}</div>`;
   // update an element to match new HTML, touching only what changed: no flashing, images don't reload, scroll and hover stay.
   // Elements marked data-live (e.g. a hover preview video) are left alone.
@@ -603,7 +613,7 @@
       $(".seg-tabs", w.body).innerHTML = types.map(t => `<button class="raised" data-filter="${esc(t)}" aria-pressed="${t === w.filter}">${t === "all" ? "All" : esc(plural(t))}</button>`).join("");
       $$(".th [data-sort]", w.body).forEach(b => { b.parentElement.setAttribute("aria-sort", b.dataset.sort === w.sort.key ? (w.sort.dir > 0 ? "ascending" : "descending") : "none"); });
       morph($(".rows", w.body), list.length ? list.map(r => `
-        <div class="row${r.taskId === w.sel ? " sel" : ""}" role="row" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${r.taskId === w.sel}">
+        <div class="row${r.taskId === w.sel ? " sel" : ""}" role="row" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${r.taskId === w.sel}"${r.asset ? ' draggable="true"' : ""}>
           <div class="c c-name" role="gridcell">${miniThumb(r)}<span class="nm"><b title="${esc(r.prompt)}">${esc(r.prompt)}</b><small>${esc(r.asset || r.settings)}${filesOf(r).length > 1 ? ` <span class="muted">· ${filesOf(r).length} files</span>` : ""}</small></span></div>
           <div class="c c-type" role="gridcell">${esc(cap(r.type))}</div>
           <div class="c c-model" role="gridcell" title="${esc(r.model)}">${esc(r.model)}</div>
@@ -611,7 +621,7 @@
           <div class="c c-cost num" role="gridcell">${costHTML(r)}</div>
           <div class="c c-created" role="gridcell">${relHTML(r.createdAt || r.date)}</div>
         </div>${filesOf(r).slice(1).map((_, k) => { const f = fileItem(r, k + 1); return `
-        <div class="row kid${f.taskId === w.sel ? " sel" : ""}" role="row" id="${itemId(w, f.taskId)}" data-id="${esc(f.taskId)}" aria-selected="${f.taskId === w.sel}">
+        <div class="row kid${f.taskId === w.sel ? " sel" : ""}" role="row" id="${itemId(w, f.taskId)}" data-id="${esc(f.taskId)}" aria-selected="${f.taskId === w.sel}" draggable="true">
           <div class="c c-name" role="gridcell">${miniThumb(f)}<span class="nm"><b title="${esc(f.asset)}">${esc(f.asset)}</b><small>File ${k + 2} of ${filesOf(r).length}</small></span></div>
           <div class="c c-type" role="gridcell">${esc(cap(r.type))}</div>
           <div class="c c-model" role="gridcell"></div><div class="c c-status" role="gridcell"></div><div class="c c-cost num" role="gridcell"></div><div class="c c-created" role="gridcell"></div>
@@ -644,7 +654,7 @@
       w.rendered = r.asset;
       const src = encodeURI(r.asset), audio = r.type === "audio", video = r.type === "video" || audio;
       w.body.innerHTML = `
-        <div class="stage sunken${audio ? " audio" : ""}" data-keep="stage" title="${video ? "" : "Click to toggle actual size"}">${audio
+        <div class="stage sunken${audio ? " audio" : ""}" data-keep="stage" data-id="${esc(r.taskId)}" draggable="true" title="${video ? "" : "Click to toggle actual size"}">${audio
           ? `<svg class="aud-ico" aria-hidden="true"><use href="#i-audio"/></svg><div class="aud-txt">${esc(r.prompt)}</div><audio src="${src}" controls autoplay></audio>`
           : video ? `<video src="${src}" poster="${thumbOf(r)}" controls autoplay muted loop playsinline></video>`
           : `<img src="${src}" alt="${esc(r.prompt)}" draggable="false">`}</div>
@@ -715,7 +725,7 @@
     const items = assetsOf(type), grid = $(".grid", w.body), wrap = $(".gridwrap", w.body);
     grid.style.setProperty("--tile", w.size + "px");
     morph(grid, items.length ? items.map(r => `
-      <div class="tile${r.taskId === w.sel ? " sel" : ""}" role="option" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${r.taskId === w.sel}" aria-label="${esc(r.asset)}" title="${esc(r.prompt)}">
+      <div class="tile${r.taskId === w.sel ? " sel" : ""}" role="option" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${r.taskId === w.sel}" aria-label="${esc(r.asset)}" title="${esc(r.prompt)}" draggable="true">
         <span class="thumb sunken">${thumbInner(thumbOf(r), type)}${type === "video" ? '<span class="play"></span>' : ""}</span>
         <span class="cap">${esc(r.asset)}</span>
       </div>`).join("") : loadingOr(`No ${type === "audio" ? "audio" : type + "s"} yet. Finished ${type === "audio" ? "audio files are" : type + "s are"} saved here automatically.${emptyAct(GEN_BTN)}`));
@@ -934,9 +944,20 @@
       });
       fileIn.addEventListener("change", () => { const file = fileIn.files[0], fld = fileIn.dataset.field; fileIn.value = ""; if (file) genUpload(w, file, fld); });
       // drop a file anywhere on the window: it goes to the first input that takes its type
-      w.el.addEventListener("dragover", e => { if ([...(e.dataTransfer?.types || [])].includes("Files")) { e.preventDefault(); w.el.classList.add("drop"); } });
-      w.el.addEventListener("dragleave", e => { if (!w.el.contains(e.relatedTarget)) w.el.classList.remove("drop"); });
-      w.el.addEventListener("drop", e => { e.preventDefault(); w.el.classList.remove("drop"); const file = e.dataTransfer.files[0]; if (file) genUpload(w, file, null); });
+      const dropKind = e => { const t = [...(e.dataTransfer?.types || [])]; return t.includes(DRAG_TYPE) ? "run" : t.includes("Files") ? "file" : null; };
+      w.el.addEventListener("dragover", e => {
+        if (!dropKind(e)) return;
+        e.preventDefault(); e.dataTransfer.dropEffect = "copy"; w.el.classList.add("drop");
+        $$("[data-strip].over", w.body).forEach(x => x.classList.remove("over")); e.target.closest?.("[data-strip]")?.classList.add("over");
+      });
+      w.el.addEventListener("dragleave", e => { if (!w.el.contains(e.relatedTarget)) { w.el.classList.remove("drop"); $$("[data-strip].over", w.body).forEach(x => x.classList.remove("over")); } });
+      w.el.addEventListener("drop", e => {
+        const kind = dropKind(e); if (!kind) return;
+        e.preventDefault(); w.el.classList.remove("drop"); $$("[data-strip].over", w.body).forEach(x => x.classList.remove("over"));
+        const onField = e.target.closest?.("[data-strip]")?.dataset.strip || null;
+        if (kind === "file") { const file = e.dataTransfer.files[0]; if (file) genUpload(w, file, onField); return; }
+        genDropRun(w, e.dataTransfer.getData(DRAG_TYPE), onField);
+      });
       genSwitch(w, true);
       genApplyPending(w);
       return;
@@ -1055,6 +1076,21 @@
     const im = new Image();
     im.onload = () => { aspectCache.set(k, im.naturalWidth / im.naturalHeight); apply(im.naturalWidth / im.naturalHeight); };
     im.src = item.ref.run ? encodeURI(item.name) : `inputs/${encodeURIComponent(item.name)}`;
+  }
+
+  // a job or file dragged from Jobs, a gallery or the viewer: put it in the field it was dropped on, or the first field that takes its type
+  function genDropRun(w, id, fieldName) {
+    const r = runOf(id), m = curModel(w); if (!r || !r.asset || !m) return;
+    const kind = /\.(png|jpe?g|webp|gif|svg)$/i.test(r.asset) ? "image" : /\.(mp4|mov|webm|m4v)$/i.test(r.asset) ? "video" : /\.(mp3|wav|flac|ogg|m4a|aac|opus)$/i.test(r.asset) ? "audio" : r.type;
+    const media = m.fields.filter(x => x.kind === "media");
+    const f = media.find(x => x.name === fieldName && x.accept.includes(kind)) || media.find(x => x.accept.includes(kind));
+    if (!f) { genMsg(w, media.length ? `${m.id} has no ${kind} input here. ${media.map(x => `${x.label} takes ${x.accept.join(" or ")}`).join("; ")}.` : `${m.id} doesn't take files. Pick a task with an input, e.g. Image to video.`); return; }
+    if (fieldName && f.name !== fieldName) genMsg(w, `${media.find(x => x.name === fieldName)?.label || "That input"} doesn't take ${kind}, so ${r.asset} went into ${f.label}.`, true);
+    else genMsg(w, null);
+    const p = picks(w), ref = { run: r.taskId };
+    p[f.name] = f.array ? [...(p[f.name] || []).filter(x => refKey(x) !== refKey(ref)), ref].slice(-(f.max || 10)) : [ref];
+    genStrips(w, true); genMatchAspect(w, ref); genRefresh(w); save();
+    focus(w);
   }
 
   // copy a file from the Mac into inputs/ and select it
@@ -1643,6 +1679,7 @@
     root.classList.toggle("dot", opts.font === "dot");
     root.classList.toggle("contrast", !!opts.contrast);
     root.classList.toggle("calm", calm());
+    if (typeof iconSlots !== "undefined") requestAnimationFrame(() => layoutIcons()); // icon sizes follow Scale
     root.dataset.term = opts.termScheme;
     // scale open windows along with the interface, then keep them on screen
     if (was !== scale) wins.forEach(w => {
@@ -2169,6 +2206,8 @@
   }, true);
   addEventListener("pointerdown", () => kbEnd(true), true);
   const deskMenu = (x, y) => showMenu(x, y, [
+    { label: "Arrange icons", act: () => arrangeIcons() },
+    { sep: true },
     { label: "Cascade windows", act: cascadeAll },
     { label: "Tile windows", act: tileAll },
     { label: "Minimize all windows", act: () => wins.forEach(w => !w.minimized && minimize(w, false)) },
@@ -2326,7 +2365,7 @@
     resetting = true;
     clearTimeout(saveT);
     try {
-      if (mode === "clean" || mode === "all") localStorage.removeItem(KEY);
+      if (mode === "clean" || mode === "all") { localStorage.removeItem(KEY); localStorage.removeItem("runway-os-icons-v1"); }
       if (mode === "all") localStorage.removeItem(OPT_KEY);
     } catch {}
     location.reload();
@@ -2381,7 +2420,61 @@
   let lastPointer = "mouse";
   addEventListener("pointerdown", e => { lastPointer = e.pointerType; }, true);
   const icons = $("#icons");
-  icons.addEventListener("click", e => { const b = e.target.closest("[data-launch]"); if (b && (e.detail === 0 || lastPointer === "touch")) open(b.dataset.launch, null, b); });
+  /* icon grid: icons fill columns top to bottom in order, unless moved; a moved icon keeps its slot (col,row), saved per launcher */
+  const ICON_KEY = "runway-os-icons-v1";
+  let iconSlots = {};
+  try { iconSlots = JSON.parse(localStorage.getItem(ICON_KEY)) || {}; } catch {}
+  const iconGrid = () => {
+    const list = $$(".dicon", icons), w = Math.max(...list.map(b => b.offsetWidth), 1), h = Math.max(...list.map(b => b.offsetHeight), 1), gap = px(10), pad = px(10);
+    return { cw: w + gap, ch: h + gap, pad, cols: Math.max(1, Math.floor((desk.clientWidth - pad) / (w + gap))), rows: Math.max(1, Math.floor((desk.clientHeight - pad) / (h + gap))) };
+  };
+  function layoutIcons() {
+    const g = iconGrid(), list = $$(".dicon", icons), taken = new Set(), slot = {};
+    // moved icons first (clamped to the visible grid), then the others in order into the free slots
+    list.forEach(b => { const s = iconSlots[b.dataset.launch]; if (!s) return; let c = clampN(s.col, 0, g.cols - 1), r = clampN(s.row, 0, g.rows - 1);
+      while (taken.has(c + "," + r)) { r++; if (r >= g.rows) { r = 0; c = (c + 1) % g.cols; } }
+      taken.add(c + "," + r); slot[b.dataset.launch] = [c, r]; });
+    let c = 0, r = 0;
+    list.forEach(b => { if (slot[b.dataset.launch]) return;
+      while (taken.has(c + "," + r)) { r++; if (r >= g.rows) { r = 0; c++; } }
+      taken.add(c + "," + r); slot[b.dataset.launch] = [c, r]; });
+    list.forEach(b => { const [cc, rr] = slot[b.dataset.launch]; b.style.transform = `translate(${g.pad + cc * g.cw}px, ${g.pad + rr * g.ch}px)`; b.dataset.slot = cc + "," + rr; });
+    icons.classList.add("ready");
+  }
+  const saveIcons = () => { try { localStorage.setItem(ICON_KEY, JSON.stringify(iconSlots)); } catch {} };
+  // drag an icon: it follows the pointer after a few pixels, then snaps to the nearest free slot; a plain click stays a click
+  let iconDragged = false;
+  icons.addEventListener("pointerdown", e => {
+    const b = e.target.closest(".dicon"); if (!b || e.button !== 0) return;
+    const sx = e.clientX, sy = e.clientY, m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(b.style.transform) || [0, 0, 0], ox = +m[1], oy = +m[2];
+    let moving = false;
+    const move = ev => {
+      if (!moving && Math.hypot(ev.clientX - sx, ev.clientY - sy) < (ev.pointerType === "touch" ? 8 : 4)) return;
+      if (!moving) { moving = true; b.setPointerCapture(ev.pointerId); b.classList.add("dragging"); }
+      b.style.transform = `translate(${ox + ev.clientX - sx}px, ${oy + ev.clientY - sy}px)`;
+    };
+    const up = ev => {
+      removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", up);
+      if (!moving) return;
+      b.classList.remove("dragging"); iconDragged = true; setTimeout(() => { iconDragged = false; }, 0);
+      const g = iconGrid();
+      let col = clampN(Math.round((ox + ev.clientX - sx - g.pad) / g.cw), 0, g.cols - 1), row = clampN(Math.round((oy + ev.clientY - sy - g.pad) / g.ch), 0, g.rows - 1);
+      // taken by another icon: the nearest free slot instead
+      const used = new Set($$(".dicon", icons).filter(x => x !== b).map(x => x.dataset.slot));
+      if (used.has(col + "," + row)) {
+        let best = null;
+        for (let c = 0; c < g.cols; c++) for (let r = 0; r < g.rows; r++) if (!used.has(c + "," + r)) { const d = Math.hypot(c - col, r - row); if (!best || d < best.d) best = { c, r, d }; }
+        if (best) { col = best.c; row = best.r; }
+      }
+      // keep every icon where it is now, so the others don't reflow around the moved one
+      $$(".dicon", icons).forEach(x => { const [c, r] = x.dataset.slot.split(",").map(Number); iconSlots[x.dataset.launch] = { col: c, row: r }; });
+      iconSlots[b.dataset.launch] = { col, row };
+      saveIcons(); layoutIcons(); b.focus();
+    };
+    addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);
+  });
+  const arrangeIcons = () => { iconSlots = {}; saveIcons(); layoutIcons(); };
+  icons.addEventListener("click", e => { if (iconDragged) { e.stopPropagation(); return; } const b = e.target.closest("[data-launch]"); if (b && (e.detail === 0 || lastPointer === "touch")) open(b.dataset.launch, null, b); }, true);
   icons.addEventListener("dblclick", e => { const b = e.target.closest("[data-launch]"); if (b) open(b.dataset.launch, null, b); });
   icons.addEventListener("keydown", e => {
     const items = $$(".dicon", icons), i = items.indexOf(document.activeElement);
@@ -2389,6 +2482,46 @@
   });
   desk.addEventListener("pointerdown", e => { if (e.target === desk) document.activeElement?.blur(); });
   desk.addEventListener("contextmenu", e => { if (e.target === desk || e.target.closest(".icons")) { e.preventDefault(); deskMenu(e.clientX, e.clientY); } });
+
+  /* ---------- right-click: an in-app menu everywhere; Shift + right-click keeps the browser's own menu ---------- */
+  async function pasteInto(el) {
+    try {
+      const t = await navigator.clipboard.readText();
+      el.focus(); el.setRangeText(t, el.selectionStart, el.selectionEnd, "end");
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    } catch { balloon({ title: "Couldn't paste", text: "The browser blocked reading the clipboard. Press Cmd+V instead.", ms: 4000 }); }
+  }
+  function textMenu(el, x, y) {
+    const sel = el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0), ro = el.readOnly || el.disabled;
+    showMenu(x, y, [
+      { label: "Cut", icon: "i-copy", hint: "Cmd+X", disabled: !sel || ro, act: () => { navigator.clipboard?.writeText(sel).catch(() => {}); el.focus(); el.setRangeText("", el.selectionStart, el.selectionEnd, "end"); el.dispatchEvent(new Event("input", { bubbles: true })); } },
+      { label: "Copy", icon: "i-copy", hint: "Cmd+C", disabled: !sel, act: () => copyText(sel, "Copied") },
+      { label: "Paste", hint: "Cmd+V", disabled: ro, act: () => pasteInto(el) },
+      { sep: true },
+      { label: "Select all", hint: "Cmd+A", disabled: !el.value, act: () => { el.focus(); el.select(); } },
+    ]);
+  }
+  addEventListener("contextmenu", e => {
+    if (e.defaultPrevented || e.shiftKey) return; // handled by a more specific menu, or Shift asks for the browser's own
+    e.preventDefault();
+    const t = e.target instanceof Element ? e.target : document.body;
+    if (t.closest(".boot, #shutdown, .menu")) return;
+    const field = t.closest("input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=file]), textarea");
+    if (field) { textMenu(field, e.clientX, e.clientY); return; }
+    const term = t.closest(".term"), w = winOf(t);
+    if (term && w) {
+      const sel = String(getSelection()), inp = $(".t-in", term);
+      showMenu(e.clientX, e.clientY, [
+        { label: "Copy", icon: "i-copy", hint: "Cmd+C", disabled: !sel, act: () => copyText(sel, "Copied") },
+        { label: "Paste", hint: "Cmd+V", act: () => pasteInto(inp) },
+        { sep: true },
+        { label: "Clear screen", hint: "Ctrl+L", act: () => { w.term.lines = []; termPaint(w); inp.focus(); } },
+      ]);
+      return;
+    }
+    if (w) { windowMenu(w, e.clientX, e.clientY); return; }
+    if (t.closest("#desktop")) deskMenu(e.clientX, e.clientY);
+  });
 
   /* ---------- clicks inside windows ---------- */
   const winOf = el => wins.get(el.closest(".window")?.dataset.id);
@@ -2504,7 +2637,7 @@
     const prev = frontWin(), aw = open("activity");
     if (prev && prev !== aw) { focus(prev); focusInto?.(prev); }
   });
-  addEventListener("resize", () => wins.forEach(w => { fit(w); place(w); }));
+  addEventListener("resize", () => { wins.forEach(w => { fit(w); place(w); }); layoutIcons(); });
 
   /* ---------- boot screen: a BIOS self-test over the real startup; the log stays up until you start ---------- */
   let bootDone = true;
@@ -2689,6 +2822,7 @@
   bootScreen(modelsLoaded);
   restoreLayout();
   renderTasks();
+  layoutIcons(); document.fonts?.ready.then(layoutIcons);
   tick(); setInterval(tick, 5000);
   schedulePoll();
 })();
