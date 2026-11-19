@@ -1107,6 +1107,7 @@
     ["gen [prompt]", "open Generate, with the prompt filled in"],
     ["finder", "show the Runway folder in Finder"],
     ["history", "commands you typed"],
+    ["bootlog, dmesg", "the startup checks, with their times"],
     ["clear, cls", "clear the screen"],
     ["exit", "close the terminal"],
   ];
@@ -1268,6 +1269,13 @@
       }
       case "finder": case "explorer": fileAction("reveal", "runs.json"); say("showing the Runway folder in Finder", "t-dim"); break;
       case "history": say(t.hist.map((h, i) => `${String(i + 1).padStart(4)}  ${esc(h)}`).join("\n")); break;
+      case "bootlog": case "dmesg": {
+        if (!bootLog.length) { say("no startup checks logged yet", "t-dim"); break; }
+        const at = new Date(performance.timeOrigin).toLocaleString([], { dateStyle: "medium", timeStyle: "medium" });
+        say(`page loaded ${esc(at)}, times in seconds since then`, "t-dim");
+        say(bootLog.map(l => `<span class="t-dim">[${(l.ms / 1000).toFixed(3).padStart(8)}]</span> ${esc(l.text)}${l.bad ? `<span class="t-err">${esc(l.res)}</span>` : esc(l.res)}`).join("\n"));
+        break;
+      }
       case "clear": case "cls": t.lines = []; break;
       case "echo": say(esc(arg)); break;
       case "date": case "time": say(esc(new Date().toString())); break;
@@ -1439,8 +1447,20 @@
   }
   reduced.addEventListener?.("change", applyOptions);
 
-  // a short two-note chime made with Web Audio, no sound files needed
+  // the job-finished chime is a sound made with Runway itself: task ce1c486d-9ec2-49c1-a413-98c42e47333b,
+  // eleven_text_to_sound_v2, prompt "a single soft chime", 2 s, 2 credits, saved as sounds/chime.mp3.
+  // A failed or cancelled job plays the low two-note tone instead, so the two never sound alike.
+  // A fresh Audio each time lets chimes overlap; if the file can't load or play (autoplay blocked
+  // before the first click or key press), the Web Audio tones play instead.
   function chime(ok = true) {
+    if (!ok) { chimeTone(false); return null; }
+    const a = new Audio("sounds/chime.mp3");
+    a.volume = 0.6;
+    a.play().catch(() => chimeTone(true));
+    return a;
+  }
+  // a short two-note chime made with Web Audio, no sound files needed
+  function chimeTone(ok = true) {
     try {
       const ac = chime.ac ||= new (window.AudioContext || window.webkitAudioContext)();
       const notes = ok ? [880, 1318.5] : [440, 330];
@@ -2177,58 +2197,108 @@
   }
   addEventListener("resize", () => wins.forEach(w => { fit(w); place(w); }));
 
-  /* ---------- boot screen: a BIOS self-test over the real startup, then a splash ---------- */
+  /* ---------- boot screen: a BIOS self-test over the real startup; the log stays up until you start ---------- */
   let bootDone = true;
+  // each startup check with its time (ms since the page started loading), kept for the bootlog command
+  const bootLog = [];
   async function bootScreen(modelsLoaded) {
-    if (!opts.boot) return;
-    bootDone = false;
-    const el = document.createElement("div"), fast = calm(), deadline = Date.now() + 8000;
-    el.className = "boot";
-    el.innerHTML = `<div class="boot-log" role="log" aria-live="polite"></div>
-      <div class="boot-splash" hidden><span class="boot-logo">${logoSVG("#ffffff")}</span><b>runway os</b><div class="prog sunken busy"><i></i></div></div>
-      <div class="boot-hint">Press any key to skip</div>`;
-    document.body.append(el); document.body.classList.add("booting");
-    const log = $(".boot-log", el);
-    const finish = () => {
+    // the checks run and are logged even with the boot screen off; the screen only shows them
+    const show = opts.boot, fast = calm(), deadline = Date.now() + 8000;
+    let el = null, log = null, hint = null, phase = "loading", early = false;
+    const setHint = t => { if (hint) hint.textContent = t; };
+    const btns = () => (el ? $$(".boot-act button", el) : []);
+    const start = async withKey => {
       if (bootDone) return;
       bootDone = true;
-      removeEventListener("keydown", skip, true); removeEventListener("pointerdown", skip, true);
+      if (!fast) { // a short splash, then the desktop
+        $$(".boot-log, .boot-act, .boot-hint", el).forEach(x => { x.hidden = true; });
+        $(".boot-splash", el).hidden = false;
+        await sleep(400);
+      }
+      removeEventListener("keydown", onKey, true); removeEventListener("pointerdown", onPointer, true);
       document.body.classList.remove("booting");
       el.classList.add("out");
       setTimeout(() => el.remove(), fast ? 0 : 200);
+      if (withKey) open("key");
       const f = frontWin(); if (f) $("input:not([type=hidden]):not([type=range]), textarea", f.body)?.focus();
     };
-    const skip = e => { e.preventDefault(); e.stopPropagation(); finish(); };
-    addEventListener("keydown", skip, true); addEventListener("pointerdown", skip, true);
-    const line = async (text, cls = "") => {
-      if (!fast) await sleep(90);
-      const d = document.createElement("div"); d.className = cls; d.textContent = text; log.append(d); return d;
+    // while loading: Esc starts now, any other key or a click starts as soon as loading finishes.
+    // when ready: Enter or Space presses the focused button, Tab moves between the buttons, Esc starts.
+    const onKey = e => {
+      e.stopPropagation(); // the desktop behind doesn't see keys while the boot screen is up
+      if (e.metaKey || e.ctrlKey || ["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return; // browser shortcuts still work
+      e.preventDefault();
+      if (bootDone) return;
+      if (e.key === "Escape") { start(false); return; }
+      if (phase === "loading") {
+        if (!early) { early = true; setHint("Starting when loading finishes… Press Esc to start now."); }
+        return;
+      }
+      const list = btns(), i = list.indexOf(document.activeElement);
+      if (e.key === "Enter" || e.key === " ") (list[i] || list[0])?.click();
+      else if (e.key === "Tab" && list.length) list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length].focus();
     };
+    const onPointer = e => {
+      e.stopPropagation();
+      if (bootDone || phase !== "loading") return;
+      e.preventDefault();
+      if (!early) { early = true; setHint("Starting when loading finishes… Press Esc to start now."); }
+    };
+    if (show) {
+      bootDone = false;
+      el = document.createElement("div");
+      el.className = "boot";
+      el.innerHTML = `<div class="boot-log" role="log" aria-live="polite"></div>
+        <div class="boot-act"></div>
+        <div class="boot-hint" aria-live="polite">Press any key to start when loading finishes, or Esc to start now.</div>
+        <div class="boot-splash" hidden><span class="boot-logo">${logoSVG("#ffffff")}</span><b>runway os</b><div class="prog sunken busy"><i></i></div></div>`;
+      document.body.append(el); document.body.classList.add("booting");
+      log = $(".boot-log", el); hint = $(".boot-hint", el);
+      addEventListener("keydown", onKey, true); addEventListener("pointerdown", onPointer, true);
+    }
+    // a line prints when its check starts; its result is added, and the line logged, when the check finishes
+    const begin = text => {
+      const d = log && document.createElement("div");
+      if (d) { d.textContent = text; log.append(d); }
+      return { d, text };
+    };
+    const end = (row, res, bad = false) => {
+      bootLog.push({ ms: Math.round(performance.now()), text: row.text, res, bad });
+      if (!row.d || !res) return;
+      const s = document.createElement("span"); s.textContent = res; if (bad) s.className = "bad"; row.d.append(s);
+    };
+    const say = (text, cls) => { const row = begin(text); if (row.d && cls) row.d.className = cls; end(row, ""); };
     const wait = p => upTo(p, Math.max(0, deadline - Date.now()));
-    const result = (d, text, bad) => { const s = document.createElement("span"); s.textContent = text; if (bad) s.className = "bad"; d.append(s); };
 
-    await line("runway os BIOS v1.0");
-    let l = await line("Loading model list… ");
-    if (!(await wait(modelsLoaded)) || !CAT) result(l, "failed. Generate can't list models", true);
-    else { const t = CAT.tasks || []; result(l, `${new Set(t.flatMap(x => x.models.map(m => m.id))).size} models, ${t.length} tasks`); }
-    if (bootDone) return;
-    l = await line("Connecting to Runway API… ");
-    const ok = await wait(ready);
-    if (!ok) result(l, "not reachable. Balance unavailable", true);
-    else if (!data.live) result(l, "no key", true);
-    else if (data.error) result(l, data.error, true);
-    else result(l, "OK");
-    if (ok) {
-      await line(`Credits: ${data.balance == null ? "unavailable" : fmt(data.balance)}`);
-      await line(`Jobs: ${data.runs.length} found`);
+    say(location.protocol === "file:" ? "runway os, opened as a file" : `runway os on ${location.host}`);
+    let row = begin("Loading model list… ");
+    if (!(await wait(modelsLoaded)) || !CAT) end(row, "failed. Generate can't list models", true);
+    else { const t = CAT.tasks || []; end(row, `${new Set(t.flatMap(x => x.models.map(m => m.id))).size} models, ${t.length} tasks`); }
+    row = begin("Connecting to Runway API… ");
+    // the first /api/state answer, or the first failed poll (poll keeps retrying every 3 s)
+    while (!loaded && conn.cls !== "off" && Date.now() < deadline) await upTo(ready, 50);
+    if (!loaded) end(row, conn.cls === "off" ? "server not reachable" : "no answer after 8 s", true);
+    else if (!data.live) end(row, "no key", true);
+    else if (data.error) end(row, data.error, true);
+    else end(row, "OK");
+    const live = loaded && data.live && !data.error, n = data.runs.length;
+    if (loaded) {
+      const when = data.balanceAt ? `, last known ${absTime(tOf(data.balanceAt))}` : ", last known";
+      say(`Credits: ${data.balance == null ? "unavailable" : fmt(data.balance) + (live ? "" : when)}`);
+      say(`Jobs: ${n} found`);
     }
-    if (bootDone) return;
-    if (!fast) {
-      await sleep(250);
-      log.hidden = true; $(".boot-splash", el).hidden = false;
-      await sleep(900);
-    }
-    finish();
+    say(!loaded ? (conn.cls === "off" ? `Server not reachable. Run python3 server.py${location.protocol === "file:" ? " and open the address it prints" : "; runway os keeps trying"}.` : "The server hasn't answered yet; runway os keeps trying.")
+      : !data.live ? "Ready without a Runway key."
+      : data.error ? "Ready, but the Runway API reported an error."
+      : `Ready. ${data.balance == null ? "Credits unavailable" : fmt(data.balance) + " credits"}, ${fmt(n)} job${n === 1 ? "" : "s"}.`, "sum");
+    phase = "ready";
+    if (!show || bootDone) return;
+    if (early) { start(false); return; }
+    const act = $(".boot-act", el), keyBtn = loaded && !live;
+    act.innerHTML = `<button class="raised btn-s" data-start>Start runway os</button>${keyBtn ? '<button class="raised btn-s" data-start="key">Start and add API key</button>' : ""}`;
+    act.addEventListener("click", e => { const b = e.target.closest("[data-start]"); if (b) start(b.dataset.start === "key"); });
+    $("button", act).focus();
+    setHint(keyBtn ? "Press Enter to start, or Tab to choose the other button." : "Press Enter to start.");
   }
 
   /* ---------- live data ---------- */
