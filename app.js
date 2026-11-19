@@ -150,7 +150,7 @@
       geo: d => centered(d, 460, 360, 0, true),
     },
     jobs: {
-      icon: () => "i-folder", title: w => `Jobs — ${w.filter === "all" ? "All Items" : plural(w.filter)}`, min: [420, 240],
+      icon: () => "i-folder", title: w => `Jobs — ${w.filter === "all" ? "All items" : plural(w.filter)}`, min: [420, 240],
       geo: d => { const wd = Math.min(px(960), d.w - px(120)), y = Math.min(px(284), Math.round(d.h / 3)); return { wd, ht: d.h - y - 2, x: Math.max(px(104), Math.round((d.w - wd) / 2)), y }; },
     },
     terminal: {
@@ -174,7 +174,7 @@
       geo: d => centered(d, 560, 660, 60),
     },
     key: {
-      icon: () => "i-key", title: () => "Runway API Key", min: [340, 330],
+      icon: () => "i-key", title: () => "Runway API key", min: [340, 330],
       geo: d => centered(d, 460, 420, 0, true),
     },
     props: { icon: () => "i-doc", title: w => `Properties — ${runOf(w.arg) ? nameOf(runOf(w.arg)) : w.arg.slice(0, 8)}`, min: [340, 320], geo: cascade(460, 600) },
@@ -391,12 +391,43 @@
     keep.forEach(([k, top, left]) => { const e = $(`[data-keep="${k}"]`, w.body); if (e) { e.scrollTop = top; e.scrollLeft = left; } });
   }
   // Win95 property sheet: tabs, a raised panel, and a footer ending in OK
-  const sheetHTML = (tabs, cur, panel, foot = "") => `
+  // ARIA tablist with a roving tabindex: only the selected tab is in the Tab order; sheetKeys adds the arrow keys
+  const sheetHTML = (tabs, cur, panel, foot = "") => { const sid = "sh" + ++uid; return `
     <div class="sheet">
-      <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button class="tab" role="tab" data-tab="${k}" aria-selected="${k === cur}">${l}</button>`).join("")}</div>
-      <div class="tabpanel raised" role="tabpanel" data-keep="panel-${cur}">${panel}</div>
+      <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button class="tab" role="tab" data-tab="${k}" id="${sid}-${k}" aria-controls="${sid}-p" aria-selected="${k === cur}" tabindex="${k === cur ? 0 : -1}">${l}</button>`).join("")}</div>
+      <div class="tabpanel raised" role="tabpanel" id="${sid}-p" aria-labelledby="${sid}-${cur}" data-keep="panel-${cur}">${panel}</div>
       <div class="sheet-foot">${foot}<button class="raised btn-ok" data-close>OK</button></div>
-    </div>`;
+    </div>`; };
+  // switch a property sheet's tab like a click on it does, then put focus on the new tab
+  function sheetTab(w, key) {
+    w.tab = key; renderWin(w); save();
+    $('[role="tab"][aria-selected="true"]', w.body)?.focus();
+  }
+  // keyboard for property sheets, bound once per window body: ←/→ and Home/End on a tab, Ctrl+Tab and Ctrl+Shift+Tab anywhere in the sheet.
+  // Every render replaces the tabs, so focus that was on a tab goes back to the selected one afterwards.
+  function sheetKeys(w) {
+    if (w.onTab && (!document.activeElement || document.activeElement === document.body)) $('[role="tab"][aria-selected="true"]', w.body)?.focus({ preventScroll: true });
+    if (w.sheetBound) return;
+    w.sheetBound = true;
+    w.body.addEventListener("focusin", e => { w.onTab = e.target.matches('[role="tab"]'); });
+    w.body.addEventListener("focusout", e => {
+      if (e.relatedTarget) { if (!w.body.contains(e.relatedTarget)) w.onTab = false; return; }
+      queueMicrotask(() => { if (e.target.isConnected) w.onTab = false; }); // a real blur, not a render removing the tab
+    });
+    w.body.addEventListener("keydown", e => {
+      const sheet = e.target.closest(".sheet"); if (!sheet || e.altKey || e.metaKey) return;
+      const tabs = $$('[role="tab"]', sheet), cur = tabs.findIndex(t => t.getAttribute("aria-selected") === "true"), n = tabs.length;
+      let i = null;
+      if (e.key === "Tab" && e.ctrlKey) i = cur + (e.shiftKey ? -1 : 1);
+      else if (!e.ctrlKey && !e.shiftKey && e.target.matches('[role="tab"]')) {
+        const at = tabs.indexOf(e.target);
+        i = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: n - 1 }[e.key] ?? null;
+      }
+      if (i == null || !n) return;
+      e.preventDefault();
+      sheetTab(w, tabs[(i + n) % n].dataset.tab);
+    });
+  }
   const loadingOr = msg => `<div class="empty-list">${loaded ? msg : "Loading…"}</div>`;
 
   /* jobs table */
@@ -473,6 +504,7 @@
           </fieldset>`;
       }
       w.body.innerHTML = sheetHTML(T, tab, panel);
+      sheetKeys(w);
       w.prev = v;
     },
 
@@ -750,7 +782,7 @@
       const id = "g" + uid;
       w.body.innerHTML = `
         <form class="gen" novalidate autocomplete="off">
-          <div class="toolbar"><div class="seg-tabs" role="toolbar" aria-label="Category"></div></div>
+          <div class="toolbar"><div class="seg-tabs" role="group" aria-label="Category"></div></div>
           <div class="gbody" data-keep="gen">
             <fieldset class="group"><legend>Task</legend>
               <div class="gform">
@@ -761,6 +793,7 @@
             </fieldset>
             <div class="gfields"></div>
           </div>
+          <section class="gsent" aria-labelledby="${id}s" hidden></section>
           <div class="gmsg" role="alert" hidden></div>
           <div class="footbar">
             <span class="sunken seg grow ghint"></span>
@@ -778,6 +811,7 @@
         const v = f.kind === "bool" ? el.checked : f.kind === "range" || f.kind === "number" ? (el.value === "" ? "" : +el.value) : el.value;
         vals(w)[f.name] = v;
         if (f.kind === "range") { const o = $(`output[data-for="${f.name}"]`, form); if (o) o.textContent = v; }
+        if (f.kind === "range") el.setAttribute("aria-valuetext", String(v));
         if (f.kind === "longtext") { const c = $(`.gcount[data-for="${f.name}"]`, form); if (c) genCount(c, f, v); }
         if (f.name === "ratio") genRatioPreview(w);
         genRefresh(w); save();
@@ -815,9 +849,11 @@
       w.el.addEventListener("drop", e => { e.preventDefault(); w.el.classList.remove("drop"); const file = e.dataTransfer.files[0]; if (file) genUpload(w, file, null); });
       genSwitch(w, true);
       genApplyPending(w);
+      genSentBind(w, id + "s");
       return;
     }
     genStrips(w); genRefresh(w);
+    genSent(w);
   }
 
   // category, task or model changed: rebuild the selectors and the model's fields
@@ -839,18 +875,30 @@
 
   function genFieldHTML(w, f) {
     const v = shownVal(f, vals(w)[f.name]), id = `gf-${uid}-${f.name}`, tip = f.desc ? ` title="${esc(f.desc)}"` : "";
-    const lab = `<label for="${id}"${tip}>${esc(f.label)}</label>`;
+    const lab = `<label for="${id}"${tip}>${esc(f.label)}</label>`, hd = helpAttr(f), help = helpHTML(f);
     if (f.kind === "select") {
       const opts = (f.required || f.default != null ? [] : [`<option value="">Default</option>`])
         .concat(f.options.map(o => `<option value="${esc(o)}" ${String(o) === String(v) ? "selected" : ""}>${esc(optLabel(f, o))}</option>`)).join("");
-      const sel = `<span class="combo"><select class="field" id="${id}" data-f="${esc(f.name)}">${opts}</select></span>`;
-      return lab + (f.name === "ratio" && f.options.some(isWH) ? `<span class="gsize">${sel}<span class="rpv sunken" title="Frame shape"><i></i></span></span>` : sel);
+      const sel = `<span class="combo"><select class="field" id="${id}" data-f="${esc(f.name)}"${hd}>${opts}</select></span>`;
+      return lab + (f.name === "ratio" && f.options.some(isWH) ? `<span class="gsize">${sel}<span class="rpv sunken" title="Frame shape"><i></i></span></span>` : sel) + help;
     }
-    if (f.kind === "bool") return `<span></span><label class="check"${tip}><input type="checkbox" data-f="${esc(f.name)}" ${v ? "checked" : ""}><span>${esc(f.label)}</span></label>`;
-    if (f.kind === "range") return lab + `<span class="rangef"><input type="range" id="${id}" data-f="${esc(f.name)}" min="${f.min}" max="${f.max}" step="${f.step}" value="${esc(v === "" ? f.default ?? f.min : v)}"><output data-for="${esc(f.name)}">${v === "" ? "default" : esc(v)}</output></span>`;
-    if (f.kind === "number") return lab + `<input class="field num" type="number" id="${id}" data-f="${esc(f.name)}" ${f.min != null ? `min="${f.min}"` : ""} ${f.max != null ? `max="${f.max}"` : ""} step="${f.int ? 1 : "any"}" value="${esc(v)}" placeholder="${f.required ? "" : "Default"}">`;
-    return lab + `<input class="field" type="text" id="${id}" data-f="${esc(f.name)}" value="${esc(v)}" ${f.maxLength ? `maxlength="${f.maxLength}"` : ""} placeholder="${f.required ? "" : "Optional"}">`;
+    if (f.kind === "bool") return `<span></span><label class="check"${tip}><input type="checkbox" data-f="${esc(f.name)}"${hd} ${v ? "checked" : ""}><span>${esc(f.label)}</span></label>` + help;
+    if (f.kind === "range") return lab + `<span class="rangef"><input type="range" id="${id}" data-f="${esc(f.name)}" min="${f.min}" max="${f.max}" step="${f.step}" value="${esc(v === "" ? f.default ?? f.min : v)}" aria-valuetext="${vals(w)[f.name] === undefined ? `Default${f.default != null ? ` (${esc(f.default)})` : ""}` : esc(v)}"${hd}><output for="${id}" data-for="${esc(f.name)}">${v === "" ? "Default" : esc(v)}</output></span>` + help;
+    if (f.kind === "number") return lab + `<input class="field num" type="number" id="${id}" data-f="${esc(f.name)}"${hd} ${f.min != null ? `min="${f.min}"` : ""} ${f.max != null ? `max="${f.max}"` : ""} step="${f.int ? 1 : "any"}" value="${esc(v)}" placeholder="${f.required ? "" : "Default"}">` + help;
+    return lab + `<input class="field" type="text" id="${id}" data-f="${esc(f.name)}"${hd} value="${esc(v)}" ${f.maxLength ? `maxlength="${f.maxLength}"` : ""} placeholder="${f.required ? "" : "Optional"}">` + help;
   }
+  // a field's help text: the first sentence of its description in Runway's spec, as plain text, up to about 140 characters.
+  // The full description stays in the label's title.
+  function genHint(f) {
+    let s = String(f.desc || "").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\s+/g, " ").trim();
+    s = (s.match(/^.*?[.!?](?=\s+[A-Z0-9"'(`]|$)/)?.[0] || s).replace(/`/g, "");
+    if (s.length > 140) s = s.slice(0, 139).replace(/[\s,;:]+\S*$/, "") + "…";
+    const bare = x => String(x).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/^(the|a|an) /, "");
+    return bare(s) === bare(f.label || "") ? "" : s; // nothing the label doesn't already say
+  }
+  const helpId = f => `gf-${uid}-${f.name}-h`;
+  const helpAttr = f => (genHint(f) ? ` aria-describedby="${helpId(f)}"` : "");
+  const helpHTML = f => { const h = genHint(f); return h ? `<div class="ghelp" id="${helpId(f)}">${esc(h)}</div>` : ""; };
   function genFields(w) {
     const m = curModel(w), box = $(".gfields", w.body);
     if (!m) { box.innerHTML = ""; return; }
@@ -859,12 +907,13 @@
     const main = F.filter(f => !f.advanced && f.kind !== "longtext" && f.kind !== "media"), adv = F.filter(f => f.advanced && f.kind !== "media");
     box.innerHTML = texts.map(f => `
         <fieldset class="group"><legend${f.desc ? ` title="${esc(f.desc)}"` : ""}>${esc(f.label)}${f.required ? "" : ' <span class="muted">(optional)</span>'}</legend>
-          <textarea class="field gprompt" rows="${f.name === "promptText" ? 5 : 2}" data-f="${esc(f.name)}" aria-label="${esc(f.label)}" spellcheck="true"></textarea>
-          ${f.maxLength ? `<div class="gcount muted" data-for="${esc(f.name)}"></div>` : ""}
+          <textarea class="field gprompt" rows="${f.name === "promptText" ? 5 : 2}" data-f="${esc(f.name)}" aria-label="${esc(f.label)}"${helpAttr(f)} spellcheck="true"></textarea>
+          ${helpHTML(f) || f.maxLength ? `<div class="gtfoot">${helpHTML(f)}${f.maxLength ? `<div class="gcount muted" data-for="${esc(f.name)}"></div>` : ""}</div>` : ""}
         </fieldset>`).join("")
       + media.map(f => `
         <fieldset class="group"><legend${f.desc ? ` title="${esc(f.desc)}"` : ""}>${esc(f.label)} <span class="muted">${f.array ? `(up to ${f.max}${f.required ? "" : ", optional"})` : f.required ? "" : "(optional)"} · ${esc(f.accept.join(" or "))}</span></legend>
-          <div class="strip" role="listbox" aria-label="${esc(f.label)}" data-strip="${esc(f.name)}" ${f.array ? 'aria-multiselectable="true"' : ""}></div>
+          <div class="strip" role="group" aria-label="${esc(f.label)}"${helpAttr(f)} data-strip="${esc(f.name)}"></div>
+          ${helpHTML(f)}
         </fieldset>`).join("")
       + (main.length ? `<fieldset class="group"><legend>Settings</legend><div class="gform">${main.map(f => genFieldHTML(w, f)).join("")}</div></fieldset>` : "")
       + (adv.length ? `<details class="more group"${w.gen.adv ? " open" : ""}><summary>More options (${adv.length})</summary><div class="gform">${adv.map(f => genFieldHTML(w, f)).join("")}</div></details>` : "")
@@ -897,12 +946,14 @@
       const sig = lib.map(x => refKey(x.ref)).join() + "|" + [...on].join();
       if (!force && strip.dataset.sig === sig) return;
       strip.dataset.sig = sig;
-      const item = (key, thumb, cap, title, sel) => `<button type="button" class="sframe" role="option" data-field="${esc(f.name)}" data-mref="${esc(key)}" aria-selected="${sel}" title="${esc(title)}"><span class="thumb sunken">${thumb}</span><span class="cap">${esc(cap)}</span></button>`;
+      const item = (key, thumb, cap, title, sel) => `<button type="button" class="sframe" data-field="${esc(f.name)}" data-mref="${esc(key)}"${sel == null ? "" : ` aria-pressed="${sel}"`} title="${esc(title)}"><span class="thumb sunken">${thumb}</span><span class="cap">${esc(cap)}</span></button>`;
+      const had = strip.contains(document.activeElement) ? document.activeElement.dataset.mref : null; // keep focus on the frame that was used
       strip.innerHTML = [
         !f.required && !f.array && item("none", '<span class="empty">None</span>', "None", "Don't use one", !on.size),
         ...lib.map(x => item(JSON.stringify(x.ref), thumbInner(x.thumb, x.type), x.name, x.title, on.has(refKey(x.ref)))),
-        item("file", '<span class="empty plus">+</span>', "Choose file…", `Choose a ${f.accept.join(" or ")} file from your Mac, or drop one on this window`, false),
+        item("file", '<span class="empty plus">+</span>', "Choose file…", `Choose a ${f.accept.join(" or ")} file from your Mac, or drop one on this window`, null),
       ].filter(Boolean).join("");
+      if (had != null) [...strip.children].find(b => b.dataset.mref === had)?.focus({ preventScroll: true });
     });
   }
 
@@ -1006,12 +1057,85 @@
       const out = await api("/api/generate", { endpoint: t.endpoint, model: m.id, values, media, extra: ex });
       balloon({ title: "Job sent to Runway", text: `${t.label} · ${m.id} · queued. Click to follow it.`, icon: "i-wand", ms: 6000, onOpen: () => open("props", out.taskId, $("#tray-run")) });
       poll();
+      genSentAdd(w, out);
     } catch (err) {
       genMsg(w, err.message);
     } finally {
       w.busy = false; genRefresh(w);
     }
   }
+
+  // jobs sent from this window, in a panel above the footer: progress, Cancel, then Open and the real cost.
+  // w.gen.sent holds their task IDs, newest first, and is saved with the layout.
+  function genSentAdd(w, row) {
+    (w.gsRows ||= {})[row.taskId] = row; // the server's new row, shown until the next poll brings it from runs.json
+    w.gen.sent = [row.taskId, ...(w.gen.sent || []).filter(id => id !== row.taskId)].slice(0, 3);
+    genSent(w); save();
+  }
+  const sentRun = (w, id) => runOf(id) || w.gsRows?.[id];
+  const etaText = end => (end > Date.now() ? `~${dur(end - Date.now())} left` : "longer than usual");
+  function genSentItem(w, r) {
+    const s = statusInfo(r), id = esc(r.taskId), name = `${r.task || cap(r.type)} · ${r.model}`;
+    let st = `<span class="st ${s.cls}"><i class="dot"></i>${esc(s.label)}</span>`, acts = "";
+    if (ACTIVE.has(r.status)) {
+      const typ = s.cls === "running" ? typicalMs(r.model) : null, end = createdMs(r) + typ;
+      if (s.cls === "running") st += `<span class="mprog sunken" aria-hidden="true"><i style="width:${s.p ?? 8}%" class="${s.p == null ? "ind" : ""}"></i></span>`;
+      st += `<small class="muted">${relHTML(r.createdAt || r.date, "elapsed")}${typ ? ` · <span data-eta="${end}">${etaText(end)}</span>` : ""}</small>`;
+      const busy = w.gsBusy?.has(r.taskId);
+      acts = `<button type="button" class="raised btn-s" data-gs="cancel" data-run="${id}" aria-label="${busy ? "Cancelling" : "Cancel"} ${esc(name)}" ${busy ? "disabled" : ""}>${busy ? "Cancelling…" : "Cancel"}</button>`;
+    } else if (r.status === "succeeded") {
+      const c = r.credits, q = r.quotedCredits;
+      const cost = c != null ? `${fmt(c)} credits${q != null ? (c === q ? ", as quoted" : `, quoted ${r.quoteExact ? "" : "≈"}${fmt(q)}`) : ""}`
+        : r.estimatedCredits != null ? `~${fmt(r.estimatedCredits)} credits, estimated` : "Cost not reported yet";
+      st += `<small class="muted">${cost}</small>`;
+      const label = r.asset ? "Open" : "Properties";
+      acts = `<button type="button" class="raised btn-s" data-gs="open" data-run="${id}" aria-label="${label} ${esc(r.asset || name)}">${label}</button>`;
+    } else if (r.status === "failed") st += `<small class="gs-why" title="${esc(r.failure || "")}">${esc(r.failure || "Runway gave no reason")}</small>`;
+    return `<li class="gs-item">
+        <div class="gs-name" title="${esc(name + "\n" + r.prompt)}">${esc(name)}</div><div class="gs-st">${st}</div>
+        <div class="gs-acts">${acts}<button type="button" class="raised gs-x" data-gs="x" data-run="${id}" aria-label="Remove ${esc(name)} from this list" title="Remove from this list"><i class="g-close"></i></button></div>
+      </li>`;
+  }
+  // rebuild only the panel, and only when what it shows changed, so the form and the panel's buttons keep focus
+  function genSent(w) {
+    const box = $(".gsent", w.body), g = w.gen; if (!box) return;
+    if (loaded && g.sent?.some(id => !sentRun(w, id))) { g.sent = g.sent.filter(id => sentRun(w, id)); save(); } // gone from runs.json
+    const list = (g.sent || []).map(id => sentRun(w, id)).filter(Boolean);
+    const sig = JSON.stringify(list.map(r => [r.taskId, r.status, r.progress, r.credits, r.estimatedCredits, r.quotedCredits, r.failure, r.asset, typicalMs(r.model), !!w.gsBusy?.has(r.taskId)]));
+    if (sig === box.dataset.sig) return;
+    box.dataset.sig = sig;
+    const a = document.activeElement, had = box.contains(a) ? a.dataset : null, top = $(".gs-list", box)?.scrollTop || 0;
+    box.hidden = !list.length;
+    box.innerHTML = !list.length ? "" : `
+      <div class="gs-head"><span id="${w.gsLabel}">Sent from this window</span>${list.some(r => !ACTIVE.has(r.status)) ? '<button type="button" class="raised btn-s" data-gs="clear">Clear finished</button>' : ""}</div>
+      <ul class="gs-list sunken">${list.map(r => genSentItem(w, r)).join("")}</ul>`;
+    const ul = $(".gs-list", box); if (ul) ul.scrollTop = top;
+    if (!had) return;
+    const find = (gs, run) => $$("[data-gs]", box).find(b => b.dataset.gs === gs && !b.disabled && (run === undefined || b.dataset.run === run));
+    // the same button again, else the line's remove button, else the next control down (the footer's buttons, then the prompt)
+    (find(had.gs, had.run) || find("x", had.run) || find("x") || $$(".footbar button", w.body).find(b => !b.hidden && !b.disabled) || $("textarea", w.body))?.focus({ preventScroll: true });
+  }
+  function genSentBind(w, labelId) {
+    const box = $(".gsent", w.body); if (!box) return;
+    w.gsLabel = labelId;
+    box.addEventListener("click", async e => {
+      const b = e.target.closest("button[data-gs]"); if (!b) return;
+      const g = w.gen, act = b.dataset.gs, id = b.dataset.run, r = id && sentRun(w, id);
+      if (act === "open" && r) defaultOpen(r, b);
+      else if (act === "cancel" && r) {
+        (w.gsBusy ||= new Set()).add(id); genSent(w);
+        await cancelJob(r); await poll(); // it shows as Cancelled once the server marks it
+        w.gsBusy.delete(id); genSent(w);
+      } else if (act === "x" || act === "clear") {
+        const at = $$('[data-gs="x"]', box).indexOf(b);
+        g.sent = (g.sent || []).filter(x => (act === "x" ? x !== id : ACTIVE.has(sentRun(w, x)?.status)));
+        genSent(w); save();
+        if (act === "x") { const xs = $$('[data-gs="x"]', box); xs[Math.min(at, xs.length - 1)]?.focus({ preventScroll: true }); } // the next line's remove button
+      }
+    });
+    genSent(w);
+  }
+  setInterval(() => $$(".gsent [data-eta]").forEach(e => { e.textContent = etaText(+e.dataset.eta); }), 5000);
 
   // open Generate prefilled from a job. mode: again | animate | upscale | sound | hdr
   function genFrom(r, mode, src) {
@@ -1477,6 +1601,7 @@
         ${opts.notify && "Notification" in window && Notification.permission === "denied" ? '<div class="gmsg">The browser blocks notifications for this page. Allow them in the browser\'s site settings.</div>' : ""}
       </fieldset>`;
     w.body.innerHTML = sheetHTML(T, tab, panel, '<button class="raised btn-s" data-opt-reset>Restore defaults</button><span class="grow"></span>');
+    sheetKeys(w);
     tszRead(w);
     if (!w.optBound) {
       w.optBound = true;
@@ -1995,6 +2120,10 @@
     saved.filter(s => KINDS[s.kind] && (s.kind === "viewer" || s.kind === "props" ? s.arg : true)).sort((a, b) => a.z - b.z).forEach(s => make(s.kind, s.arg, s));
     refreshFront();
   }
+  // first launch (no saved layout, so restoreLayout opens just the terminal): once the first state poll answers
+  // and there is no API key, open the key window on top as well. Later loads have a saved layout and skip this.
+  const firstLaunch = (() => { try { return !Array.isArray(JSON.parse(localStorage.getItem(KEY))); } catch { return true; } })();
+  if (firstLaunch) ready.then(() => { if (!data.live) $(".kin", open("key").body)?.focus({ preventScroll: true }); });
   addEventListener("resize", () => wins.forEach(w => { fit(w); place(w); }));
 
   /* ---------- boot screen: a BIOS self-test over the real startup, then a splash ---------- */
