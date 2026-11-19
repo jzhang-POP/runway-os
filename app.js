@@ -604,13 +604,18 @@
       $$(".th [data-sort]", w.body).forEach(b => { b.parentElement.setAttribute("aria-sort", b.dataset.sort === w.sort.key ? (w.sort.dir > 0 ? "ascending" : "descending") : "none"); });
       morph($(".rows", w.body), list.length ? list.map(r => `
         <div class="row${r.taskId === w.sel ? " sel" : ""}" role="row" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${r.taskId === w.sel}">
-          <div class="c c-name" role="gridcell">${miniThumb(r)}<span class="nm"><b title="${esc(r.prompt)}">${esc(r.prompt)}</b><small>${esc(r.asset || r.settings)}${filesOf(r).length > 1 ? ` <span class="muted">+${filesOf(r).length - 1} more</span>` : ""}</small></span></div>
+          <div class="c c-name" role="gridcell">${miniThumb(r)}<span class="nm"><b title="${esc(r.prompt)}">${esc(r.prompt)}</b><small>${esc(r.asset || r.settings)}${filesOf(r).length > 1 ? ` <span class="muted">· ${filesOf(r).length} files</span>` : ""}</small></span></div>
           <div class="c c-type" role="gridcell">${esc(cap(r.type))}</div>
           <div class="c c-model" role="gridcell" title="${esc(r.model)}">${esc(r.model)}</div>
           <div class="c c-status" role="gridcell">${statusHTML(r)}</div>
           <div class="c c-cost num" role="gridcell">${costHTML(r)}</div>
           <div class="c c-created" role="gridcell">${relHTML(r.createdAt || r.date)}</div>
-        </div>`).join("")
+        </div>${filesOf(r).slice(1).map((_, k) => { const f = fileItem(r, k + 1); return `
+        <div class="row kid${f.taskId === w.sel ? " sel" : ""}" role="row" id="${itemId(w, f.taskId)}" data-id="${esc(f.taskId)}" aria-selected="${f.taskId === w.sel}">
+          <div class="c c-name" role="gridcell">${miniThumb(f)}<span class="nm"><b title="${esc(f.asset)}">${esc(f.asset)}</b><small>File ${k + 2} of ${filesOf(r).length}</small></span></div>
+          <div class="c c-type" role="gridcell">${esc(cap(r.type))}</div>
+          <div class="c c-model" role="gridcell"></div><div class="c c-status" role="gridcell"></div><div class="c c-cost num" role="gridcell"></div><div class="c c-created" role="gridcell"></div>
+        </div>`; }).join("")}`).join("")
         : `<div role="row"><div role="gridcell">${loadingOr(w.q ? `No jobs match “${esc(w.q)}”.${emptyAct('<button class="raised btn-s" data-clearq>Clear search</button>')}`
           : `No jobs yet. Jobs show up here as soon as they're submitted.${emptyAct(GEN_BTN)}`)}</div></div>`);
       activeSync(w);

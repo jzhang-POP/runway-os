@@ -633,6 +633,10 @@
   .btn-go[aria-disabled="true"] .ico { opacity: .45; }
   button.raised.btn-go[aria-disabled="true"]:active { background: var(--face); box-shadow: inset 1px 1px 0 var(--hi), inset -1px -1px 0 var(--lo), inset 2px 2px 0 var(--mid), inset -2px -2px 0 var(--deep); }
   .row .c-model { white-space: nowrap; text-overflow: ellipsis; }
+  /* extra files of a multi-output job: indented under it with a Win95 tree branch */
+  .row.kid .c-name::before { content: ""; flex: none; align-self: stretch; width: var(--s4); margin-left: var(--s3);
+    background: linear-gradient(var(--muted), var(--muted)) left top / 1px 50% no-repeat, linear-gradient(var(--muted), var(--muted)) left center / 100% 1px no-repeat; }
+  .row.kid .nm b { font-weight: 400; }
   .empty-act { margin-top: var(--s4); }
   .grid > .empty-list { grid-column: 1 / -1; }
   .menu { position: fixed; z-index: 150000; padding: 3px; min-width: round(calc(190 * var(--u)), 1px); display: flex; flex-direction: column; }
