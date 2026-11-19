@@ -429,6 +429,11 @@
       <div class="sheet-foot">${foot}<button class="raised btn-ok" data-close>OK</button></div>
     </div>`;
   const loadingOr = msg => `<div class="empty-list">${loaded ? msg : "Loading…"}</div>`;
+  // a button under an empty list's message
+  const emptyAct = html => `<div class="empty-act">${html}</div>`;
+  const GEN_BTN = '<button class="raised btn-s" data-open="generate">Open Generate</button>';
+  // id of a row or tile, stable for the window's life, so the list can point aria-activedescendant at it
+  const itemId = (w, id) => `it${w.oid ||= ++uid}-${String(id).replace(/[^\w-]/g, "_")}`;
 
   /* jobs table */
   const COLS = [
@@ -512,33 +517,40 @@
         w.shell = true;
         w.body.innerHTML = `
           <div class="toolbar">
-            <div class="seg-tabs" role="toolbar" aria-label="Filter by type"></div>
+            <div class="seg-tabs" role="group" aria-label="Filter by type"></div>
             <input class="field" type="search" placeholder="Search prompts, models, IDs" aria-label="Search jobs" value="${esc(w.q)}">
           </div>
           <div class="table sunken" tabindex="0" role="grid" aria-label="Jobs" data-keep="list">
-            <div class="thead" role="row">${COLS.map(c => `<button class="th raised c-${c.key}${c.num ? " num" : ""}" data-sort="${c.key}" role="columnheader">${c.label}<i class="arrow"></i></button>`).join("")}</div>
+            <div class="thead" role="row">${COLS.map(c => `<div class="th c-${c.key}${c.num ? " num" : ""}" role="columnheader" aria-sort="none"><button class="raised" data-sort="${c.key}">${c.label}<i class="arrow"></i></button></div>`).join("")}</div>
             <div class="rows"></div>
           </div>
           <div class="statusbar"><span class="sunken seg grow"></span><span class="sunken seg"></span><span class="sunken seg"></span></div>`;
         $(".field", w.body).addEventListener("input", e => { w.q = e.target.value; RENDER.jobs(w); save(); });
+        // empty list: "Clear search" empties the search box and puts the cursor back in it
+        $(".rows", w.body).addEventListener("click", e => {
+          if (!e.target.closest("[data-clearq]")) return;
+          const f = $(".field", w.body); f.value = w.q = ""; RENDER.jobs(w); save(); f.focus();
+        });
       }
       const list = jobsFor(w), types = ["all", ...new Set(data.runs.map(r => r.type))];
       $(".seg-tabs", w.body).innerHTML = types.map(t => `<button class="raised" data-filter="${esc(t)}" aria-pressed="${t === w.filter}">${t === "all" ? "All" : esc(plural(t))}</button>`).join("");
-      $$(".th", w.body).forEach(b => { b.dataset.dir = b.dataset.sort === w.sort.key ? (w.sort.dir > 0 ? "asc" : "desc") : ""; });
+      $$(".th [data-sort]", w.body).forEach(b => { b.parentElement.setAttribute("aria-sort", b.dataset.sort === w.sort.key ? (w.sort.dir > 0 ? "ascending" : "descending") : "none"); });
       $(".rows", w.body).innerHTML = list.length ? list.map(r => `
-        <div class="row${r.taskId === w.sel ? " sel" : ""}" role="row" data-id="${esc(r.taskId)}" aria-selected="${r.taskId === w.sel}">
-          <div class="c c-name">${miniThumb(r)}<span class="nm"><b title="${esc(r.prompt)}">${esc(r.prompt)}</b><small>${esc(r.asset || r.settings)}</small></span></div>
-          <div class="c c-type">${esc(cap(r.type))}</div>
-          <div class="c c-model">${esc(r.model)}</div>
-          <div class="c c-status">${statusHTML(r)}</div>
-          <div class="c c-cost num">${costHTML(r)}</div>
-          <div class="c c-created">${relHTML(r.createdAt || r.date)}</div>
+        <div class="row${r.taskId === w.sel ? " sel" : ""}" role="row" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${r.taskId === w.sel}">
+          <div class="c c-name" role="gridcell">${miniThumb(r)}<span class="nm"><b title="${esc(r.prompt)}">${esc(r.prompt)}</b><small>${esc(r.asset || r.settings)}</small></span></div>
+          <div class="c c-type" role="gridcell">${esc(cap(r.type))}</div>
+          <div class="c c-model" role="gridcell" title="${esc(r.model)}">${esc(r.model)}</div>
+          <div class="c c-status" role="gridcell">${statusHTML(r)}</div>
+          <div class="c c-cost num" role="gridcell">${costHTML(r)}</div>
+          <div class="c c-created" role="gridcell">${relHTML(r.createdAt || r.date)}</div>
         </div>`).join("")
-        : loadingOr(w.q ? `No jobs match “${esc(w.q)}”.` : "No jobs yet. Jobs show up here as soon as they're submitted.");
+        : `<div role="row"><div role="gridcell">${loadingOr(w.q ? `No jobs match “${esc(w.q)}”.${emptyAct('<button class="raised btn-s" data-clearq>Clear search</button>')}`
+          : `No jobs yet. Jobs show up here as soon as they're submitted.${emptyAct(GEN_BTN)}`)}</div></div>`;
+      activeSync(w);
       const segs = $$(".statusbar .seg", w.body), selRun = runOf(w.sel);
       segs[0].textContent = `${list.length} object${list.length === 1 ? "" : "s"}${selRun ? ` · ${selRun.asset || selRun.taskId} selected` : ""}`;
       segs[1].textContent = `${fmt(list.reduce((s, r) => s + (r.credits || 0), 0))} credits`;
-      segs[2].textContent = "Double-click to open";
+      segs[2].textContent = "Double-click or Enter to open";
     },
 
     generate: w => genRender(w),
@@ -622,18 +634,22 @@
     if (!w.shell) {
       w.shell = true;
       w.body.innerHTML = `
-        <div class="toolbar"><label class="sizer">Size <input type="range" min="84" max="260" step="4" value="${w.size}" aria-label="Thumbnail size"></label></div>
+        <div class="toolbar"><label class="sizer">Size <input type="range" min="84" max="260" step="4" value="${w.size}" aria-label="Thumbnail size" aria-valuetext="${w.size} px thumbnails"></label></div>
         <div class="gridwrap sunken" data-keep="grid" tabindex="0" role="listbox" aria-label="${plural(type)}"><div class="grid"></div></div>
-        <div class="statusbar"><span class="sunken seg grow"></span><span class="sunken seg">${type === "video" ? "Hover to preview · " : ""}Double-click to open</span></div>`;
-      $("input", w.body).addEventListener("input", e => { w.size = +e.target.value; $(".grid", w.body).style.setProperty("--tile", w.size + "px"); save(); });
+        <div class="statusbar"><span class="sunken seg grow"></span><span class="sunken seg">${type === "video" ? "Hover to preview · " : ""}${type === "audio" ? "Double-click to open" : "Double-click or Enter to open"}</span></div>`;
+      $("input", w.body).addEventListener("input", e => { w.size = +e.target.value; e.target.setAttribute("aria-valuetext", `${w.size} px thumbnails`); $(".grid", w.body).style.setProperty("--tile", w.size + "px"); save(); });
     }
-    const items = assetsOf(type), grid = $(".grid", w.body);
+    const items = assetsOf(type), grid = $(".grid", w.body), wrap = $(".gridwrap", w.body);
     grid.style.setProperty("--tile", w.size + "px");
     grid.innerHTML = items.length ? items.map(r => `
-      <div class="tile${r.taskId === w.sel ? " sel" : ""}" role="option" data-id="${esc(r.taskId)}" aria-selected="${r.taskId === w.sel}" title="${esc(r.prompt)}">
+      <div class="tile${r.taskId === w.sel ? " sel" : ""}" role="option" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${r.taskId === w.sel}" aria-label="${esc(r.asset)}" title="${esc(r.prompt)}">
         <span class="thumb sunken">${thumbInner(thumbOf(r), type)}${type === "video" ? '<span class="play"></span>' : ""}</span>
         <span class="cap">${esc(r.asset)}</span>
-      </div>`).join("") : loadingOr(`No ${type === "audio" ? "audio" : type + "s"} yet. Finished ${type === "audio" ? "audio files are" : type + "s are"} saved here automatically.`);
+      </div>`).join("") : loadingOr(`No ${type === "audio" ? "audio" : type + "s"} yet. Finished ${type === "audio" ? "audio files are" : type + "s are"} saved here automatically.${emptyAct(GEN_BTN)}`);
+    // a listbox holds only options: while empty the box is a plain group around the message and its button, and no tab stop
+    wrap.setAttribute("role", items.length ? "listbox" : "group");
+    items.length ? wrap.setAttribute("tabindex", "0") : wrap.removeAttribute("tabindex");
+    activeSync(w);
     const selRun = runOf(w.sel);
     $(".statusbar .seg", w.body).textContent = `${items.length} object${items.length === 1 ? "" : "s"}${selRun && selRun.type === type ? ` · ${selRun.asset} selected` : ""}`;
     if (type === "video") $$(".tile", grid).forEach(t => {
@@ -794,9 +810,9 @@
           </div>
           <div class="gmsg" role="alert" hidden></div>
           <div class="footbar">
-            <span class="sunken seg grow ghint"></span>
+            <span class="sunken seg grow ghint" id="${id}h"></span>
             <button type="button" class="raised btn-s gkey" data-open="key" hidden>Add key…</button>
-            <button type="submit" class="raised btn-go" title="Ctrl+Enter"><svg class="ico"><use href="#i-wand"/></svg><span>Generate</span></button>
+            <button type="submit" class="raised btn-go" title="Ctrl+Enter" aria-describedby="${id}h" aria-keyshortcuts="Control+Enter"><svg class="ico"><use href="#i-wand"/></svg><span>Generate</span></button>
           </div>
           <input type="file" class="gfile" hidden>
         </form>`;
@@ -991,7 +1007,10 @@
     }
     hint.textContent = text; hint.title = text; hint.classList.toggle("why", !!why);
     if (!w.busy) $("span", btn).textContent = !why && pr?.credits != null ? `Generate · ${pr.exact ? "" : "≈"}${fmt(pr.credits)} cr` : "Generate";
-    btn.disabled = !!why || !!w.busy;
+    // blocked: aria-disabled keeps it focusable with the reason (.ghint) as its description; genSubmit refuses and shows the reason.
+    // Only sending uses real disabled.
+    btn.disabled = !!w.busy;
+    why ? btn.setAttribute("aria-disabled", "true") : btn.removeAttribute("aria-disabled");
     $(".gkey", f).hidden = !loaded || data.live;
   }
   function genMsg(w, text, neutral) {
@@ -1035,7 +1054,7 @@
     w.busy = true; btn.disabled = true; label.textContent = Object.keys(media).length ? "Uploading…" : "Sending…"; genMsg(w, null);
     try {
       const out = await api("/api/generate", { endpoint: t.endpoint, model: m.id, values, media, extra: ex });
-      balloon({ title: "Job sent to Runway", text: `${t.label} · ${m.id} · queued. Click to follow it.`, icon: "i-wand", ms: 6000, onOpen: () => open("props", out.taskId, $("#tray-run")) });
+      balloon({ title: "Job sent to Runway", text: `${t.label} · ${m.id} · queued`, icon: "i-wand", ms: 6000, onOpen: () => open("props", out.taskId, $("#tray-run")) });
       poll();
     } catch (err) {
       genMsg(w, err.message);
@@ -1823,9 +1842,16 @@
   function select(w, id, scroll) {
     w.sel = id;
     $$("[data-id].row, [data-id].tile", w.body).forEach(el => { const on = el.dataset.id === id; el.classList.toggle("sel", on); el.setAttribute("aria-selected", on); if (on && scroll) el.scrollIntoView({ block: "nearest" }); });
+    activeSync(w);
     const r = runOf(id), seg = $(".statusbar .seg", w.body);
     if (seg && r) seg.textContent = seg.textContent.replace(/ · .* selected$/, "") + ` · ${r.asset || r.taskId} selected`;
     save();
+  }
+  // the focusable list (.table grid or .gridwrap listbox) names the selected row or tile as its active descendant
+  function activeSync(w) {
+    const box = $(".table, .gridwrap", w.body); if (!box) return;
+    const el = w.sel && $$("[data-id].row, [data-id].tile", w.body).find(x => x.dataset.id === w.sel);
+    el ? box.setAttribute("aria-activedescendant", el.id) : box.removeAttribute("aria-activedescendant");
   }
   // delta: ±1 next/previous item, ±2 one grid row up/down, ±1e6 first/last
   function moveSel(w, delta) {
@@ -1981,15 +2007,29 @@
       balloon({ title: "Couldn't open the file", text: `${name} isn't in the Runway folder, or the server is offline.`, ms: 4000 });
     }
   }
-  let balloonT;
+  // the balloon stays at least 5 s; hovering it or focusing inside it pauses the countdown, leaving resumes what was left
+  let balloonT = 0, balloonLeft = 0, balloonAt = 0, srSeq = 0;
+  const balloonEl = $("#balloon"), srStatus = $("#sr-status");
+  function balloonRun() { clearTimeout(balloonT); balloonAt = Date.now(); balloonT = setTimeout(() => { balloonT = 0; balloonEl.hidden = true; }, balloonLeft); }
+  function balloonPause() { if (!balloonT) return; clearTimeout(balloonT); balloonT = 0; balloonLeft = Math.max(0, balloonLeft - (Date.now() - balloonAt)); }
+  const balloonResume = () => { if (!balloonEl.hidden && !balloonT) balloonRun(); };
+  balloonEl.addEventListener("pointerenter", balloonPause);
+  balloonEl.addEventListener("pointerleave", () => { if (!balloonEl.contains(document.activeElement)) balloonResume(); });
+  balloonEl.addEventListener("focusin", balloonPause);
+  balloonEl.addEventListener("focusout", e => { if (!balloonEl.contains(e.relatedTarget) && !balloonEl.matches(":hover")) balloonResume(); });
   function balloon({ title, text, icon = "i-doc", ms = 8000, onOpen }) {
-    const b = $("#balloon");
-    b.innerHTML = `<svg class="ico"><use href="#${icon}"/></svg><div class="bt"><b>${esc(title)}</b><span>${esc(text)}</span></div><button class="raised bx" aria-label="Dismiss"><i class="g-close"></i></button>`;
+    const b = balloonEl;
+    b.innerHTML = `<svg class="ico"><use href="#${icon}"/></svg><div class="bt"><b id="balloon-t">${esc(title)}</b><span id="balloon-x">${esc(text)}</span>${onOpen ? '<button class="raised btn-s bopen" aria-describedby="balloon-t balloon-x">Open</button>' : ""}</div><button class="raised bx" aria-label="Dismiss"><i class="g-close"></i></button>`;
     b.hidden = false;
     b.classList.toggle("clickable", !!onOpen);
     b.onclick = e => { b.hidden = true; if (!e.target.closest(".bx") && onOpen) onOpen(); };
-    clearTimeout(balloonT);
-    balloonT = setTimeout(() => { b.hidden = true; }, ms);
+    // screen readers get it from the always-present live region: empty it, then fill it a frame later so a repeat is announced again
+    const n = ++srSeq;
+    srStatus.textContent = "";
+    requestAnimationFrame(() => requestAnimationFrame(() => { if (n === srSeq) srStatus.textContent = `${title}. ${text}`; }));
+    clearTimeout(balloonT); balloonT = 0;
+    balloonLeft = Math.max(5000, ms);
+    if (!b.matches(":hover") && !b.contains(document.activeElement)) balloonRun();
   }
   function announce(r) {
     const ok = r.status === "succeeded";
@@ -2002,7 +2042,7 @@
     if (!opts.balloons) return;
     balloon({
       title: ok ? `${cap(r.type)} finished` : `Job ${r.status}`,
-      text: ok ? `${r.asset || r.taskId}${r.credits != null ? ` · ${fmt(r.credits)} credits` : ""}. Click to open.` : (r.failure || r.taskId),
+      text: ok ? `${r.asset || r.taskId}${r.credits != null ? ` · ${fmt(r.credits)} credits` : ""}` : (r.failure || r.taskId),
       icon: ok ? typeIcon(r.type) : "i-doc", ms: 9000,
       onOpen: () => open(ok && r.asset ? "viewer" : "props", r.taskId, $("#tray-run")),
     });
