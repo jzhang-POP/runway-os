@@ -587,6 +587,10 @@
     .icons { flex-direction: row; }
     #tray-bal span, .task span { display: none; }
   }
+  /* interface text doesn't select like a web page; typed and quoted text stays selectable */
+  body { user-select: none; -webkit-user-select: none; }
+  input, textarea, select, [contenteditable], .promptbox, .term, .t-out, .t-in { user-select: text; -webkit-user-select: text; }
+
   /* reduced motion */
   html.calm .prog.busy i, html.calm .mprog i.ind, html.calm .live.on::before, html.calm .flash, html.calm .led.flash .on { animation: none; }
   html.calm .prog i, html.calm .boot.out { transition: none; }
