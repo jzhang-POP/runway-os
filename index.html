@@ -232,20 +232,42 @@
   /* group boxes: fieldset.group and details.more.group */
   .group { margin: 0; padding: var(--s3) var(--s4) var(--s4); border: 0; min-width: 0; box-shadow: inset 1px 1px 0 var(--lo), inset -1px -1px 0 var(--hi), inset 2px 2px 0 var(--hi), inset -2px -2px 0 var(--lo); }
   .ubody { flex: 1; min-height: 0; overflow: auto; padding: 0 var(--s3) var(--s2); display: flex; flex-direction: column; gap: var(--s3); }
-  .uchart { width: 100%; height: auto; display: block; background: var(--face-2); }
+  .uchart { width: 100%; height: round(calc(180 * var(--u)), 1px); display: block; overflow: hidden; background: var(--face-2); }
   .uchart .ugrid { stroke: var(--mid); stroke-width: 1; vector-effect: non-scaling-stroke; }
-  .uchart .ulab { fill: var(--muted); font: var(--fs) var(--ui); font-size: 11px; }
+  .uchart .ulab { fill: var(--muted); font: var(--fs) var(--ui); }
   .ulegend { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); margin-top: var(--s2); }
-  .ulegend span, .utable span { display: inline-flex; align-items: center; gap: var(--s1); min-width: 0; }
-  .ulegend i, .utable i { width: 10px; height: 10px; flex: none; display: inline-block; }
+  .ulegend button, .utable span { display: inline-flex; align-items: center; gap: var(--s1); min-width: 0; }
+  .ulegend i, .utable i { width: round(calc(10 * var(--u)), 1px); height: round(calc(10 * var(--u)), 1px); flex: none; display: inline-block; }
   .ucols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18em), 1fr)); gap: var(--s3); }
   .utable { display: flex; flex-direction: column; gap: 2px; }
-  .utable > div { display: grid; grid-template-columns: minmax(0, 1fr) auto 4.5em; gap: var(--s2); align-items: baseline; padding: 2px var(--s1); }
-  .utable > div:nth-child(odd) { background: var(--face-2); }
+  .utable > div, .utable > button { display: grid; grid-template-columns: minmax(0, 1fr) auto 4.5em; gap: var(--s2); align-items: baseline; padding: 2px var(--s1); }
+  .utable > :nth-child(odd) { background: var(--face-2); }
   .utable span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .utable b { font-weight: 400; font-variant-numeric: tabular-nums; color: var(--blue); text-align: right; }
-  .utable small { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+  .utable small { color: var(--muted); font-size: var(--fs); text-align: right; font-variant-numeric: tabular-nums; }
   .unote { margin: var(--s2) 0 0; }
+  /* usage: chart colors (dark, storm and eggplant use the default; light themes darker; high contrast bright on black),
+     the drawn chart, the model filter buttons and the inspected day */
+  :root { --uc1: #6ea8ff; --uc2: #ffc94a; --uc3: #5fdc7a; --uc4: #ff6b6b; --uc5: #c678dd; --uc6: #56b6c2; --uc7: #e5a46b; --uc8: #9a9ca6; }
+  html[data-theme="classic"], html[data-theme="marine"], html[data-theme="pumpkin"] { --uc1: #1f5fbf; --uc2: #8a5a00; --uc3: #1c7a3a; --uc4: #b3261e; --uc5: #7b3fa0; --uc6: #0e6f7a; --uc7: #9a4f12; --uc8: #5f6670; }
+  html.contrast { --uc1: #00ffff; --uc2: #ffff00; --uc3: #00ff00; --uc4: #ff6060; --uc5: #ff80ff; --uc6: #8080ff; --uc7: #ffa500; --uc8: #c0c0c0; }
+  html.contrast .uchart .ugrid { stroke: var(--fg); stroke-dasharray: 1 3; }
+  .uchart svg { display: block; width: 100%; height: 100%; }
+  .uday { cursor: pointer; }
+  .uday:focus, .uday:focus-visible { outline: none; }
+  .uhit { fill: transparent; }
+  .uday[aria-pressed="true"] .uhit { fill: var(--mid); }
+  html.contrast .uday[aria-pressed="true"] .uhit { fill: var(--sel); }
+  .uday:focus-visible .uhit { stroke: var(--fg); stroke-width: 1; stroke-dasharray: 1 1; }
+  .ubar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s1) var(--s3); }
+  .ufilter { margin-bottom: var(--s2); }
+  .ufilter:empty, .uinspect:empty { display: none; }
+  .uinspect { margin-top: var(--s3); padding-top: var(--s3); box-shadow: inset 0 1px 0 var(--lo), inset 0 2px 0 var(--hi); }
+  .uinspect .ubar { margin-bottom: var(--s2); }
+  .ulegend button, .utable > button { background: none; border: 0; padding: 2px var(--s1); cursor: pointer; text-align: left; }
+  .utable > button { width: 100%; }
+  .ulegend button[aria-pressed="true"], .utable > button[aria-pressed="true"] { background: var(--sel); color: #fff; }
+  .utable > button[aria-pressed="true"] b, .utable > button[aria-pressed="true"] small { color: inherit; }
   .xnote { margin: 0 0 var(--s2); }
   .xkeys { display: flex; flex-direction: column; gap: 2px; margin-bottom: var(--s2); max-height: calc(9 * var(--fs) * 1.5); overflow: auto; }
   .xkey { display: flex; flex-wrap: wrap; gap: 0 var(--s2); align-items: baseline; text-align: left; background: none; border: 0; padding: 2px var(--s1); cursor: pointer; color: var(--fg); }
