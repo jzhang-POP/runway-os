@@ -287,6 +287,7 @@
     const kids = [...a.children], gap = parseFloat(getComputedStyle(a).columnGap) || 0, ps = getComputedStyle(p);
     const row = kids.reduce((s, b) => s + b.getBoundingClientRect().width, 0) + gap * Math.max(0, kids.length - 1);
     w.minW = Math.ceil(row + parseFloat(ps.paddingLeft) + parseFloat(ps.paddingRight) + w.el.offsetWidth - p.clientWidth);
+    a.classList.toggle("wrap", w.minW > D().w); // at large Scale sizes the icon buttons wrap instead of running off screen
     if (!w.max && w.wd < w.minW) { fit(w); place(w); }
   }
   function place(w) {
@@ -465,6 +466,8 @@
   const GEN_BTN = '<button class="raised btn-s" data-open="generate">Open Generate</button>';
   // id of a row or tile, stable for the window's life, so the list can point aria-activedescendant at it
   const itemId = (w, id) => `it${w.oid ||= ++uid}-${String(id).replace(/[^\w-]/g, "_")}`;
+  // button content: a 16 px icon before the label (index.html, "button icons and tones"); label is trusted HTML
+  const icoLabel = (icon, label) => `<svg class="ico" aria-hidden="true"><use href="#${icon}"/></svg><span>${label}</span>`;
 
   /* jobs table */
   const COLS = [
@@ -536,7 +539,7 @@
               <dt>Sync:</dt><dd>Jobs every 8 s, balance every 20 s</dd>
               <dt>Server:</dt><dd>${esc(location.host)}</dd>
             </dl>
-            <div class="actions"><button class="raised btn-s" data-open="key">Change key…</button></div>
+            <div class="actions"><button class="raised btn-s" data-open="key">${icoLabel("i-key", "Change key…")}</button></div>
           </fieldset>`;
       }
       w.body.innerHTML = sheetHTML(T, tab, panel);
@@ -610,9 +613,9 @@
         <div class="footbar">
           <span class="nav">${nav}</span>
           <span class="sunken seg grow info" title="${esc(r.prompt)}">${esc(r.model)} · ${esc(r.settings)} · ${costHTML(r)} cr</span>
-          ${video ? "" : '<button class="raised btn-s zoombtn" title="Toggle actual size">Fit</button>'}
-          <button class="raised btn-s" data-open="props" data-id="${esc(r.taskId)}" title="Alt+Enter">Properties</button>
-          <button class="raised btn-s" data-file="reveal" data-name="${esc(r.asset)}">Show in Finder</button>
+          ${video ? "" : `<button class="raised btn-s zoombtn" title="Toggle actual size">${icoLabel("i-zoom", "Fit")}</button>`}
+          <button class="raised btn-s" data-open="props" data-id="${esc(r.taskId)}" title="Alt+Enter">${icoLabel("i-doc", "Properties")}</button>
+          <button class="raised btn-s" data-file="reveal" data-name="${esc(r.asset)}">${icoLabel("i-finder", "Show in Finder")}</button>
         </div>`;
       const media = $(audio ? "audio" : video ? "video" : "img", w.body), info = $(".info", w.body);
       const addDims = (wd, ht, extra = "") => { info.innerHTML += ` · ${wd}×${ht}${extra}`; };
@@ -648,14 +651,14 @@
           <div class="plabel">Prompt</div>
           <div class="promptbox sunken">${esc(r.prompt)}</div>
           <div class="actions">
-            ${r.asset ? `<button class="raised btn-s" data-open="viewer" data-id="${esc(r.taskId)}">Open</button><button class="raised btn-s" data-file="reveal" data-name="${esc(r.asset)}">Show in Finder</button>` : ""}
-            ${r.type === "image" && r.asset ? `<button class="raised btn-s" data-gen="animate" data-id="${esc(r.taskId)}">Animate…</button>` : ""}
-            ${(r.type === "image" || r.type === "video") && r.asset ? `<button class="raised btn-s" data-gen="upscale" data-id="${esc(r.taskId)}">Upscale…</button>` : ""}
-            <button class="raised btn-s" data-gen="again" data-id="${esc(r.taskId)}">Generate again…</button>
-            ${ACTIVE.has(r.status) ? `<button class="raised btn-s" data-cancel="${esc(r.taskId)}">Cancel job</button>` : ""}
-            <button class="raised btn-s" data-copy="${esc(r.prompt)}" data-done="Prompt copied">Copy prompt</button>
-            <button class="raised btn-s" data-copy="${esc(r.taskId)}" data-done="ID copied">Copy task ID</button>
-            ${r.failure ? `<button class="raised btn-s" data-copy="${esc(r.failure)}" data-done="Error copied">Copy error</button>` : ""}
+            ${r.asset ? `<button class="raised btn-s b-default" data-open="viewer" data-id="${esc(r.taskId)}">${icoLabel(typeIcon(r.type), "Open")}</button><button class="raised btn-s" data-file="reveal" data-name="${esc(r.asset)}">${icoLabel("i-finder", "Show in Finder")}</button>` : ""}
+            ${r.type === "image" && r.asset ? `<button class="raised btn-s" data-gen="animate" data-id="${esc(r.taskId)}">${icoLabel("i-animate", "Animate…")}</button>` : ""}
+            ${(r.type === "image" || r.type === "video") && r.asset ? `<button class="raised btn-s" data-gen="upscale" data-id="${esc(r.taskId)}">${icoLabel("i-upscale", "Upscale…")}</button>` : ""}
+            <button class="raised btn-s${r.asset || ACTIVE.has(r.status) ? "" : " b-default"}" data-gen="again" data-id="${esc(r.taskId)}">${icoLabel("i-again", "Generate again…")}</button>
+            ${ACTIVE.has(r.status) ? `<button class="raised btn-s b-danger" data-cancel="${esc(r.taskId)}">${icoLabel("i-stop", "Cancel job")}</button>` : ""}
+            <button class="raised btn-s" data-copy="${esc(r.prompt)}" data-done="Prompt copied">${icoLabel("i-copy", "Copy prompt")}</button>
+            <button class="raised btn-s" data-copy="${esc(r.taskId)}" data-done="ID copied">${icoLabel("i-copy", "Copy task ID")}</button>
+            ${r.failure ? `<button class="raised btn-s" data-copy="${esc(r.failure)}" data-done="Error copied">${icoLabel("i-copy", "Copy error")}</button>` : ""}
           </div>
         </div>`;
       fitActions(w);
@@ -700,7 +703,7 @@
     const set = (actual, cx, cy) => {
       const r = img.getBoundingClientRect(), fx = r.width ? (cx - r.left) / r.width : .5, fy = r.height ? (cy - r.top) / r.height : .5;
       stage.classList.toggle("actual", actual);
-      btn.textContent = actual ? "100%" : "Fit";
+      $("span", btn).textContent = actual ? "100%" : "Fit";
       if (actual) { stage.scrollLeft = fx * img.naturalWidth - stage.clientWidth / 2; stage.scrollTop = fy * img.naturalHeight - stage.clientHeight / 2; }
     };
     btn.addEventListener("click", () => { const r = stage.getBoundingClientRect(); set(!stage.classList.contains("actual"), r.left + r.width / 2, r.top + r.height / 2); });
@@ -1924,15 +1927,15 @@
           <div class="kstat"><svg class="kico"><use href="#i-key"/></svg><div><b class="live kst"></b><div class="muted kbal"></div></div></div>
           <fieldset class="group"><legend class="kleg"></legend>
             <div class="krow"><input class="field kin" type="password" placeholder="key_…" aria-label="Runway API key" spellcheck="false" autocapitalize="off" autocomplete="off">
-              <button type="button" class="raised btn-s kshow" aria-pressed="false">Show</button></div>
-            <div class="krow end"><button type="submit" class="raised btn-go ksave"><span>Check and save</span></button></div>
+              <button type="button" class="raised btn-s kshow" aria-pressed="false">${icoLabel("i-eye", "Show")}</button></div>
+            <div class="krow end"><button type="submit" class="raised btn-go b-default ksave">${icoLabel("i-save", "Check and save")}</button></div>
           </fieldset>
           <div class="gmsg kmsg" role="alert" hidden></div>
           <p class="muted knote">Create a key at <a href="https://dev.runwayml.com/" target="_blank" rel="noopener">dev.runwayml.com</a> under API Keys. The dashboard checks it with Runway, then saves it to <code>.runway_key</code> in the Runway folder, readable only by your Mac account. It's never shown again here.</p>
-          <div class="krow end"><button type="button" class="raised btn-s krm" hidden>Remove saved key</button></div>
+          <div class="krow end"><button type="button" class="raised btn-s b-danger krm" hidden>${icoLabel("i-remove", "Remove saved key")}</button></div>
         </form>`;
-      const form = $(".keyf", w.body), inp = $(".kin", form), show = $(".kshow", form), rm = $(".krm", form);
-      show.addEventListener("click", () => { const on = inp.type === "password"; inp.type = on ? "text" : "password"; show.setAttribute("aria-pressed", on); show.textContent = on ? "Hide" : "Show"; });
+      const form = $(".keyf", w.body), inp = $(".kin", form), show = $(".kshow", form), rm = $(".krm", form), showL = $("span", show), rmL = $("span", rm);
+      show.addEventListener("click", () => { const on = inp.type === "password"; inp.type = on ? "text" : "password"; show.setAttribute("aria-pressed", on); showL.textContent = on ? "Hide" : "Show"; });
       form.addEventListener("submit", async e => {
         e.preventDefault();
         const key = inp.value.trim();
@@ -1941,13 +1944,13 @@
         const out = await keyPost({ key });
         btn.disabled = false; $("span", btn).textContent = "Check and save";
         if (out.error) { keyMsg(w, out.error); return; }
-        inp.value = ""; inp.type = "password"; show.textContent = "Show"; show.setAttribute("aria-pressed", "false");
+        inp.value = ""; inp.type = "password"; showL.textContent = "Show"; show.setAttribute("aria-pressed", "false");
         balloon({ title: "Key saved", text: out.balance != null ? `Runway accepted it. ${fmt(out.balance)} credits on this org.` : "Runway accepted it.", icon: "i-key", ms: 5000 });
         poll();
       });
       let armed = 0;
       rm.addEventListener("click", async () => {
-        if (Date.now() - armed > 3000) { armed = Date.now(); rm.textContent = "Click again to remove"; setTimeout(() => { rm.textContent = "Remove saved key"; }, 3000); return; }
+        if (Date.now() - armed > 3000) { armed = Date.now(); rmL.textContent = "Click again to remove"; setTimeout(() => { rmL.textContent = "Remove saved key"; }, 3000); return; }
         const out = await keyPost({ remove: true });
         if (out.error) { keyMsg(w, out.error); return; }
         balloon({ title: "Key removed", text: ".runway_key was deleted.", icon: "i-key", ms: 4000 });
@@ -1998,7 +2001,7 @@
     menuItems = items.filter(Boolean);
     menuReturn = document.activeElement;
     menuEl.innerHTML = menuItems.map((it, i) => it.sep ? '<hr class="etch">'
-      : `<button role="menuitem" data-i="${i}" class="${it.bold ? "bold" : ""}" ${it.disabled ? "disabled" : ""}><span>${esc(it.label)}</span>${it.hint ? `<kbd>${esc(it.hint)}</kbd>` : ""}</button>`).join("");
+      : `<button role="menuitem" data-i="${i}" class="${it.bold ? "bold" : ""}" ${it.disabled ? "disabled" : ""}>${it.icon ? `<svg class="mico" aria-hidden="true"><use href="#${it.icon}"/></svg>` : ""}<span>${esc(it.label)}</span>${it.hint ? `<kbd>${esc(it.hint)}</kbd>` : ""}</button>`).join("");
     menuEl.hidden = false;
     const r = menuEl.getBoundingClientRect();
     menuEl.style.left = clampN(x, 0, innerWidth - r.width) + "px";
@@ -2021,22 +2024,22 @@
 
   function runMenu(r, x, y, src) {
     showMenu(x, y, [
-      { label: r.asset ? "Open" : "Properties", bold: true, hint: "Enter", act: () => defaultOpen(r, src) },
-      r.asset && { label: "Properties", hint: "Alt+Enter", act: () => open("props", r.taskId, src) },
+      { label: r.asset ? "Open" : "Properties", icon: r.asset ? typeIcon(r.type) : "i-doc", bold: true, hint: "Enter", act: () => defaultOpen(r, src) },
+      r.asset && { label: "Properties", icon: "i-doc", hint: "Alt+Enter", act: () => open("props", r.taskId, src) },
       r.parent && runOf(r.parent) && { label: "Go to source", act: () => open("props", r.parent, src) },
       { sep: true },
-      r.type === "image" && r.asset && { label: "Animate into video…", act: () => genFrom(r, "animate", src) },
-      (r.type === "image" || r.type === "video") && r.asset && { label: "Upscale…", act: () => genFrom(r, "upscale", src) },
-      r.type === "video" && r.asset && { label: "Add sound…", act: () => genFrom(r, "sound", src) },
-      r.type === "video" && r.asset && { label: "Convert to HDR…", act: () => genFrom(r, "hdr", src) },
-      { label: "Generate again…", act: () => genFrom(r, "again", src) },
-      ACTIVE.has(r.status) && { label: "Cancel job", act: () => cancelJob(r) },
+      r.type === "image" && r.asset && { label: "Animate into video…", icon: "i-animate", act: () => genFrom(r, "animate", src) },
+      (r.type === "image" || r.type === "video") && r.asset && { label: "Upscale…", icon: "i-upscale", act: () => genFrom(r, "upscale", src) },
+      r.type === "video" && r.asset && { label: "Add sound…", icon: "i-sound", act: () => genFrom(r, "sound", src) },
+      r.type === "video" && r.asset && { label: "Convert to HDR…", icon: "i-hdr", act: () => genFrom(r, "hdr", src) },
+      { label: "Generate again…", icon: "i-again", act: () => genFrom(r, "again", src) },
+      ACTIVE.has(r.status) && { label: "Cancel job", icon: "i-stop", act: () => cancelJob(r) },
       { sep: true },
-      { label: "Copy prompt", act: () => copyText(r.prompt, "Prompt copied") },
-      { label: "Copy task ID", act: () => copyText(r.taskId, "Task ID copied") },
+      { label: "Copy prompt", icon: "i-copy", act: () => copyText(r.prompt, "Prompt copied") },
+      { label: "Copy task ID", icon: "i-copy", act: () => copyText(r.taskId, "Task ID copied") },
       { sep: true },
-      { label: "Show in Finder", disabled: !r.asset, act: () => fileAction("reveal", r.asset) },
-      { label: "Open in default app", disabled: !r.asset, act: () => fileAction("open", r.asset) },
+      { label: "Show in Finder", icon: "i-finder", disabled: !r.asset, act: () => fileAction("reveal", r.asset) },
+      { label: "Open in default app", icon: "i-open", disabled: !r.asset, act: () => fileAction("open", r.asset) },
     ]);
   }
   function windowMenu(w, x, y) {
@@ -2263,8 +2266,8 @@
   desk.addEventListener("click", e => {
     const c = e.target.closest("[data-copy]");
     if (c) {
-      const label = c.textContent;
-      navigator.clipboard?.writeText(c.dataset.copy).then(() => { c.textContent = c.dataset.done || "Copied"; setTimeout(() => { c.textContent = label; }, 900); }).catch(() => {});
+      const t = $(":scope > span", c) || c, label = t.textContent; // icon buttons keep their icon
+      navigator.clipboard?.writeText(c.dataset.copy).then(() => { t.textContent = c.dataset.done || "Copied"; setTimeout(() => { t.textContent = label; }, 900); }).catch(() => {});
       return;
     }
     const fa = e.target.closest("[data-file]"); if (fa) { fileAction(fa.dataset.file, fa.dataset.name); return; }
