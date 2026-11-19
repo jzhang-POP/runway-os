@@ -117,8 +117,56 @@
   html.hyper { --ui: "Atkinson Hyperlegible", Tahoma, Verdana, system-ui, sans-serif; }
 
   /* ---------- base ---------- */
-  * { box-sizing: border-box; scrollbar-width: none; }
-  *::-webkit-scrollbar { display: none; }
+  * { box-sizing: border-box; }
+  :where(:not(.window, .window *)) { scrollbar-width: none; } /* the screen is a monitor: only windows scroll */
+  :where(:not(.window, .window *))::-webkit-scrollbar { display: none; }
+  /* ---------- scrollbars, target sizes ----------
+     Win95 scrollbars inside windows, from the theme tokens: a dithered track, a raised thumb, raised arrow buttons.
+     Scrollers with a 2 px bevel (.sunken, .field, .raised, .term) keep the bevel around the bar. */
+  .window { --sb: round(calc(16 * var(--u)), 1px); }
+  .window ::-webkit-scrollbar { width: var(--sb); height: var(--sb); }
+  .window ::-webkit-scrollbar-track { background: var(--face) conic-gradient(var(--hi) 25%, #0000 0 50%, var(--hi) 0 75%, #0000 0) 0 0 / 2px 2px; }
+  .window ::-webkit-scrollbar-thumb, .window ::-webkit-scrollbar-button { background-color: var(--face); box-shadow: inset 1px 1px 0 var(--hi), inset -1px -1px 0 var(--lo), inset 2px 2px 0 var(--mid), inset -2px -2px 0 var(--deep); }
+  .window ::-webkit-scrollbar-thumb:vertical { min-height: var(--sb); }
+  .window ::-webkit-scrollbar-thumb:horizontal { min-width: var(--sb); }
+  .window ::-webkit-scrollbar-button { display: block; width: var(--sb); height: var(--sb); background-repeat: no-repeat; background-position: center; }
+  .window ::-webkit-scrollbar-button:start:increment, .window ::-webkit-scrollbar-button:end:decrement { display: none; }
+  .window ::-webkit-scrollbar-button:vertical:decrement { background-image: conic-gradient(from 135deg at 50% 0, var(--fg) 90deg, #0000 0); background-size: calc(2 * var(--s1)) var(--s1); }
+  .window ::-webkit-scrollbar-button:vertical:increment { background-image: conic-gradient(from -45deg at 50% 100%, var(--fg) 90deg, #0000 0); background-size: calc(2 * var(--s1)) var(--s1); }
+  .window ::-webkit-scrollbar-button:horizontal:decrement { background-image: conic-gradient(from 45deg at 0 50%, var(--fg) 90deg, #0000 0); background-size: var(--s1) calc(2 * var(--s1)); }
+  .window ::-webkit-scrollbar-button:horizontal:increment { background-image: conic-gradient(from 225deg at 100% 50%, var(--fg) 90deg, #0000 0); background-size: var(--s1) calc(2 * var(--s1)); }
+  .window ::-webkit-scrollbar-button:active { background-color: var(--pressed); background-position: calc(50% + 1px) calc(50% + 1px); box-shadow: inset 1px 1px 0 var(--lo), inset -1px -1px 0 var(--hi), inset 2px 2px 0 var(--deep), inset -2px -2px 0 var(--mid); }
+  .window ::-webkit-scrollbar-corner { background: var(--face); }
+  .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar { width: calc(var(--sb) + 2px); height: calc(var(--sb) + 2px); }
+  .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-track, .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-thumb,
+  .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-button, .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-corner { border: 0 solid #0000; background-clip: padding-box; }
+  .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-track:vertical, .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-thumb:vertical, .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-button:vertical { border-right-width: 2px; }
+  .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-track:horizontal, .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-thumb:horizontal, .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-button:horizontal { border-bottom-width: 2px; }
+  .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-button:vertical:decrement { border-top-width: 2px; height: calc(var(--sb) + 2px); }
+  .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-button:vertical:increment { border-bottom-width: 2px; height: calc(var(--sb) + 2px); }
+  .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-button:vertical:increment:corner-present { border-bottom-width: 0; height: var(--sb); }
+  .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-button:horizontal:decrement { border-left-width: 2px; width: calc(var(--sb) + 2px); }
+  .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-button:horizontal:increment { border-right-width: 2px; width: calc(var(--sb) + 2px); }
+  .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-button:horizontal:increment:corner-present { border-right-width: 0; width: var(--sb); }
+  .window :is(.sunken, .field, .raised, .term)::-webkit-scrollbar-corner { border-width: 0 2px 2px 0; }
+  @supports not selector(::-webkit-scrollbar) { /* Firefox draws its own bar: theme colors only */
+    .window { scrollbar-color: var(--face) var(--face-2); }
+    html.contrast .window { scrollbar-color: var(--fg) var(--face-2); }
+  }
+  /* minimum target size (WCAG 2.2, 2.5.8): 24 × 24 px, or spaced so a 24 px circle on each target touches no other target */
+  .ctl { --cb-gap: max(0px, calc(24px - var(--cb-w))); gap: var(--cb-gap); }
+  .ctl-gap { margin-left: calc(-1 * var(--cb-gap)); }
+  .window .rz.n, .window .rz.ne { height: 4px; } /* the top edge stays clear of the caption buttons */
+  .window .rz.e { width: 5px; }
+  .ctl button, .bx { position: relative; }
+  .ctl button::before, .bx::before { content: ""; position: absolute; inset: min(0px, calc(var(--cb-h) / 2 - 12px)) min(0px, calc(var(--cb-w) / 2 - 12px)); } /* 24 × 24 hit area */
+  .th, .trayitem, .menu button, .check, .field { min-height: 24px; }
+  .sp-row { min-height: 24px; align-items: center; }
+  label.opt-radio, label.opt-check { padding-block: max(var(--g2), calc((24px - 1lh) / 2)); }
+  button.xkey { padding-block: max(2px, calc((24px - 1lh) / 2)); }
+  details.more > summary { padding-block: max(0px, calc((24px - 1lh) / 2)); }
+  .tsize .tsz-marks { height: max(1.6em, 24px); }
+  .tsz-marks button { min-width: 24px; min-height: 24px; }
   [hidden] { display: none !important; }
   html, body { height: 100%; overflow: hidden; }
   body { margin: 0; background: var(--desk); color: var(--fg); font: var(--fs)/1.45 var(--ui); -webkit-font-smoothing: none; -moz-osx-font-smoothing: unset; font-smooth: never; text-rendering: optimizeSpeed; }
