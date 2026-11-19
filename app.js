@@ -188,6 +188,7 @@
     el.dataset.id = id;
     el.setAttribute("role", "dialog");
     el.setAttribute("aria-labelledby", tid);
+    el.tabIndex = -1; // focus can rest on the window itself when it has no control to take it
     el.innerHTML = `
       <div class="titlebar"><span class="t"><svg class="ico ticon" title="Double-click to close"><use href="#i-film"/></svg><span class="tt" id="${tid}"></span></span>
         <span class="ctl"><button class="raised" data-act="min" aria-label="Minimize" title="Minimize"><i class="g-min"></i></button><button class="raised" data-act="max" aria-label="Maximize" title="Maximize"><i class="g-max"></i></button><span class="ctl-gap"></span><button class="raised" data-act="close" aria-label="Close" title="Close (Alt+W)"><i class="g-close"></i></button></span></div>
@@ -206,24 +207,32 @@
     wins.set(id, w);
     desk.append(el);
     bind(w);
+    // remember the control used last, to give it focus again when the window comes back to the front;
+    // Tab moving focus into a window behind others brings that window to the front
+    el.addEventListener("focusin", e => {
+      if (w.body.contains(e.target)) w.lastFocus = e.target;
+      if (tabbing && !w.minimized && w !== frontWin()) { focus(w); save(); }
+    });
+    // a title bar press keeps focus where it is (for dragging): bring it in when it's in another window (not on touch, to keep the keyboard down)
+    $(".titlebar", el).addEventListener("pointerdown", e => { if (e.pointerType !== "touch" && !e.target.closest(".ctl") && !el.contains(document.activeElement)) focusInto(w); });
     fit(w); place(w); renderWin(w);
     return w;
   }
 
   function open(kind, arg, src) {
     const id = arg ? `${kind}:${arg}` : kind, have = wins.get(id);
-    if (have) { have.minimized ? restore(have) : (focus(have), save()); return have; }
+    if (have) { have.minimized ? restore(have) : (focus(have), save(), focusInto(have)); return have; }
     const d = D(), w = make(kind, arg, { ...KINDS[kind].geo(d), max: d.w < 600 });
     focus(w); save();
-    if (src) flyIn(w, src.getBoundingClientRect());
+    flyIn(w, src?.getBoundingClientRect());
     return w;
   }
   const defaultOpen = (r, src) => open(r.asset ? "viewer" : "props", r.taskId, src);
 
-  function close(w) { w.el.remove(); wins.delete(w.id); refreshFront(); save(); }
+  function close(w) { w.el.remove(); wins.delete(w.id); refreshFront(); save(); refocus(() => startBtn); }
   function minimize(w, animate = true) {
     const from = $(".titlebar", w.el).getBoundingClientRect();
-    w.minimized = true; place(w); refreshFront(); save();
+    w.minimized = true; place(w); refreshFront(); save(); refocus(() => taskBtn(w));
     if (animate) fly(from, taskBtn(w)?.getBoundingClientRect(), w);
   }
   function restore(w) { w.minimized = false; place(w); focus(w); save(); flyIn(w, taskBtn(w)?.getBoundingClientRect()); }
@@ -246,6 +255,22 @@
     wins.forEach(w => w.el.classList.toggle("front", w === f));
     renderTasks();
   }
+  // keyboard focus follows the front window: the control used last, else the window's main control, else its first one, else the window itself
+  const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), summary, audio[controls], video[controls], [tabindex]:not([tabindex="-1"])';
+  function focusInto(w) {
+    if (!w || w.minimized || wins.get(w.id) !== w) return;
+    const b = w.body, last = w.lastFocus?.isConnected && b.contains(w.lastFocus) ? w.lastFocus : null;
+    for (const el of [last, $(".t-in", b), $("textarea", b), $(".table", b), $(".gridwrap", b), ...$$(FOCUSABLE, b), w.el]) {
+      if (!el) continue;
+      el.focus({ preventScroll: true });
+      if (document.activeElement === el) return; // hidden or disabled controls refuse focus: try the next one
+    }
+  }
+  // after a close or minimize, once the caller is done (it may raise another window): focus the front window, else none()
+  const refocus = none => queueMicrotask(() => { const f = frontWin(); f ? focusInto(f) : none()?.focus(); });
+  let tabbing = false; // true while a Tab keypress moves focus
+  addEventListener("keydown", e => { tabbing = e.key === "Tab"; }, true);
+  addEventListener("keyup", () => { tabbing = false; }, true);
 
   /* ---------- geometry ---------- */
   function fit(w) {
@@ -372,10 +397,16 @@
       setTimeout(end, 500); // never leave a stray caption if the timeline stalls
     });
   }
+  // the window takes keyboard focus once it shows (a hidden one can't), unless focus went elsewhere during the flight
   function flyIn(w, from) {
-    if (calm() || !from) return;
+    if (calm() || !from) { focusInto(w); return; }
     w.el.style.visibility = "hidden";
-    fly(from, $(".titlebar", w.el).getBoundingClientRect(), w).then(() => { w.el.style.visibility = ""; });
+    const was = document.activeElement;
+    fly(from, $(".titlebar", w.el).getBoundingClientRect(), w).then(() => {
+      w.el.style.visibility = "";
+      const a = document.activeElement;
+      if (frontWin() === w && (a === was || a === document.body || w.el.contains(a))) focusInto(w);
+    });
   }
 
   /* ---------- rendering ---------- */
@@ -1732,12 +1763,53 @@
   function windowMenu(w, x, y) {
     showMenu(x, y, [
       { label: "Restore", disabled: !w.max && !w.snapped && !w.minimized, act: () => (w.minimized ? restore(w) : toggleMax(w)) },
+      { label: "Move", disabled: w.max || w.minimized, act: () => kbStart(w, "move") },
+      { label: "Size", disabled: w.max || w.minimized, act: () => kbStart(w, "size") },
       { label: "Minimize", disabled: w.minimized, act: () => minimize(w) },
       { label: "Maximize", disabled: w.max, act: () => { if (w.minimized) restore(w); if (!w.max) toggleMax(w); } },
       { sep: true },
       { label: "Close", bold: true, hint: "Alt+W", act: () => close(w) },
     ]);
   }
+  // keyboard Move and Size, as in Win95: arrow keys move or size the window (Shift: 1 px), Enter or a click keeps it, Esc puts it back
+  let kb = null;
+  const KB_HINT = "Enter to finish, Esc to cancel.";
+  function kbStart(w, mode) {
+    kbEnd(true);
+    if (w.max || w.minimized || wins.get(w.id) !== w) return;
+    kb = { w, mode, start: { x: w.x, y: w.y, wd: w.wd, ht: w.ht, snapped: w.snapped, pre: w.pre } };
+    focus(w);
+    if (!w.el.contains(document.activeElement)) focusInto(w);
+    w.el.classList.add("kbmode");
+    balloon(mode === "move" ? { title: "Move window", text: `Arrow keys move it. ${KB_HINT}`, ms: 6000 } : { title: "Size window", text: `Arrow keys change its width and height. ${KB_HINT}`, ms: 6000 });
+  }
+  function kbEnd(keep) {
+    if (!kb) return;
+    const { w, start } = kb;
+    kb = null;
+    w.el.classList.remove("kbmode");
+    if (!keep) Object.assign(w, start);
+    if (wins.get(w.id) === w) { fit(w); place(w); }
+    if (keep) save();
+    const b = $("#balloon"); if (b && !b.hidden && b.textContent.includes(KB_HINT)) b.hidden = true; // the hint no longer applies
+  }
+  // capture phase: runs before the terminal, list and gallery keys, and swallows the keys it uses
+  addEventListener("keydown", e => {
+    if (!kb || ["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
+    const { w, mode } = kb, dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (wins.get(w.id) !== w || w.minimized || w.max || (!dir && e.key !== "Enter" && e.key !== "Escape")) { kbEnd(true); return; } // any other key keeps the change and does its usual job
+    e.preventDefault(); e.stopPropagation();
+    if (!dir) { kbEnd(e.key === "Enter"); return; }
+    const d = D(), [mw, mh] = minOf(w, d), st = e.shiftKey ? 1 : px(8);
+    if (w.snapped) { // leaving a snapped layout: moving gets the size from before the snap back, as with the mouse
+      if (mode === "move" && w.pre) Object.assign(w, { wd: w.pre.wd, ht: w.pre.ht });
+      w.snapped = false; w.pre = null;
+    }
+    if (mode === "move") { w.x += dir[0] * st; w.y += dir[1] * st; }
+    else { w.wd = clampN(w.wd + dir[0] * st, mw, d.w - w.x); w.ht = clampN(w.ht + dir[1] * st, mh, d.h - w.y); }
+    fit(w); place(w);
+  }, true);
+  addEventListener("pointerdown", () => kbEnd(true), true);
   const deskMenu = (x, y) => showMenu(x, y, [
     { label: "Cascade windows", act: cascadeAll },
     { label: "Tile windows", act: tileAll },
@@ -1841,7 +1913,7 @@
     const w = wins.get(b.dataset.task); if (!w) return;
     if (w.minimized) restore(w);
     else if (w === frontWin()) minimize(w);
-    else { focus(w); save(); }
+    else { focus(w); save(); focusInto(w); }
   });
   $(".taskbar").addEventListener("contextmenu", e => {
     e.preventDefault();
@@ -1950,7 +2022,7 @@
       e.preventDefault();
       const list = [...wins.values()].sort((a, b) => b.z - a.z); if (list.length < 2) return;
       const next = e.shiftKey ? list[list.length - 1] : list.find(w => w !== f && !w.minimized) || list[1];
-      next.minimized ? restore(next) : (focus(next), save());
+      next.minimized ? restore(next) : (focus(next), save(), focusInto(next));
       return;
     }
     if (e.altKey && e.code === "KeyW" && f) { e.preventDefault(); close(f); return; }

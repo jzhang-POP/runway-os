@@ -153,7 +153,7 @@
   /* fields */
   .field { flex: 1; min-width: round(calc(120 * var(--u)), 1px); max-width: round(calc(320 * var(--u)), 1px); padding: var(--s1) var(--s2); outline: none; }
   .field::placeholder { color: var(--muted); }
-  .field:focus { outline: 1px dotted var(--muted); outline-offset: -4px; }
+  .field:focus { outline: 1px dotted var(--fg); outline-offset: -4px; }
   .combo { position: relative; display: block; min-width: 0; }
   .combo select { width: 100%; max-width: none; appearance: none; -webkit-appearance: none; padding-right: calc(var(--cb-w) + var(--s3)); cursor: pointer; text-overflow: ellipsis; }
   .combo select option { background: var(--face-2); color: var(--fg); }
@@ -215,6 +215,11 @@
   .window.max .rz { display: none; }
   .window.busy { user-select: none; -webkit-user-select: none; }
   .window.drop .wbody { outline: 2px dotted var(--blue); outline-offset: -6px; }
+  /* window focus: the window itself takes focus only when it has no control to; its active title bar shows it */
+  .window:focus { outline: none; }
+  html.contrast .window:focus { outline: 2px solid #fff; outline-offset: -2px; }
+  /* keyboard Move and Size (window menu): a black and white dotted frame, readable on every theme, while the arrow keys work */
+  .window.kbmode::after { content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none; border: 2px solid #000; outline: 2px dotted #fff; outline-offset: -2px; }
 
   /* ---------- shared window parts ---------- */
   .toolbar { flex: none; display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s3); flex-wrap: wrap; }
