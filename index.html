@@ -698,6 +698,15 @@
     .icons { flex-direction: row; }
     #tray-bal span, .task span { display: none; }
   }
+  /* Activity window: the job lines reuse the .gs-* styles; the list fills the window */
+  .act { flex: 1; min-height: 0; max-height: none; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2) var(--s3); margin: 0; overflow: auto; }
+  .act .gs-list { flex: 1; overflow: auto; max-height: none; }
+  .act .gs-name { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+  .act .gs-name > span { display: flex; flex-direction: column; min-width: 0; }
+  .act .gs-name b { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .act .gs-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* a value being refreshed stays on screen, dimmed, until the new one arrives */
+  .stale { opacity: .6; }
   /* interface text doesn't select like a web page; typed and quoted text stays selectable */
   body { user-select: none; -webkit-user-select: none; }
   input, textarea, select, [contenteditable], .promptbox, .term, .t-out, .t-in { user-select: text; -webkit-user-select: text; }
@@ -763,6 +772,7 @@
   <button role="menuitem" data-launch="terminal"><svg><use href="#i-term"/></svg>Terminal</button>
   <button role="menuitem" data-launch="jobs"><svg><use href="#i-folder"/></svg>Jobs</button>
   <button role="menuitem" data-launch="usage"><svg><use href="#i-chart"/></svg>Usage</button>
+  <button role="menuitem" data-launch="activity"><svg><use href="#i-hourglass"/></svg>Activity</button>
   <button role="menuitem" data-launch="images"><svg><use href="#i-picture"/></svg>Images</button>
   <button role="menuitem" data-launch="videos"><svg><use href="#i-video"/></svg>Videos</button>
   <button role="menuitem" data-launch="audio"><svg><use href="#i-audio"/></svg>Audio</button>

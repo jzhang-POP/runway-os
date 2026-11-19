@@ -20,7 +20,7 @@ Serves index.html plus /api/state and keeps runs.json up to date:
 API key: env RUNWAYML_API_SECRET, or a file named .runway_key in this folder.
 Run:  python3 server.py   then open http://localhost:8765
 """
-import json, os, shutil, subprocess, threading, time, urllib.parse, urllib.request, urllib.error, uuid, mimetypes
+import hashlib, json, os, shutil, subprocess, threading, time, urllib.parse, urllib.request, urllib.error, uuid, mimetypes
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from datetime import datetime
 
@@ -393,11 +393,15 @@ def find_model(endpoint, model):
 def local_media(ref):
     """Resolve {"run": taskId} or {"input": filename} to (path, type, run or None)."""
     if ref.get("run"):
+        base, _, n = str(ref["run"]).partition("~")  # "taskId~2" is a job's second file (outputCount > 1)
         with lock:
-            r = next((x for x in load().get("runs", []) if x.get("taskId") == ref["run"]), None)
-        if not r or not r.get("asset") or not os.path.isfile(os.path.join(ROOT, r["asset"])):
+            r = next((x for x in load().get("runs", []) if x.get("taskId") == base), None)
+        files = (r.get("assets") or ([r["asset"]] if r.get("asset") else [])) if r else []
+        i = int(n) - 1 if n.isdigit() else 0
+        name = files[i] if 0 <= i < len(files) else None
+        if not name or not os.path.isfile(os.path.join(ROOT, name)):
             raise ValueError("One of the inputs isn't saved in the Runway folder anymore. Pick another.")
-        return os.path.join(ROOT, r["asset"]), type_of(r["asset"]) or r.get("type"), r
+        return os.path.join(ROOT, name), type_of(name) or r.get("type"), r
     name = os.path.basename(str(ref.get("input") or ""))
     path = os.path.join(INPUTS, name)
     if not name or name.startswith(".") or not os.path.isfile(path):
@@ -874,9 +878,16 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception:
                 data["history"] = []
             body = json.dumps(data).encode()
+            tag = '"' + hashlib.sha1(body).hexdigest()[:20] + '"'
+            if self.headers.get("If-None-Match") == tag:  # nothing changed since the page's last poll
+                self.send_response(304)
+                self.send_header("ETag", tag)
+                self.end_headers()
+                return
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
+            self.send_header("ETag", tag)
             self.end_headers()
             self.wfile.write(body)
             return

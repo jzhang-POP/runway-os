@@ -39,9 +39,15 @@
   let zTop = 10, seqTop = 0, uid = 0;
 
   const D = () => ({ w: desk.clientWidth, h: desk.clientHeight });
-  const runOf = id => data.runs.find(r => r.taskId === id);
+  // a job can return several files (outputCount, numVariants): each extra file is its own item, id "taskId~2", "~3"…
+  const filesOf = r => (r.assets?.length ? r.assets : r.asset ? [r.asset] : []);
+  const fileItem = (r, i) => (i === 0 ? r : { ...r, taskId: `${r.taskId}~${i + 1}`, asset: filesOf(r)[i], _of: r.taskId, _n: i + 1 });
+  const runOf = id => {
+    const [base, n] = String(id ?? "").split("~"), r = data.runs.find(x => x.taskId === base);
+    return r && n ? (filesOf(r)[n - 1] ? fileItem(r, n - 1) : undefined) : r;
+  };
   const newestFirst = () => [...data.runs].sort((a, b) => createdMs(b) - createdMs(a));
-  const assetsOf = type => newestFirst().filter(r => r.type === type && r.asset);
+  const assetsOf = type => newestFirst().filter(r => r.type === type && r.asset).flatMap(r => filesOf(r).map((_, i) => fileItem(r, i)));
   const childrenOf = id => data.runs.filter(r => r.parent === id);
   const createdMs = r => tOf(r.createdAt) || tOf(r.date) || 0;
   const thumbOf = r => (!r || !r.asset || r.type === "audio" ? null : r.type === "video" ? `thumbs/${encodeURIComponent(r.asset)}.jpg` : encodeURI(r.asset));
@@ -91,8 +97,8 @@
   // POST JSON (or a raw body with init) to the dashboard server; throws an Error with a readable message
   async function api(path, body, init) {
     let res;
-    try { res = await fetch(path, init || { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
-    catch { throw new Error(OFFLINE); }
+    try { res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), ...init }); }
+    catch (e) { if (e.name === "AbortError") throw e; throw new Error(OFFLINE); }
     const out = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(out.error || `The server answered ${res.status}.`);
     return out;
@@ -165,6 +171,10 @@
       icon: () => "i-chart", title: w => `Usage — last ${w.days || 30} days`, min: [420, 360],
       geo: d => centered(d, 760, 620, 20),
     },
+    activity: {
+      icon: () => "i-hourglass", title: () => "Activity", min: [340, 240],
+      geo: d => { const wd = Math.min(px(420), d.w), ht = Math.min(px(520), d.h); return { wd, ht, x: d.w - wd - px(12), y: px(12) }; },
+    },
     images: { icon: () => "i-picture", title: () => "Images", min: [300, 240], geo: cascade(720, 480) },
     videos: { icon: () => "i-video", title: () => "Videos", min: [300, 240], geo: cascade(720, 480) },
     audio: { icon: () => "i-audio", title: () => "Audio", min: [300, 240], geo: cascade(620, 440) },
@@ -199,7 +209,7 @@
       id, kind, arg: arg || null, el, body: $(".wbody", el), prev: null, rendered: null, shell: false,
       x: num(g.x, 40), y: num(g.y, 40), wd: num(g.wd, 480), ht: num(g.ht, 320),
       max: !!g.max, minimized: !!g.minimized, snapped: !!g.snapped, pre: g.pre || null,
-      filter: g.filter || "all", q: g.q || "", sort: g.sort || { key: "created", dir: -1 }, size: num(g.size, 132), sel: g.sel || null, tab: g.tab || "general", days: [7, 30, 90].includes(g.days) ? g.days : undefined,
+      filter: g.filter || "all", q: g.q || "", sort: g.sort || { key: "created", dir: -1 }, size: num(g.size, 132), sel: g.sel || null, tab: g.tab || "general", days: [7, 30, 90].includes(g.days) ? g.days : undefined, act: g.act,
       gen: { cat: "Video", ep: {}, model: {}, vals: {}, media: {}, adv: false, pending: null, ...(g.gen || {}) },
     };
     w.seq = num(g.seq, ++seqTop); seqTop = Math.max(seqTop, w.seq);
@@ -461,6 +471,28 @@
     });
   }
   const loadingOr = msg => `<div class="empty-list">${loaded ? msg : "Loading…"}</div>`;
+  // update an element to match new HTML, touching only what changed: no flashing, images don't reload, scroll and hover stay.
+  // Elements marked data-live (e.g. a hover preview video) are left alone.
+  function morph(el, html) {
+    const tpl = document.createElement("template");
+    tpl.innerHTML = html;
+    morphKids(el, tpl.content);
+  }
+  function morphKids(a, b) {
+    const old = [...a.childNodes].filter(n => !(n.nodeType === 1 && n.hasAttribute("data-live"))), neu = [...b.childNodes];
+    const anchor = old.length ? old[old.length - 1].nextSibling : a.firstChild;
+    neu.forEach((nb, i) => (old[i] ? morphNode(old[i], nb) : a.insertBefore(nb, i && old.length ? null : anchor)));
+    for (let i = neu.length; i < old.length; i++) old[i].remove();
+  }
+  function morphNode(a, b) {
+    if (a.nodeType !== b.nodeType || a.nodeName !== b.nodeName) { a.replaceWith(b); return; }
+    if (a.nodeType !== 1) { if (a.nodeValue !== b.nodeValue) a.nodeValue = b.nodeValue; return; }
+    for (const { name } of [...a.attributes]) if (!b.hasAttribute(name)) a.removeAttribute(name);
+    for (const { name, value } of [...b.attributes]) if (a.getAttribute(name) !== value) a.setAttribute(name, value);
+    if (a.tagName === "VIDEO" || a.tagName === "AUDIO" || a.tagName === "TEXTAREA") return;
+    if (a.tagName === "INPUT" && document.activeElement !== a && a.value !== b.value) a.value = b.value;
+    morphKids(a, b);
+  }
   // a button under an empty list's message
   const emptyAct = html => `<div class="empty-act">${html}</div>`;
   const GEN_BTN = '<button class="raised btn-s b-default" data-open="generate"><svg class="ico" aria-hidden="true"><use href="#i-wand"/></svg><span>Open Generate</span></button>';
@@ -490,7 +522,7 @@
     overview(w) {
       const runs = data.runs, running = runs.filter(r => r.status === "running"), queued = runs.filter(r => QUEUED.has(r.status));
       const v = { balance: data.balance };
-      const fl = w.prev && w.prev.balance !== v.balance ? " flash" : "";
+      const fl = "";
       const delta = sessionStart != null && data.balance != null ? sessionStart.balance - data.balance : 0;
       const ps = running.map(r => r.progress).filter(p => p != null);
       const det = running.length && ps.length === running.length ? Math.round((ps.reduce((a, b) => a + b, 0) / ps.length) * 100) : null;
@@ -542,7 +574,7 @@
             <div class="actions"><button class="raised btn-s" data-open="key">${icoLabel("i-key", "Change key…")}</button></div>
           </fieldset>`;
       }
-      w.body.innerHTML = sheetHTML(T, tab, panel);
+      morph(w.body, sheetHTML(T, tab, panel));
       sheetKeys(w);
       w.prev = v;
     },
@@ -570,9 +602,9 @@
       const list = jobsFor(w), types = ["all", ...new Set(data.runs.map(r => r.type))];
       $(".seg-tabs", w.body).innerHTML = types.map(t => `<button class="raised" data-filter="${esc(t)}" aria-pressed="${t === w.filter}">${t === "all" ? "All" : esc(plural(t))}</button>`).join("");
       $$(".th [data-sort]", w.body).forEach(b => { b.parentElement.setAttribute("aria-sort", b.dataset.sort === w.sort.key ? (w.sort.dir > 0 ? "ascending" : "descending") : "none"); });
-      $(".rows", w.body).innerHTML = list.length ? list.map(r => `
+      morph($(".rows", w.body), list.length ? list.map(r => `
         <div class="row${r.taskId === w.sel ? " sel" : ""}" role="row" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${r.taskId === w.sel}">
-          <div class="c c-name" role="gridcell">${miniThumb(r)}<span class="nm"><b title="${esc(r.prompt)}">${esc(r.prompt)}</b><small>${esc(r.asset || r.settings)}</small></span></div>
+          <div class="c c-name" role="gridcell">${miniThumb(r)}<span class="nm"><b title="${esc(r.prompt)}">${esc(r.prompt)}</b><small>${esc(r.asset || r.settings)}${filesOf(r).length > 1 ? ` <span class="muted">+${filesOf(r).length - 1} more</span>` : ""}</small></span></div>
           <div class="c c-type" role="gridcell">${esc(cap(r.type))}</div>
           <div class="c c-model" role="gridcell" title="${esc(r.model)}">${esc(r.model)}</div>
           <div class="c c-status" role="gridcell">${statusHTML(r)}</div>
@@ -580,7 +612,7 @@
           <div class="c c-created" role="gridcell">${relHTML(r.createdAt || r.date)}</div>
         </div>`).join("")
         : `<div role="row"><div role="gridcell">${loadingOr(w.q ? `No jobs match “${esc(w.q)}”.${emptyAct('<button class="raised btn-s" data-clearq>Clear search</button>')}`
-          : `No jobs yet. Jobs show up here as soon as they're submitted.${emptyAct(GEN_BTN)}`)}</div></div>`;
+          : `No jobs yet. Jobs show up here as soon as they're submitted.${emptyAct(GEN_BTN)}`)}</div></div>`);
       activeSync(w);
       const segs = $$(".statusbar .seg", w.body), selRun = runOf(w.sel);
       segs[0].textContent = `${list.length} object${list.length === 1 ? "" : "s"}${selRun ? ` · ${selRun.asset || selRun.taskId} selected` : ""}`;
@@ -593,6 +625,7 @@
     terminal: w => termRender(w),
     options: w => optionsRender(w),
     usage: w => usageRender(w),
+    activity: w => activityRender(w),
     images: w => gallery(w, "image"),
     audio: w => gallery(w, "audio"),
     videos: w => gallery(w, "video"),
@@ -626,7 +659,7 @@
 
     props(w) {
       const r = runOf(w.arg);
-      if (!r) { w.body.innerHTML = loadingOr("This job is no longer in runs.json."); return; }
+      if (!r) { morph(w.body, loadingOr("This job is no longer in runs.json.")); return; }
       const parent = r.parent ? runOf(r.parent) : null, kids = childrenOf(r.taskId), took = r.finishedAt && r.createdAt ? tOf(r.finishedAt) - tOf(r.createdAt) : null;
       const chip = x => `<button class="chip raised" data-open="props" data-id="${esc(x.taskId)}" title="${esc(x.prompt)}">${miniThumb(x)}<span>${esc(nameOf(x))}</span></button>`;
       const rows = [
@@ -637,11 +670,11 @@
         ...(took ? [["Took", dur(took)]] : []),
         ["Model", esc(r.model)], ["Settings", esc(r.settings)],
         ...(r.failure ? [["Failure", `<span class="bad">${esc(r.failure)}</span>${r.failureCode ? ` <code>${esc(r.failureCode)}</code>` : ""}`]] : []),
-        ["Task ID", `<code>${esc(r.taskId)}</code>`], ["File", r.asset ? esc(r.asset) : "Not saved yet"],
+        ["Task ID", `<code>${esc(r._of || r.taskId)}</code>`], ["File", r.asset ? esc(r.asset) + (filesOf(r).length > 1 ? ` <span class="muted">(file ${r._n || 1} of ${filesOf(r).length})</span>` : "") : "Not saved yet"],
         ...(parent ? [["Made from", chip(parent)]] : []),
         ...(kids.length ? [["Used in", `<span class="chips">${kids.map(chip).join("")}</span>`]] : []),
       ];
-      w.body.innerHTML = `
+      morph(w.body, `
         <div class="pwrap" data-keep="p">
           <div class="ptop">${r.asset ? `<button class="thumb sunken" data-open="viewer" data-id="${esc(r.taskId)}" title="Open">${thumbInner(thumbOf(r), r.type)}</button>` : `<span class="thumb sunken">${thumbInner(null, r.type)}</span>`}
             <div><b>${esc(nameOf(r))}</b><div class="muted">${esc(cap(r.type))} · ${esc(r.model)}</div></div></div>
@@ -657,10 +690,10 @@
             <button class="raised btn-s${r.asset || ACTIVE.has(r.status) ? "" : " b-default"}" data-gen="again" data-id="${esc(r.taskId)}">${icoLabel("i-again", "Generate again…")}</button>
             ${ACTIVE.has(r.status) ? `<button class="raised btn-s b-danger" data-cancel="${esc(r.taskId)}">${icoLabel("i-stop", "Cancel job")}</button>` : ""}
             <button class="raised btn-s" data-copy="${esc(r.prompt)}" data-done="Prompt copied">${icoLabel("i-copy", "Copy prompt")}</button>
-            <button class="raised btn-s" data-copy="${esc(r.taskId)}" data-done="ID copied">${icoLabel("i-copy", "Copy task ID")}</button>
+            <button class="raised btn-s" data-copy="${esc(r._of || r.taskId)}" data-done="ID copied">${icoLabel("i-copy", "Copy task ID")}</button>
             ${r.failure ? `<button class="raised btn-s" data-copy="${esc(r.failure)}" data-done="Error copied">${icoLabel("i-copy", "Copy error")}</button>` : ""}
           </div>
-        </div>`;
+        </div>`);
       fitActions(w);
     },
   };
@@ -676,25 +709,28 @@
     }
     const items = assetsOf(type), grid = $(".grid", w.body), wrap = $(".gridwrap", w.body);
     grid.style.setProperty("--tile", w.size + "px");
-    grid.innerHTML = items.length ? items.map(r => `
+    morph(grid, items.length ? items.map(r => `
       <div class="tile${r.taskId === w.sel ? " sel" : ""}" role="option" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${r.taskId === w.sel}" aria-label="${esc(r.asset)}" title="${esc(r.prompt)}">
         <span class="thumb sunken">${thumbInner(thumbOf(r), type)}${type === "video" ? '<span class="play"></span>' : ""}</span>
         <span class="cap">${esc(r.asset)}</span>
-      </div>`).join("") : loadingOr(`No ${type === "audio" ? "audio" : type + "s"} yet. Finished ${type === "audio" ? "audio files are" : type + "s are"} saved here automatically.${emptyAct(GEN_BTN)}`);
+      </div>`).join("") : loadingOr(`No ${type === "audio" ? "audio" : type + "s"} yet. Finished ${type === "audio" ? "audio files are" : type + "s are"} saved here automatically.${emptyAct(GEN_BTN)}`));
     // a listbox holds only options: while empty the box is a plain group around the message and its button, and no tab stop
     wrap.setAttribute("role", items.length ? "listbox" : "group");
     items.length ? wrap.setAttribute("tabindex", "0") : wrap.removeAttribute("tabindex");
     activeSync(w);
     const selRun = runOf(w.sel);
     $(".statusbar .seg", w.body).textContent = `${items.length} object${items.length === 1 ? "" : "s"}${selRun && selRun.type === type ? ` · ${selRun.asset} selected` : ""}`;
-    if (type === "video") $$(".tile", grid).forEach(t => {
-      t.addEventListener("pointerenter", () => {
-        const r = runOf(t.dataset.id); if (!r || $("video", t)) return;
+    if (type === "video" && !w.hoverBound) {
+      w.hoverBound = true;
+      grid.addEventListener("pointerover", e => {
+        const t = e.target.closest(".tile"); if (!t || t.contains(e.relatedTarget) || $("video", t)) return;
+        const r = runOf(t.dataset.id); if (!r) return;
         const v = Object.assign(document.createElement("video"), { src: encodeURI(r.asset), muted: true, loop: true, playsInline: true, autoplay: true });
+        v.setAttribute("data-live", "");
         $(".thumb", t).append(v);
       });
-      t.addEventListener("pointerleave", () => $("video", t)?.remove());
-    });
+      grid.addEventListener("pointerout", e => { const t = e.target.closest(".tile"); if (t && !t.contains(e.relatedTarget)) $("video", t)?.remove(); });
+    }
   }
 
   // image viewer: click toggles fit / actual size, drag pans at actual size
@@ -778,7 +814,7 @@
   // everything that can feed a media field: finished jobs plus files uploaded into inputs/
   function library(accept) {
     const out = [];
-    newestFirst().forEach(r => {
+    newestFirst().flatMap(r => filesOf(r).map((_, i) => fileItem(r, i))).forEach(r => {
       const t = r.asset && (/\.(png|jpe?g|webp|gif|svg)$/i.test(r.asset) ? "image" : /\.(mp4|mov|webm|m4v)$/i.test(r.asset) ? "video" : /\.(mp3|wav|flac|ogg|m4a|aac|opus)$/i.test(r.asset) ? "audio" : r.type);
       if (r.asset && accept.includes(t)) out.push({ ref: { run: r.taskId }, name: r.asset, type: t, thumb: thumbOf(r), title: r.prompt });
     });
@@ -843,7 +879,6 @@
             </fieldset>
             <div class="gfields"></div>
           </div>
-          <section class="gsent" aria-labelledby="${id}s" hidden></section>
           <div class="gmsg" role="alert" hidden></div>
           <div class="footbar">
             <span class="sunken seg grow ghint" id="${id}h"></span>
@@ -899,11 +934,9 @@
       w.el.addEventListener("drop", e => { e.preventDefault(); w.el.classList.remove("drop"); const file = e.dataTransfer.files[0]; if (file) genUpload(w, file, null); });
       genSwitch(w, true);
       genApplyPending(w);
-      genSentBind(w, id + "s");
       return;
     }
     genStrips(w); genRefresh(w);
-    genSent(w);
   }
 
   // category, task or model changed: rebuild the selectors and the model's fields
@@ -1052,15 +1085,19 @@
 
   function genRefresh(w, fromPrice) {
     const f = w.body, hint = $(".ghint", f); if (!hint) return;
-    const why = genBlock(w), pr = w.price, btn = $(".btn-go", f);
-    if (!fromPrice) genPrice(w);
+    const why = genBlock(w), btn = $(".btn-go", f);
+    const key = !why && curModel(w) ? JSON.stringify(genBody(w)) : "";
+    if (!fromPrice && key) genPrice(w, key);
+    const fresh = !!key && w.priceFor === key, pr = fresh ? w.price : null;
     let text = why;
     if (!why) {
-      if (pr && pr.credits != null) text = `${pr.exact ? "" : "≈ "}${fmt(pr.credits)} credits · ${pr.breakdown || ""}${pr.note ? ` · ${pr.note}` : ""}`;
-      else text = (pr?.note ? `Price unknown: ${pr.note}. ` : "") + genCost(w);
+      if (fresh && pr && pr.credits != null) text = `${pr.exact ? "" : "≈ "}${fmt(pr.credits)} credits · ${pr.breakdown || ""}${pr.note ? ` · ${pr.note}` : ""}`;
+      else if (fresh) text = (pr?.note ? `Price unknown: ${pr.note}. ` : "") + genCost(w);
+      else text = hint.classList.contains("why") ? "" : hint.textContent; // keep the last price on screen until the new one arrives
     }
+    hint.classList.toggle("stale", !why && !fresh);
     hint.textContent = text; hint.title = text; hint.classList.toggle("why", !!why);
-    if (!w.busy) $("span", btn).textContent = !why && pr?.credits != null ? `Generate · ${pr.exact ? "" : "≈"}${fmt(pr.credits)} cr` : "Generate";
+    if (!w.busy && (why || fresh)) $("span", btn).textContent = !why && pr?.credits != null ? `Generate · ${pr.exact ? "" : "≈"}${fmt(pr.credits)} cr` : "Generate";
     // blocked: aria-disabled keeps it focusable with the reason (.ghint) as its description; genSubmit refuses and shows the reason.
     // Only sending uses real disabled.
     btn.disabled = !!w.busy;
@@ -1088,16 +1125,21 @@
     return { endpoint: t.endpoint, model: m.id, values, media, extra };
   }
   // exact price from the server's pricing table, refreshed shortly after each change
-  function genPrice(w) {
+  const priceCache = new Map();
+  function genPrice(w, key) {
     clearTimeout(w.priceT);
+    if (!key || key === w.priceFor || key === w.priceKey) return;
+    if (priceCache.has(key)) { w.price = priceCache.get(key); w.priceFor = key; w.priceKey = key; genRefresh(w, true); return; }
     w.priceT = setTimeout(async () => {
       if (!wins.has(w.id) || !curModel(w)) return;
-      const body = genBody(w), key = JSON.stringify(body);
-      if (key === w.priceKey) return;
       w.priceKey = key;
-      try { w.price = await api("/api/price", body); } catch { w.price = null; }
-      if (w.priceKey === key) genRefresh(w, true);
-    }, 250);
+      w.priceCtl?.abort(); const ctl = w.priceCtl = new AbortController();
+      let out = null;
+      try { out = await api("/api/price", JSON.parse(key), { signal: ctl.signal }); } catch (e) { if (e.name === "AbortError") return; }
+      if (out) priceCache.set(key, out);
+      if (w.priceKey !== key) return;
+      w.price = out; w.priceFor = key; genRefresh(w, true);
+    }, 200);
   }
 
   async function genSubmit(w) {
@@ -1110,7 +1152,7 @@
       const out = await api("/api/generate", { endpoint: t.endpoint, model: m.id, values, media, extra: ex });
       balloon({ title: "Job sent to Runway", text: `${t.label} · ${m.id} · queued`, icon: "i-wand", ms: 6000, onOpen: () => open("props", out.taskId, $("#tray-run")) });
       poll();
-      genSentAdd(w, out);
+      activityShow(w, out);
     } catch (err) {
       genMsg(w, err.message);
     } finally {
@@ -1118,15 +1160,18 @@
     }
   }
 
-  // jobs sent from this window, in a panel above the footer: progress, Cancel, then Open and the real cost.
-  // w.gen.sent holds their task IDs, newest first, and is saved with the layout.
-  function genSentAdd(w, row) {
-    (w.gsRows ||= {})[row.taskId] = row; // the server's new row, shown until the next poll brings it from runs.json
-    w.gen.sent = [row.taskId, ...(w.gen.sent || []).filter(id => id !== row.taskId)].slice(0, 3);
-    genSent(w); save();
-  }
-  const sentRun = (w, id) => runOf(id) || w.gsRows?.[id];
+  /* ---------- Activity: jobs in progress and recently finished, like a download manager ---------- */
+  const fresh = {}; // rows the server just returned from /api/generate, shown until a poll brings them from runs.json
+  const sentRun = (w, id) => runOf(id) || fresh[id];
   const etaText = end => (end > Date.now() ? `~${dur(end - Date.now())} left` : "longer than usual");
+  // every queued or rendering job, then finished ones from the last 24 h that weren't cleared, newest first
+  function activityList(w) {
+    const since = Math.max(Date.now() - 86400000, w.act?.clearedAt || 0), hide = new Set(w.act?.hide || []);
+    const ids = new Set(data.runs.map(r => r.taskId));
+    const rows = [...data.runs, ...Object.values(fresh).filter(r => !ids.has(r.taskId))];
+    return rows.filter(r => !hide.has(r.taskId) && (ACTIVE.has(r.status) || createdMs(r) >= since))
+      .sort((a, b) => (ACTIVE.has(b.status) - ACTIVE.has(a.status)) || createdMs(b) - createdMs(a)).slice(0, 20);
+  }
   function genSentItem(w, r) {
     const s = statusInfo(r), id = esc(r.taskId), name = `${r.task || cap(r.type)} · ${r.model}`;
     let st = `<span class="st ${s.cls}"><i class="dot"></i>${esc(s.label)}</span>`, acts = "";
@@ -1135,60 +1180,73 @@
       if (s.cls === "running") st += `<span class="mprog sunken" aria-hidden="true"><i style="width:${s.p ?? 8}%" class="${s.p == null ? "ind" : ""}"></i></span>`;
       st += `<small class="muted">${relHTML(r.createdAt || r.date, "elapsed")}${typ ? ` · <span data-eta="${end}">${etaText(end)}</span>` : ""}</small>`;
       const busy = w.gsBusy?.has(r.taskId);
-      acts = `<button type="button" class="raised btn-s" data-gs="cancel" data-run="${id}" aria-label="${busy ? "Cancelling" : "Cancel"} ${esc(name)}" ${busy ? "disabled" : ""}>${busy ? "Cancelling…" : "Cancel"}</button>`;
+      acts = `<button type="button" class="raised btn-s b-danger" data-gs="cancel" data-run="${id}" aria-label="${busy ? "Cancelling" : "Cancel"} ${esc(name)}" ${busy ? "disabled" : ""}>${icoLabel("i-stop", busy ? "Cancelling…" : "Cancel")}</button>`;
     } else if (r.status === "succeeded") {
       const c = r.credits, q = r.quotedCredits;
       const cost = c != null ? `${fmt(c)} credits${q != null ? (c === q ? ", as quoted" : `, quoted ${r.quoteExact ? "" : "≈"}${fmt(q)}`) : ""}`
         : r.estimatedCredits != null ? `~${fmt(r.estimatedCredits)} credits, estimated` : "Cost not reported yet";
-      st += `<small class="muted">${cost}</small>`;
+      st += `<small class="muted">${cost} · ${relHTML(r.finishedAt || r.createdAt || r.date)}</small>`;
       const label = r.asset ? "Open" : "Properties";
-      acts = `<button type="button" class="raised btn-s" data-gs="open" data-run="${id}" aria-label="${label} ${esc(r.asset || name)}">${label}</button>`;
+      acts = `<button type="button" class="raised btn-s b-default" data-gs="open" data-run="${id}" aria-label="${label} ${esc(r.asset || name)}">${icoLabel(r.asset ? typeIcon(r.type) : "i-doc", label)}</button>`;
     } else if (r.status === "failed") st += `<small class="gs-why" title="${esc(r.failure || "")}">${esc(r.failure || "Runway gave no reason")}</small>`;
     return `<li class="gs-item">
-        <div class="gs-name" title="${esc(name + "\n" + r.prompt)}">${esc(name)}</div><div class="gs-st">${st}</div>
+        <div class="gs-name" title="${esc(name + "\n" + r.prompt)}">${miniThumb(r)}<span><b>${esc(r.prompt)}</b><small class="muted">${esc(name)}</small></span></div><div class="gs-st">${st}</div>
         <div class="gs-acts">${acts}<button type="button" class="raised gs-x" data-gs="x" data-run="${id}" aria-label="Remove ${esc(name)} from this list" title="Remove from this list"><i class="g-close"></i></button></div>
       </li>`;
   }
-  // rebuild only the panel, and only when what it shows changed, so the form and the panel's buttons keep focus
-  function genSent(w) {
-    const box = $(".gsent", w.body), g = w.gen; if (!box) return;
-    if (loaded && g.sent?.some(id => !sentRun(w, id))) { g.sent = g.sent.filter(id => sentRun(w, id)); save(); } // gone from runs.json
-    const list = (g.sent || []).map(id => sentRun(w, id)).filter(Boolean);
+  function activityRender(w) {
+    w.act ||= { clearedAt: 0, hide: [] };
+    if (!w.shell) {
+      w.shell = true;
+      w.body.innerHTML = `<div class="gsent act" data-keep="act"></div><div class="statusbar"><span class="sunken seg grow"></span></div>`;
+      $(".act", w.body).addEventListener("click", async e => {
+        const b = e.target.closest("button[data-gs]"); if (!b) return;
+        const act = b.dataset.gs, id = b.dataset.run, r = id && sentRun(w, id);
+        if (act === "open" && r) defaultOpen(r, b);
+        else if (act === "cancel" && r) {
+          (w.gsBusy ||= new Set()).add(id); activityRender(w);
+          await cancelJob(r); await poll();
+          w.gsBusy.delete(id); activityRender(w);
+        } else if (act === "x") { w.act.hide = [...(w.act.hide || []), id].slice(-200); activityRender(w); save(); }
+        else if (act === "clear") { w.act.clearedAt = Date.now(); w.act.hide = []; activityRender(w); save(); }
+      });
+    }
+    const box = $(".act", w.body), list = activityList(w);
     const sig = JSON.stringify(list.map(r => [r.taskId, r.status, r.progress, r.credits, r.estimatedCredits, r.quotedCredits, r.failure, r.asset, typicalMs(r.model), !!w.gsBusy?.has(r.taskId)]));
-    if (sig === box.dataset.sig) return;
-    box.dataset.sig = sig;
-    const a = document.activeElement, had = box.contains(a) ? a.dataset : null, top = $(".gs-list", box)?.scrollTop || 0;
-    box.hidden = !list.length;
-    box.innerHTML = !list.length ? "" : `
-      <div class="gs-head"><span id="${w.gsLabel}">Sent from this window</span>${list.some(r => !ACTIVE.has(r.status)) ? '<button type="button" class="raised btn-s" data-gs="clear">Clear finished</button>' : ""}</div>
-      <ul class="gs-list sunken">${list.map(r => genSentItem(w, r)).join("")}</ul>`;
-    const ul = $(".gs-list", box); if (ul) ul.scrollTop = top;
-    if (!had) return;
-    const find = (gs, run) => $$("[data-gs]", box).find(b => b.dataset.gs === gs && !b.disabled && (run === undefined || b.dataset.run === run));
-    // the same button again, else the line's remove button, else the next control down (the footer's buttons, then the prompt)
-    (find(had.gs, had.run) || find("x", had.run) || find("x") || $$(".footbar button", w.body).find(b => !b.hidden && !b.disabled) || $("textarea", w.body))?.focus({ preventScroll: true });
-  }
-  function genSentBind(w, labelId) {
-    const box = $(".gsent", w.body); if (!box) return;
-    w.gsLabel = labelId;
-    box.addEventListener("click", async e => {
-      const b = e.target.closest("button[data-gs]"); if (!b) return;
-      const g = w.gen, act = b.dataset.gs, id = b.dataset.run, r = id && sentRun(w, id);
-      if (act === "open" && r) defaultOpen(r, b);
-      else if (act === "cancel" && r) {
-        (w.gsBusy ||= new Set()).add(id); genSent(w);
-        await cancelJob(r); await poll(); // it shows as Cancelled once the server marks it
-        w.gsBusy.delete(id); genSent(w);
-      } else if (act === "x" || act === "clear") {
-        const at = $$('[data-gs="x"]', box).indexOf(b);
-        g.sent = (g.sent || []).filter(x => (act === "x" ? x !== id : ACTIVE.has(sentRun(w, x)?.status)));
-        genSent(w); save();
-        if (act === "x") { const xs = $$('[data-gs="x"]', box); xs[Math.min(at, xs.length - 1)]?.focus({ preventScroll: true }); } // the next line's remove button
+    if (sig !== box.dataset.sig) {
+      box.dataset.sig = sig;
+      const a = document.activeElement, had = box.contains(a) ? a.dataset : null;
+      const running = list.filter(r => ACTIVE.has(r.status)).length;
+      morph(box, !list.length ? `<div class="empty-list">${loaded ? `Nothing in progress. Jobs you send show up here while they render.${emptyAct(GEN_BTN)}` : "Loading…"}</div>` : `
+        <div class="gs-head"><span>${running ? `${running} in progress` : "Nothing in progress"}</span>${list.some(r => !ACTIVE.has(r.status)) ? '<button type="button" class="raised btn-s" data-gs="clear">Clear finished</button>' : ""}</div>
+        <ul class="gs-list sunken">${list.map(r => genSentItem(w, r)).join("")}</ul>`);
+      $(".statusbar .seg", w.body).textContent = `${list.length} job${list.length === 1 ? "" : "s"} · ${running} rendering or queued`;
+      if (had) {
+        const find = (gs, run) => $$("[data-gs]", box).find(b => b.dataset.gs === gs && !b.disabled && (run === undefined || b.dataset.run === run));
+        (find(had.gs, had.run) || find("x", had.run) || find("x") || box)?.focus?.({ preventScroll: true });
       }
-    });
-    genSent(w);
+    }
   }
-  setInterval(() => $$(".gsent [data-eta]").forEach(e => { e.textContent = etaText(+e.dataset.eta); }), 5000);
+  setInterval(() => $$(".act [data-eta]").forEach(e => { e.textContent = etaText(+e.dataset.eta); }), 5000);
+  // after a job is sent: show it in Activity, opening the window beside Generate if it isn't open; focus stays in Generate
+  function activityShow(gw, row) {
+    fresh[row.taskId] = row;
+    let aw = wins.get("activity");
+    if (!aw) {
+      aw = open("activity");
+      // side by side with Generate: Activity on the right; slide Generate left, or narrow Activity, to make room
+      const d = D(), gap = px(8), minW = Math.min(px(KINDS.activity.min[0]), d.w);
+      let wd = Math.min(px(420), d.w);
+      if (!gw.max && gw.wd + gap + minW <= d.w) {
+        wd = Math.min(wd, d.w - gw.wd - gap);
+        if (gw.x + gw.wd + gap + wd > d.w) { gw.x = Math.max(0, d.w - wd - gap - gw.wd); gw.snapped = false; place(gw); }
+        Object.assign(aw, { wd, ht: Math.min(gw.ht, d.h), y: gw.y, x: gw.x + gw.wd + gap });
+      } else Object.assign(aw, { wd, ht: Math.min(px(520), d.h), y: 0, x: d.w - wd });
+      fit(aw); place(aw); save();
+      focus(gw); $("textarea", gw.body)?.focus({ preventScroll: true });
+    }
+    activityRender(aw);
+  }
 
   // open Generate prefilled from a job. mode: again | animate | upscale | sound | hdr
   function genFrom(r, mode, src) {
@@ -1884,7 +1942,10 @@
     $$("[data-days]", w.body).forEach(b => b.setAttribute("aria-pressed", +b.dataset.days === w.days));
     const box = $(".ubody", w.body), seg = $(".statusbar .seg", w.body), days = w.days;
     w.uro?.disconnect(); w.uro = null; // the chart below is about to be replaced
-    if (!usageCache[days] || force) { box.innerHTML = `<div class="empty-list">Asking Runway for ${days} days of usage…</div>`; seg.textContent = "Loading"; }
+    if (!usageCache[days] || force) {
+      if (box.querySelector(".ucols")) seg.textContent = `Loading ${days} days…`; // keep the current chart on screen until the new data arrives
+      else { box.innerHTML = `<div class="empty-list">Asking Runway for ${days} days of usage…</div>`; seg.textContent = "Loading"; }
+    }
     let u;
     try { u = await usageLoad(days, force); }
     catch (err) { if (w.days === days) { box.innerHTML = `<div class="empty-list">${esc(err.message)}</div>`; seg.textContent = "Couldn't load usage"; } return; }
@@ -2046,7 +2107,7 @@
       ACTIVE.has(r.status) && { label: "Cancel job", icon: "i-stop", act: () => cancelJob(r) },
       { sep: true },
       { label: "Copy prompt", icon: "i-copy", act: () => copyText(r.prompt, "Prompt copied") },
-      { label: "Copy task ID", icon: "i-copy", act: () => copyText(r.taskId, "Task ID copied") },
+      { label: "Copy task ID", icon: "i-copy", act: () => copyText(r._of || r.taskId, "Task ID copied") },
       { sep: true },
       { label: "Show in Finder", icon: "i-finder", disabled: !r.asset, act: () => fileAction("reveal", r.asset) },
       { label: "Open in default app", icon: "i-open", disabled: !r.asset, act: () => fileAction("open", r.asset) },
@@ -2235,7 +2296,7 @@
     run.title = `${active} job${active === 1 ? "" : "s"} rendering or queued. Open Jobs`;
     $("span", bal).textContent = data.balance == null ? "—" : fmt(data.balance);
   }
-  $("#tray-run").addEventListener("click", e => open("jobs", null, e.currentTarget));
+  $("#tray-run").addEventListener("click", e => open("activity", null, e.currentTarget));
   $("#tray-bal").addEventListener("click", e => open("overview", null, e.currentTarget));
 
   function setStart(on) {
@@ -2280,7 +2341,7 @@
             <label class="opt-radio"><input type="radio" name="sd" value="restart" checked><span>Restart <span class="muted">Your windows and settings stay.</span></span></label>
             <label class="opt-radio"><input type="radio" name="sd" value="clean"><span>Restart with a clean desktop <span class="muted">Forgets which windows were open, where, and the Generate form.</span></span></label>
             <label class="opt-radio"><input type="radio" name="sd" value="all"><span>Restart and reset everything <span class="muted">Also resets Options: theme, scale, font and alerts.</span></span></label>
-            <p class="muted sd-note">Your jobs, files and API key aren't touched.</p>
+            <p class="muted sd-note">Your jobs, files and API key aren't touched.${(n => n ? ` ${n} job${n === 1 ? " is" : "s are"} still rendering or queued: ${n === 1 ? "it keeps" : "they keep"} going on Runway, and Activity shows ${n === 1 ? "it" : "them"} again after the restart.` : "")(data.runs.filter(r => ACTIVE.has(r.status)).length)}</p>
           </fieldset>
         </div>
         <div class="sheet-foot"><span class="grow"></span><button class="raised btn-ok b-default" data-sd="ok">OK</button><button class="raised btn-ok" data-sd="cancel">Cancel</button></div>
@@ -2416,7 +2477,7 @@
     clearTimeout(saveT);
     if (resetting) return;
     saveT = setTimeout(() => {
-      const list = [...wins.values()].map(w => ({ kind: w.kind, arg: w.arg, x: w.x, y: w.y, wd: w.wd, ht: w.ht, max: w.max, minimized: w.minimized, snapped: w.snapped, pre: w.pre, z: w.z, seq: w.seq, filter: w.filter, q: w.q, sort: w.sort, size: w.size, sel: w.sel, tab: w.tab, days: w.days, gen: w.kind === "generate" ? w.gen : undefined }));
+      const list = [...wins.values()].map(w => ({ kind: w.kind, arg: w.arg, x: w.x, y: w.y, wd: w.wd, ht: w.ht, max: w.max, minimized: w.minimized, snapped: w.snapped, pre: w.pre, z: w.z, seq: w.seq, filter: w.filter, q: w.q, sort: w.sort, size: w.size, sel: w.sel, tab: w.tab, days: w.days, act: w.kind === "activity" ? w.act : undefined, gen: w.kind === "generate" ? w.gen : undefined }));
       try { localStorage.setItem(KEY, JSON.stringify(list)); } catch {}
     }, 150);
   }
@@ -2431,6 +2492,13 @@
   // and there is no API key, open the key window on top as well. Later loads have a saved layout and skip this.
   const firstLaunch = (() => { try { return !Array.isArray(JSON.parse(localStorage.getItem(KEY))); } catch { return true; } })();
   if (firstLaunch) ready.then(() => { if (!data.live) $(".kin", open("key").body)?.focus({ preventScroll: true }); });
+  // jobs keep rendering on Runway across a refresh or restart (the server tracks them in runs.json):
+  // if any are still queued or rendering, bring Activity back so they stay in view, without taking focus
+  ready.then(() => {
+    if (wins.has("activity") || !data.runs.some(r => ACTIVE.has(r.status))) return;
+    const prev = frontWin(), aw = open("activity");
+    if (prev && prev !== aw) { focus(prev); focusInto?.(prev); }
+  });
   addEventListener("resize", () => wins.forEach(w => { fit(w); place(w); }));
 
   /* ---------- boot screen: a BIOS self-test over the real startup; the log stays up until you start ---------- */
@@ -2553,9 +2621,22 @@
     audio: w => JSON.stringify(assetsOf("audio").map(r => [r.taskId, r.asset, r.prompt])),
     props: w => { const r = runOf(w.arg); return r ? [runSig(r), runSig(runOf(r.parent)), ...childrenOf(r.taskId).map(runSig)].join("|") : "-"; },
   };
+  // the server answers 304 when nothing changed, so an idle poll costs almost nothing
+  let stateTag = null, lastConn = null, pollT = 0;
+  function schedulePoll() {
+    clearTimeout(pollT);
+    const ms = document.hidden ? 30000 : data.runs.some(r => ACTIVE.has(r.status)) ? 2000 : 5000;
+    pollT = setTimeout(() => poll().finally(schedulePoll), ms);
+  }
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) poll().finally(schedulePoll); });
   async function poll() {
     try {
-      const res = await fetch("/api/state", { cache: "no-store" });
+      const res = await fetch("/api/state", { cache: "no-store", headers: stateTag && loaded ? { "If-None-Match": stateTag } : {} });
+      if (res.status === 304) {
+        if (conn.cls === "off" && lastConn) { conn = lastConn; wins.forEach(w => w.kind === "overview" && renderWin(w)); }
+        return;
+      }
+      stateTag = res.headers.get("ETag");
       const d = await res.json();
       const c = d.error ? { cls: "warn", text: "Runway API: " + d.error } : d.live ? { cls: "on", text: "Connected" } : { cls: "warn", text: "No API key" };
       const runs = d.runs || [], rs = JSON.stringify(runs) + JSON.stringify(d.inputs || []), ss = rs + d.balance + d.balanceAt + (d.history || []).length;
@@ -2564,7 +2645,7 @@
       const keySig = [d.live, d.keySource, d.keyHint, d.error].join("|"), keyChanged = keySig !== data.keySig;
       data = { runs, balance: d.balance, balanceAt: d.balanceAt, history: d.history || [], live: !!d.live, keySource: d.keySource, keyHint: d.keyHint, error: d.error, keySig, inputs: d.inputs || [] };
       if (sessionStart == null && d.balance != null) sessionStart = { balance: d.balance, at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
-      runsSig = rs; stateSig = ss; conn = c; loaded = true; markReady();
+      runsSig = rs; stateSig = ss; conn = c; lastConn = c; loaded = true; markReady();
       if (!first) runs.forEach(r => { const was = prevStatus.get(r.taskId); if (was && ACTIVE.has(was) && !ACTIVE.has(r.status)) announce(r); });
       prevStatus = new Map(runs.map(r => [r.taskId, r.status]));
       wins.forEach(w => {
@@ -2604,5 +2685,5 @@
   restoreLayout();
   renderTasks();
   tick(); setInterval(tick, 5000);
-  setInterval(poll, 3000);
+  schedulePoll();
 })();
