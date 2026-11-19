@@ -330,9 +330,9 @@
   .play { position: absolute; left: 50%; top: 50%; width: round(calc(26 * var(--u)), 1px); height: round(calc(22 * var(--u)), 1px); transform: translate(-50%, -50%); background: rgba(8, 9, 11, .72); box-shadow: inset 1px 1px 0 #55575f, inset -1px -1px 0 #08090b; z-index: 1; }
   .play::after { content: ""; position: absolute; left: 50%; top: 50%; transform: translate(-35%, -50%); border-left: var(--s3) solid #fff; border-top: var(--s2) solid transparent; border-bottom: var(--s2) solid transparent; }
   .thumb video ~ .play, .thumb:has(video) .play { display: none; }
-  .tile.sel .thumb, .sframe[aria-selected="true"] .thumb { outline: 1px dotted var(--fg); outline-offset: 2px; }
+  .tile.sel .thumb, .sframe[aria-pressed="true"] .thumb { outline: 1px dotted var(--fg); outline-offset: 2px; }
   .cap { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px var(--g2); align-self: center; max-width: 100%; }
-  .tile.sel .cap, .sframe[aria-selected="true"] .cap { background: var(--sel); color: #fff; }
+  .tile.sel .cap, .sframe[aria-pressed="true"] .cap { background: var(--sel); color: #fff; }
   .window:not(.front) .tile.sel .cap { background: var(--sel-off); }
 
   /* ---------- property sheets (System Properties, Options) ---------- */
@@ -462,6 +462,33 @@
   .pwrap .actions { flex-wrap: nowrap; }
 
   /* ---------- generate ---------- */
+  /* field help: the first sentence of the spec's description, under the control (in .gform) or inside the group */
+  .ghelp { color: var(--muted); overflow-wrap: anywhere; }
+  .gform .ghelp { grid-column: 2; margin-top: calc(var(--g2) - var(--s3)); }
+  .strip + .ghelp { margin-top: var(--s1); }
+  .gtfoot { display: flex; align-items: baseline; gap: var(--s4); margin-top: var(--g2); }
+  .gtfoot .ghelp { flex: 1; min-width: 0; }
+  .gtfoot .gcount { flex: none; margin: 0 0 0 auto; }
+  /* jobs sent from this window, above the footer. Lines share the list's columns (subgrid):
+     name over status with the buttons at the right, or name | status | buttons on one row when the window is wide */
+  .gsent { flex: 0 1 auto; min-height: 0; max-height: 45%; display: flex; flex-direction: column; gap: 2px; margin: var(--s1) var(--s3) var(--s2); }
+  .gs-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: var(--btn-h); }
+  .gs-list { flex: 0 1 auto; min-height: 0; overflow: auto; margin: 0; padding: 2px; list-style: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--s4); align-content: start; }
+  .gs-item { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; row-gap: 2px; padding: var(--s1) var(--s2); }
+  .gs-item + .gs-item { box-shadow: inset 0 1px 0 var(--mid); }
+  .gs-name { grid-column: 1; grid-row: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gs-st { grid-column: 1; grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--s2); min-width: 0; }
+  .gs-st small { font-size: var(--fs); }
+  .gs-st .mprog { width: round(calc(56 * var(--u)), 1px); margin: 0; flex: none; }
+  .gs-why { flex: 1 1 12em; color: var(--bad); min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere; }
+  .gs-acts { grid-column: 2; grid-row: 1 / span 2; justify-self: end; display: flex; align-items: center; gap: var(--s2); }
+  @container (min-width: 46em) {
+    .gs-list { grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr) auto; }
+    .gs-st { grid-column: 2; grid-row: 1; }
+    .gs-acts { grid-column: 3; grid-row: 1; }
+  }
+  .gs-x { width: var(--cb-w); height: var(--cb-h); padding: 0; display: grid; place-items: center; flex: none; }
+  .gs-x i { display: block; position: relative; width: round(calc(10 * var(--u)), 1px); height: round(calc(9 * var(--u)), 1px); }
   .gen { display: flex; flex-direction: column; flex: 1; min-height: 0; }
   .gbody { flex: 1; min-height: 0; overflow: auto; padding: 2px var(--s3) var(--s2); display: flex; flex-direction: column; gap: var(--s3); }
   .gfields { display: flex; flex-direction: column; gap: var(--s3); }
