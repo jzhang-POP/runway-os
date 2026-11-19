@@ -867,7 +867,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if os.path.basename(self.path.split("?")[0]).startswith("."):
+        if any(seg.startswith(".") for seg in urllib.parse.unquote(self.path.split("?")[0]).split("/")):
             self.send_error(404)  # never serve .runway_key
             return
         super().do_GET()
