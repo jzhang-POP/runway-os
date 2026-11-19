@@ -54,9 +54,9 @@
   :root, [data-theme="dark"] {
     color-scheme: dark; --theme-desk: #0b2e2e;
     --face: #2a2b30; --face-2: #1d1e22; --pressed: #232428;
-    --hi: #55575f; --lo: #08090b; --mid: #3c3e45; --deep: #141519;
+    --hi: #737680; --lo: #08090b; --mid: #3c3e45; --deep: #141519;
     --fg: #e4e4e8; --muted: #9a9ca6; --strong: #fff;
-    --title-a: #000a5c; --title-b: #1f6fc4; --title-off-a: #3b3d44; --title-off-b: #5a5d66; --title-off-fg: #b8bac2;
+    --title-a: #000a5c; --title-b: #1f6fc4; --title-off-a: #3b3d44; --title-off-b: #5a5d66; --title-off-fg: #e4e4e8;
     --blue: #6ea8ff; --sel: #0a2a8a; --sel-off: #3c3e45;
     --ok: #5fdc7a; --run: #ffc94a; --bad: #ff6b6b; --err-bg: #2a1214;
   }
@@ -65,25 +65,25 @@
     --face: #c0c0c0; --face-2: #fff; --pressed: #c0c0c0;
     --hi: #fff; --lo: #000; --mid: #dfdfdf; --deep: #808080;
     --fg: #000; --muted: #474747; --strong: #000;
-    --title-a: #000080; --title-b: #1084d0; --title-off-a: #808080; --title-off-b: #b5b5b5; --title-off-fg: #e8e8e8;
-    --blue: #0a2fa8; --sel: #000080; --sel-off: #808080;
-    --ok: #006400; --run: #6b4400; --bad: #a00000; --err-bg: #ffe2e2;
+    --title-a: #000080; --title-b: #0f79bf; --title-off-a: #686868; --title-off-b: #757575; --title-off-fg: #fff;
+    --blue: #0a2fa8; --sel: #000080; --sel-off: #686868;
+    --ok: #005a00; --run: #6b4400; --bad: #a00000; --err-bg: #ffe2e2;
   }
   [data-theme="storm"] {
     color-scheme: dark; --theme-desk: #1a2230;
     --face: #2b3340; --face-2: #1e242e; --pressed: #252c38;
-    --hi: #5a6678; --lo: #07090c; --mid: #3b4554; --deep: #151a22;
+    --hi: #707f94; --lo: #07090c; --mid: #3b4554; --deep: #151a22;
     --fg: #e3e8ef; --muted: #9aa5b5; --strong: #fff;
-    --title-a: #1b2d4f; --title-b: #4a74b0; --title-off-a: #3a4250; --title-off-b: #5b6474; --title-off-fg: #b8c0cc;
+    --title-a: #1b2d4f; --title-b: #4a74b0; --title-off-a: #3a4250; --title-off-b: #5b6474; --title-off-fg: #e3e8ef;
     --blue: #7fb0ff; --sel: #2d4f86; --sel-off: #3b4554;
     --ok: #6fdc8a; --run: #ffcf5a; --bad: #ff7a7a; --err-bg: #2e1618;
   }
   [data-theme="eggplant"] {
     color-scheme: dark; --theme-desk: #2a1430;
     --face: #3a2e3f; --face-2: #2a2130; --pressed: #322837;
-    --hi: #6c5a75; --lo: #0c080e; --mid: #4b3c52; --deep: #1b141e;
+    --hi: #8b7695; --lo: #0c080e; --mid: #4b3c52; --deep: #1b141e;
     --fg: #ede4f0; --muted: #b3a2bb; --strong: #fff;
-    --title-a: #4a1050; --title-b: #9a4fa8; --title-off-a: #44394a; --title-off-b: #62566a; --title-off-fg: #c4b8ca;
+    --title-a: #4a1050; --title-b: #9a4fa8; --title-off-a: #44394a; --title-off-b: #62566a; --title-off-fg: #ede4f0;
     --blue: #c9a0ff; --sel: #6a2a78; --sel-off: #4b3c52;
     --ok: #6fdc8a; --run: #ffcf5a; --bad: #ff8080; --err-bg: #3a1418;
   }
@@ -92,8 +92,8 @@
     --face: #b4d0c8; --face-2: #f2f8f6; --pressed: #a8c4bc;
     --hi: #fff; --lo: #10201c; --mid: #d6e8e3; --deep: #6f8f87;
     --fg: #0d1f1b; --muted: #34504a; --strong: #000;
-    --title-a: #00504a; --title-b: #2a9a8a; --title-off-a: #6f8a84; --title-off-b: #9db5af; --title-off-fg: #f0f6f4;
-    --blue: #00507a; --sel: #00605a; --sel-off: #6f8a84;
+    --title-a: #00504a; --title-b: #248275; --title-off-a: #586d69; --title-off-b: #5d7b74; --title-off-fg: #fff;
+    --blue: #00507a; --sel: #00605a; --sel-off: #586d69;
     --ok: #10602a; --run: #6b4400; --bad: #a3161a; --err-bg: #f9dcdc;
   }
   [data-theme="pumpkin"] {
@@ -101,14 +101,19 @@
     --face: #e8c89a; --face-2: #fff7ea; --pressed: #dcba88;
     --hi: #fffaf0; --lo: #2b1a08; --mid: #f4dcb8; --deep: #9a7446;
     --fg: #1f1406; --muted: #57401f; --strong: #000;
-    --title-a: #8a3a00; --title-b: #e07a1f; --title-off-a: #9c8466; --title-off-b: #c2ab8c; --title-off-fg: #fff6e8;
-    --blue: #1d4a8a; --sel: #8a3a00; --sel-off: #9c8466;
+    --title-a: #8a3a00; --title-b: #b16018; --title-off-a: #78664e; --title-off-b: #8c704a; --title-off-fg: #fff;
+    --blue: #1d4a8a; --sel: #8a3a00; --sel-off: #78664e;
     --ok: #1c5f1c; --run: #6b4400; --bad: #a3161a; --err-bg: #ffe0d6;
   }
   /* high contrast: Win95's High Contrast Black, on top of any theme */
   html.contrast { color-scheme: dark; --face: #000; --face-2: #000; --pressed: #000; --hi: #fff; --lo: #fff; --mid: #000; --deep: #000; --fg: #fff; --muted: #ffff00; --strong: #fff;
     --title-a: #800080; --title-b: #800080; --title-off-a: #000; --title-off-b: #000; --title-off-fg: #fff; --sel: #800080; --sel-off: #404040; --blue: #00ffff; --ok: #00ff00; --run: #ffff00; --bad: #ff4040; --err-bg: #000; }
   html.contrast .window, html.contrast .taskbar, html.contrast .menu, html.contrast .startmenu { outline: 2px solid #fff; outline-offset: -2px; }
+  /* text on a selection (--sel, --sel-off) keeps the selection's own colors: status and accent colors only read on --face and --face-2 */
+  .row.sel .st { --ok: #fff; --run: #fff; --bad: #fff; --muted: #fff; }
+  .window:not(.front) .row.sel small, .window:not(.front) .row.sel .muted, .window:not(.front) .row.sel .est { color: #fff; }
+  .sp-row:focus-visible b, .xkey:hover .xreq, .xkey:focus-visible .xreq { color: #fff; }
+  .xkey:focus-visible .muted { color: #c9d4ff; }
   /* smooth font: Tahoma at any size */
   html.smooth { --ui: Tahoma, Verdana, "Segoe UI", system-ui, sans-serif; }
   html.smooth body { -webkit-font-smoothing: auto; -moz-osx-font-smoothing: auto; }
