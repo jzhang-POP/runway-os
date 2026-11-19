@@ -1255,6 +1255,8 @@
     ["history", "commands you typed"],
     ["bootlog, dmesg", "the startup checks, with their times"],
     ["clear, cls", "clear the screen"],
+    ["reboot [--clean|--all]", "restart; --clean forgets the window layout, --all also resets Options"],
+    ["shutdown", "open the Shut down dialog"],
     ["exit", "close the terminal"],
   ];
 
@@ -1427,6 +1429,14 @@
       case "date": case "time": say(esc(new Date().toString())); break;
       case "whoami": say("you"); break;
       case "exit": close(w); return;
+      case "reboot": case "restart": {
+        const mode = args.includes("--all") ? "all" : args.includes("--clean") ? "clean" : "restart";
+        say(mode === "all" ? "restarting, resetting the layout and every option…" : mode === "clean" ? "restarting with a clean desktop…" : "restarting…", "t-dim");
+        t.lines.push(...out.splice(0)); termPaint(w);
+        setTimeout(() => restart(mode), 400);
+        return;
+      }
+      case "shutdown": shutdownDialog(); say("opened Shut down", "t-dim"); break;
       case "sudo": say("nice try.", "t-err"); break;
       default: say(`'${esc(cmd0)}' is not a command. Type help.`, "t-err");
     }
@@ -1583,7 +1593,7 @@
     // the pixel font and the outline fonts have different default sizes, so a chosen size doesn't carry over between them
     if (k === "font" && (v === "pixel") !== (opts.font === "pixel")) opts.textPx = 0;
     opts[k] = v;
-    try { localStorage.setItem(OPT_KEY, JSON.stringify(opts)); } catch {}
+    if (!resetting) try { localStorage.setItem(OPT_KEY, JSON.stringify(opts)); } catch {}
     applyOptions();
     // re-render keeps each panel's scroll (data-keep); give focus back to the control that was used
     const a = document.activeElement, sel = a?.dataset?.opt ? `[data-opt="${a.dataset.opt}"]${a.value && a.type === "radio" ? `[value="${CSS.escape(a.value)}"]` : ""}${a.dataset.val ? `[data-val="${CSS.escape(a.dataset.val)}"]` : ""}` : null;
@@ -2241,7 +2251,60 @@
     if (b.dataset.cmd === "folder") fileAction("reveal", "runs.json");
     if (b.dataset.cmd === "cascade") cascadeAll();
     if (b.dataset.cmd === "tile") tileAll();
+    if (b.dataset.cmd === "shutdown") shutdownDialog();
   });
+
+  /* ---------- Shut down: restart, optionally forgetting the window layout or every setting ---------- */
+  let resetting = false; // set just before a reload, so nothing writes the forgotten state back
+  function restart(mode) {
+    resetting = true;
+    clearTimeout(saveT);
+    try {
+      if (mode === "clean" || mode === "all") localStorage.removeItem(KEY);
+      if (mode === "all") localStorage.removeItem(OPT_KEY);
+    } catch {}
+    location.reload();
+  }
+  function shutdownDialog() {
+    if ($("#shutdown")) return;
+    const back = document.activeElement;
+    const d = document.createElement("div");
+    d.id = "shutdown";
+    d.className = "shutdown";
+    d.innerHTML = `
+      <div class="sd-win window front raised" role="dialog" aria-modal="true" aria-labelledby="sd-t">
+        <div class="titlebar"><span class="t"><svg class="ico ticon" aria-hidden="true"><use href="#i-power"/></svg><span class="tt" id="sd-t">Shut down runway os</span></span></div>
+        <div class="sd-body">
+          <svg class="sd-ico" aria-hidden="true"><use href="#i-power"/></svg>
+          <fieldset class="sd-opts"><legend>What do you want to do?</legend>
+            <label class="opt-radio"><input type="radio" name="sd" value="restart" checked><span>Restart <span class="muted">Your windows and settings stay.</span></span></label>
+            <label class="opt-radio"><input type="radio" name="sd" value="clean"><span>Restart with a clean desktop <span class="muted">Forgets which windows were open, where, and the Generate form.</span></span></label>
+            <label class="opt-radio"><input type="radio" name="sd" value="all"><span>Restart and reset everything <span class="muted">Also resets Options: theme, scale, font and alerts.</span></span></label>
+            <p class="muted sd-note">Your jobs, files and API key aren't touched.</p>
+          </fieldset>
+        </div>
+        <div class="sheet-foot"><span class="grow"></span><button class="raised btn-ok b-default" data-sd="ok">OK</button><button class="raised btn-ok" data-sd="cancel">Cancel</button></div>
+      </div>`;
+    document.body.append(d);
+    const done = ok => {
+      removeEventListener("keydown", onKey, true);
+      if (ok) { restart($('input[name="sd"]:checked', d).value); return; }
+      d.remove(); back?.focus?.();
+    };
+    // the dialog is modal: it takes every key while open; Tab stays inside it
+    const onKey = e => {
+      e.stopPropagation();
+      if (e.key === "Escape") { e.preventDefault(); done(false); return; }
+      if (e.key === "Enter" && !e.target.closest('[data-sd="cancel"]')) { e.preventDefault(); done(true); return; }
+      if (e.key === "Tab") {
+        const f = $$("input:checked, button", d), i = f.indexOf(document.activeElement);
+        e.preventDefault(); f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();
+      }
+    };
+    addEventListener("keydown", onKey, true);
+    d.addEventListener("click", e => { const b = e.target.closest("[data-sd]"); if (b) done(b.dataset.sd === "ok"); });
+    $('input[name="sd"]:checked', d).focus();
+  }
   startMenu.addEventListener("keydown", e => menuKeys(startMenu, e));
   document.addEventListener("pointerdown", e => {
     if (!startMenu.hidden && !e.target.closest("#startmenu, #start")) setStart(false);
@@ -2351,6 +2414,7 @@
   let saveT;
   function save() {
     clearTimeout(saveT);
+    if (resetting) return;
     saveT = setTimeout(() => {
       const list = [...wins.values()].map(w => ({ kind: w.kind, arg: w.arg, x: w.x, y: w.y, wd: w.wd, ht: w.ht, max: w.max, minimized: w.minimized, snapped: w.snapped, pre: w.pre, z: w.z, seq: w.seq, filter: w.filter, q: w.q, sort: w.sort, size: w.size, sel: w.sel, tab: w.tab, days: w.days, gen: w.kind === "generate" ? w.gen : undefined }));
       try { localStorage.setItem(KEY, JSON.stringify(list)); } catch {}

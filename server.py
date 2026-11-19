@@ -585,7 +585,20 @@ def quote(body):
     task, m = find_model(str(body.get("endpoint")), str(body.get("model")))
     if not m:
         return {"credits": None, "exact": False, "note": "unknown model"}
-    params = {**(body.get("values") or {}), **(body.get("extra") or {})}
+    # form values arrive as text (e.g. scaleFactor "2"): convert them the way submit() does
+    params = dict(body.get("values") or {})
+    for f in m["fields"]:
+        v = params.get(f["name"])
+        if v is None or v == "":
+            continue
+        try:
+            if f["kind"] == "select" and not f.get("wrapKey"):
+                params[f["name"]] = pick_option(f, v)
+            elif f["kind"] in ("number", "range"):
+                params[f["name"]] = int(float(v)) if (f.get("int") or f.get("step") == 1) else float(v)
+        except (ValueError, TypeError):
+            pass
+    params.update(body.get("extra") or {})
     inputs = {}
     for f in m["fields"]:
         if f["kind"] != "media":

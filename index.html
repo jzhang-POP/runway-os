@@ -613,6 +613,18 @@
   .tp-title { flex: none; height: round(calc(8 * var(--u)), 1px); background: linear-gradient(90deg, var(--title-a), var(--title-b)); }
   .tp-btn { margin: auto var(--s1) 2px auto; width: 40%; height: round(calc(10 * var(--u)), 1px); }
 
+  /* ---------- Shut down dialog: Win95 dims the screen with a 50% checker while it asks ---------- */
+  .shutdown { position: fixed; inset: 0; z-index: 250000; display: grid; place-items: center; padding: var(--s4);
+    background: repeating-conic-gradient(rgba(0, 0, 0, .55) 0 25%, transparent 0 50%) 0 0 / 2px 2px; }
+  .sd-win { position: relative; width: min(100%, round(calc(470 * var(--u)), 1px)); display: flex; flex-direction: column; padding: 3px; }
+  .sd-body { display: flex; gap: var(--s4); padding: var(--s4) var(--s4) var(--s2); align-items: flex-start; }
+  .sd-ico { width: round(calc(32 * var(--u)), 1px); height: round(calc(32 * var(--u)), 1px); flex: none; }
+  .sd-opts { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--s1); }
+  .sd-opts legend { padding: 0 0 var(--s2); }
+  .sd-opts .opt-radio > span .muted { display: block; }
+  .sd-note { margin: var(--s2) 0 0; }
+  .sd-win .sheet-foot { padding: var(--s2) var(--s4) var(--s4); }
+
   /* ---------- menus, balloon ---------- */
   /* screen-reader support: live region, balloon Open button, blocked Generate, Jobs and gallery extras */
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
@@ -726,6 +738,7 @@
   <symbol id="i-term" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect x="0" y="1" width="16" height="14" fill="#c9cbd3"/><rect x="0" y="1" width="16" height="3" fill="#1f6fc4"/><rect x="1" y="4" width="14" height="10" fill="#000"/><rect x="2" y="6" width="1" height="1" fill="#e4e4e8"/><rect x="3" y="7" width="1" height="1" fill="#e4e4e8"/><rect x="2" y="8" width="1" height="1" fill="#e4e4e8"/><rect x="5" y="8" width="3" height="1" fill="#e4e4e8"/></symbol>
   <symbol id="i-gear" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect x="1" y="2" width="14" height="12" fill="#c9cbd3"/><rect x="2" y="3" width="12" height="10" fill="#2a2b30"/><rect x="4" y="5" width="1" height="6" fill="#9a9ca6"/><rect x="3" y="6" width="3" height="2" fill="#ffc94a"/><rect x="8" y="5" width="1" height="6" fill="#9a9ca6"/><rect x="7" y="8" width="3" height="2" fill="#6ea8ff"/><rect x="11" y="5" width="1" height="6" fill="#9a9ca6"/><rect x="10" y="6" width="3" height="2" fill="#5fdc7a"/></symbol>
   <symbol id="i-chart" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect x="1" y="1" width="14" height="14" fill="#c9cbd3"/><rect x="2" y="2" width="12" height="12" fill="#1d1e22"/><rect x="3" y="9" width="2" height="4" fill="#6ea8ff"/><rect x="6" y="6" width="2" height="7" fill="#ffc94a"/><rect x="9" y="4" width="2" height="9" fill="#5fdc7a"/><rect x="12" y="7" width="1" height="6" fill="#ff6b6b"/></symbol>
+  <symbol id="i-power" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect x="1" y="1" width="14" height="14" fill="#c9cbd3"/><rect x="2" y="2" width="12" height="12" fill="#1d1e22"/><path d="M5 5.5h1v5h1v1h2v-1h1v-5h1v6h-1v1H6v-1H5z" fill="#ff6b6b"/><rect x="7.5" y="3.5" width="1" height="5" fill="#ff6b6b"/></symbol>
   <symbol id="i-cascade" viewBox="0 0 16 16"><rect x="1" y="1" width="9" height="7" fill="#5a5d66"/><rect x="3.5" y="4" width="9" height="7" fill="#9a9ca6"/><rect x="6" y="7" width="9" height="7" fill="#c9cbd3"/><rect x="6" y="7" width="9" height="2" fill="#1f6fc4"/></symbol>
 </svg>
 
@@ -760,6 +773,8 @@
   <hr class="etch">
   <button role="menuitem" data-launch="key"><svg><use href="#i-key"/></svg>Runway API key…</button>
   <button role="menuitem" data-cmd="folder"><svg><use href="#i-finder"/></svg>Show folder in Finder</button>
+  <hr class="etch">
+  <button role="menuitem" data-cmd="shutdown"><svg><use href="#i-power"/></svg>Shut down…</button>
 </div>
 
 <div class="menu raised" id="ctxmenu" role="menu" hidden></div>
