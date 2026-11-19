@@ -1,0 +1,37 @@
+# secrets
+.runway_key
+.runway_key*
+.env
+
+# your data: job log, balance history, generated and uploaded media
+runs.json
+runs.json.tmp
+balance_history.json*
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
+/*.gif
+/*.svg
+/*.mp4
+/*.mov
+/*.webm
+/*.m4v
+/*.mp3
+/*.wav
+/*.flac
+/*.ogg
+/*.m4a
+/*.zip
+*.part
+thumbs/
+inputs/
+archive/
+backups/
+
+# caches
+runway_openapi.json*
+__pycache__/
+.DS_Store
+_t.html
+_h.js
