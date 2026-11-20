@@ -100,7 +100,7 @@ server_checks() { # base-url
 import json, sys, urllib.parse, urllib.request
 b = sys.argv[1]
 d = json.load(urllib.request.urlopen(b + "api/state"))
-paths = ["api/state", "", "index.html", "app.js"]
+paths = ["api/state", "", "index.html", "js/main.js"]
 for r in d.get("runs", []):
     for a in [r.get("asset")] + (r.get("assets") or []):
         if a and r.get("type") in ("image", "video"):
@@ -144,7 +144,7 @@ for _ in $(seq 1 100); do [ -s "$PROFILE/DevToolsActivePort" ] && break; sleep 0
 CDP="$(head -1 "$PROFILE/DevToolsActivePort")"
 
 set +e
-node "$HERE/smoke.mjs" --cdp "$CDP" --app "$REPO/app.js" --out "$OUT" \
+node "$HERE/smoke.mjs" --cdp "$CDP" --app "$REPO/js/main.js" --out "$OUT" \
   --fresh "http://localhost:$P1/" --data "http://localhost:$P2/"
 code=$?
 set -e
