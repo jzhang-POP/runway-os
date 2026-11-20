@@ -1,0 +1,53 @@
+/* Runway OS window manager: the desktop and windows */
+/* ---------- desktop ---------- */
+#desktop { position: fixed; top: env(safe-area-inset-top, 0px); left: env(safe-area-inset-left, 0px); right: env(safe-area-inset-right, 0px); bottom: calc(var(--bar) + env(safe-area-inset-bottom, 0px)); overflow: hidden; }
+/* desktop icons sit on a grid (js/desktop/icons.js layoutIcons): each has a slot, moved by dragging */
+.icons { position: absolute; inset: 0; pointer-events: none; }
+.icons .dicon { position: absolute; left: 0; top: 0; pointer-events: auto; touch-action: none; }
+.icons .dicon.dragging { z-index: 5; opacity: .75; transition: none; }
+.icons:not(.ready) .dicon { visibility: hidden; }
+.dicon { width: round(calc(78 * var(--u)), 1px); padding: var(--s1) 2px; display: flex; flex-direction: column; align-items: center; gap: var(--s1); background: none; border: 0; color: #fff; cursor: default; text-align: center; }
+.dicon svg { width: var(--ico-xl); height: var(--ico-xl); }
+.dicon span { padding: 0 var(--g2); }
+.dicon:focus { outline: none; }
+.dicon:focus span { background: var(--sel); outline: 1px dotted #fff; }
+.dicon:focus svg { opacity: .7; }
+.snap { position: absolute; z-index: 99990; pointer-events: none; outline: 2px dotted #c9cbd3; outline-offset: -4px; background: rgba(31, 111, 196, .12); }
+.flycap { position: fixed; z-index: 200000; pointer-events: none; display: flex; align-items: center; gap: var(--s2); padding: 0 var(--s2); overflow: hidden; white-space: nowrap; background: linear-gradient(90deg, var(--title-a), var(--title-b)); color: #fff; font-weight: 700; }
+
+/* ---------- windows ---------- */
+.window { position: absolute; display: flex; flex-direction: column; padding: 3px; min-width: 0; }
+.titlebar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: var(--s3); height: var(--title-h); padding: 0 3px 0 var(--s1); background: linear-gradient(90deg, var(--title-off-a), var(--title-off-b)); color: var(--title-off-fg); font-weight: 700; cursor: default; user-select: none; -webkit-user-select: none; touch-action: none; }
+.window.front .titlebar { background: linear-gradient(90deg, var(--title-a), var(--title-b)); color: #fff; }
+.titlebar .t { display: flex; align-items: center; gap: var(--s1); min-width: 0; overflow: hidden; white-space: nowrap; }
+.tt { overflow: hidden; text-overflow: ellipsis; }
+.ticon { width: var(--ico-m); height: var(--ico-m); }
+.ctl { display: flex; flex: none; }
+.ctl-gap { width: 2px; }
+.ctl button, .bx { width: var(--cb-w); height: var(--cb-h); padding: 0; display: grid; place-items: center; flex: none; }
+/* caption glyphs, drawn on a 10×9 grid that scales */
+.ctl i, .bx i { display: block; position: relative; width: round(calc(10 * var(--u)), 1px); height: round(calc(9 * var(--u)), 1px); }
+.g-min::after { content: ""; position: absolute; left: var(--g1); bottom: 0; width: round(calc(6 * var(--u)), 1px); height: var(--g2); background: var(--fg); }
+.g-max::after { content: ""; position: absolute; inset: 0; border: var(--g1) solid var(--fg); border-top-width: var(--g2); }
+.window.max .g-max::after { inset: round(calc(3 * var(--u)), 1px) round(calc(3 * var(--u)), 1px) 0 0; background: var(--face); }
+.window.max .g-max::before { content: ""; position: absolute; inset: 0 0 round(calc(3 * var(--u)), 1px) round(calc(3 * var(--u)), 1px); border: var(--g1) solid var(--fg); border-top-width: var(--g2); }
+.g-close::before, .g-close::after { content: ""; position: absolute; left: 0; top: calc(50% - var(--g2) / 2); width: 100%; height: var(--g2); background: var(--fg); transform: rotate(45deg); }
+.g-close::after { transform: rotate(-45deg); }
+.wbody { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; container-type: inline-size; }
+.rz { position: absolute; z-index: 2; touch-action: none; }
+.rz.n { top: -3px; left: 8px; right: 8px; height: 7px; cursor: ns-resize; }
+.rz.s { bottom: -3px; left: 8px; right: 8px; height: 7px; cursor: ns-resize; }
+.rz.e { right: -3px; top: 8px; bottom: 8px; width: 7px; cursor: ew-resize; }
+.rz.w { left: -3px; top: 8px; bottom: 8px; width: 7px; cursor: ew-resize; }
+.rz.ne, .rz.nw, .rz.se, .rz.sw { width: 14px; height: 14px; }
+.rz.ne { top: -3px; right: -3px; cursor: nesw-resize; } .rz.sw { bottom: -3px; left: -3px; cursor: nesw-resize; }
+.rz.nw { top: -3px; left: -3px; cursor: nwse-resize; } .rz.se { bottom: -3px; right: -3px; cursor: nwse-resize; }
+.window.max .rz { display: none; }
+.window.busy { user-select: none; -webkit-user-select: none; }
+.window.drop .wbody { outline: 2px dotted var(--blue); outline-offset: -6px; }
+/* window focus: the window itself takes focus only when it has no control to; its active title bar shows it */
+.window:focus { outline: none; }
+html.contrast .window:focus { outline: 2px solid #fff; outline-offset: -2px; }
+/* keyboard Move and Size (window menu): a black and white dotted frame, readable on every theme, while the arrow keys work */
+.window.kbmode::after { content: ""; position: absolute; inset: 0; z-index: 3; pointer-events: none; border: 2px solid #000; outline: 2px dotted #fff; outline-offset: -2px; }
+

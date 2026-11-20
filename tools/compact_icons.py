@@ -11,7 +11,7 @@ to the nearest device pixel, but still anti-aliases a <path>, so at the sizes th
 at 16 px) paths come out blurred. Snapped rect edges have a useful property: two rects that share an edge snap that
 edge to the same pixel, so a rect and the two rects it replaces fill exactly the same pixels at any size.
 
-Symbols that aren't plain integer <rect x y width height fill>s (already compacted ones, i-logo, which app.js fills
+Symbols that aren't plain integer <rect x y width height fill>s (already compacted ones, i-logo, which js/main.js fills
 at runtime) are left as they are, so running it twice changes nothing.
 
   python3 tools/compact_icons.py            rewrite index.html in place

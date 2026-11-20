@@ -8,10 +8,10 @@ const CDP_PORT = arg("cdp"), OUT = arg("out"), APP = readFileSync(arg("app"), "u
 const T0 = Date.now();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-/* ---------- what to test, read from app.js so new windows and shortcuts are covered automatically ---------- */
+/* ---------- what to test, read from the app's source (--app) so new windows and shortcuts are covered automatically ---------- */
 function parseKinds(src) {
   const start = src.indexOf("const KINDS = {");
-  if (start < 0) throw new Error("couldn't find `const KINDS = {` in app.js");
+  if (start < 0) throw new Error("couldn't find `const KINDS = {` in " + arg("app"));
   let i = src.indexOf("{", start), depth = 0, end = i;
   for (; end < src.length; end++) { if (src[end] === "{") depth++; else if (src[end] === "}" && --depth === 0) break; }
   const body = src.slice(i + 1, end), kinds = [];
@@ -27,7 +27,7 @@ function parseKinds(src) {
 }
 const KINDS = parseKinds(APP);
 const APP_KEYS = (() => { const m = APP.match(/const APP_KEYS = (\{[^}]*\})/); return m ? Function(`return ${m[1]}`)() : {}; })();
-if (KINDS.length < 5) throw new Error("parsed only " + KINDS.length + " window kinds from app.js");
+if (KINDS.length < 5) throw new Error("parsed only " + KINDS.length + " window kinds from " + arg("app"));
 
 const OPT_BASE = { fontV2: true, fontV3: true, sizeV4: true, sizeV5: true, motion: "system", sound: false, notify: false, balloons: true };
 const CONFIGS = [
@@ -140,6 +140,7 @@ async function load(url, opts, layout = "[]") {
   await navigate(new URL("/README.md", url).href);
   await js(`(() => { localStorage.clear(); ${opts ? `localStorage.setItem("runway-os-options-v1", ${JSON.stringify(JSON.stringify(opts))});` : ""} ${layout != null ? `localStorage.setItem("runway-os-layout-v3", ${JSON.stringify(layout)});` : ""} })()`);
   await navigate(url);
+  await until(`window.__rwosReady === true`, 10000, "the app's startup to finish (window.__rwosReady)");
 }
 async function boot() {
   where = "boot screen";
