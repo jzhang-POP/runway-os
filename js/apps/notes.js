@@ -6,7 +6,7 @@ import { morph } from "../core/morph.js";
 import { relHTML } from "../core/status.js";
 import { sleep } from "../core/time.js";
 import { balloon, emptyAct, itemId } from "../core/ui.js";
-import { KINDS, RENDER, SIG } from "../wm/kinds.js";
+import { KINDS, RENDER } from "../wm/kinds.js";
 import { save } from "../wm/persist.js";
 import { renderTasks } from "../wm/taskbar.js";
 import { frontWin, open, retitle } from "../wm/windows.js";
@@ -482,6 +482,7 @@ export const noteHash = location.hash; // read now, before anything can change i
 
 export function init() {
   RENDER.notes = w => notesRender(w);
+  KINDS.notes.title = w => (noteTitle(w) ? `Notes — ${noteTitle(w)}` : "Notes");
   try { S.notePref = { ...S.notePref, ...JSON.parse(localStorage.getItem(NOTE_PREF)) }; } catch {}
   addEventListener("pagehide", () => notesSt.dirty.forEach(ed => {
     if (ed.name && ed.text !== ed.saved) fetch("/api/notes", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: ed.name, text: ed.text }) }).catch(() => {});
@@ -490,5 +491,4 @@ export function init() {
   desk.addEventListener("click", e => { const a = e.target.closest("[data-note-open]"); if (a) openNote(a.dataset.noteOpen, a); });
   setTimeout(() => { notesLoad(); noteFromHash(noteHash); }, 0);
   addEventListener("hashchange", () => noteFromHash(location.hash));
-  SIG.notes = () => "";
 }

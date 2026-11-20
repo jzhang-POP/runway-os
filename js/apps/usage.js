@@ -3,7 +3,7 @@ import { $, $$, clampN, esc, fmt } from "../core/dom.js";
 import { getJSON } from "../core/api.js";
 import { createdMs } from "../core/status.js";
 import { px } from "../wm/geometry.js";
-import { RENDER, SIG } from "../wm/kinds.js";
+import { RENDER } from "../wm/kinds.js";
 import { save } from "../wm/persist.js";
 import { renderTasks } from "../wm/taskbar.js";
 import { retitle } from "../wm/windows.js";
@@ -203,5 +203,4 @@ export async function usageRender(w, force) {
 
 export function init() {
   RENDER.usage = w => usageRender(w);
-  SIG.usage = () => "";
 }

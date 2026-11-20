@@ -451,7 +451,7 @@ export function genApplyPending(w) {
     if (t.models.some(m => m.id === r.model)) g.model[t.endpoint] = r.model;
     const key = `${t.endpoint}|${g.model[t.endpoint] || t.models[0].id}`;
     const { extra: rx, ...rp } = r.params || {};
-    if (rx) (g.extra ||= {})[`${t.endpoint}|${g.model[t.endpoint] || t.models[0].id}`] = JSON.stringify(rx, null, 2);
+    if (rx) (g.extra ||= {})[key] = JSON.stringify(rx, null, 2);
     const v = r.params ? rp : { promptText: r.prompt.startsWith("(no prompt") ? "" : r.prompt, ratio: String(r.settings || "").split(" · ")[0], ...(secondsOf(r) ? { duration: secondsOf(r) } : {}) };
     g.vals[key] = v;
     const m = {};

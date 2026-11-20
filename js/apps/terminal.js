@@ -4,7 +4,7 @@ import { R_BITS, spark } from "../core/graphics.js";
 import { ACTIVE, assetsOf, counts, createdMs, newestFirst, runOf, statusInfo } from "../core/status.js";
 import { upTo } from "../core/time.js";
 import { fileAction } from "../core/ui.js";
-import { KINDS, RENDER, SIG } from "../wm/kinds.js";
+import { KINDS, RENDER } from "../wm/kinds.js";
 import { save } from "../wm/persist.js";
 import { renderTasks } from "../wm/taskbar.js";
 import { close, defaultOpen, frontWin, open, retitle } from "../wm/windows.js";
@@ -69,8 +69,8 @@ export function neofetch() {
     "",
     ["#08090b", "#ff2b1c", "#5fdc7a", "#ffc94a", "#1f6fc4", "#c678dd", "#56b6c2", "#e4e4e8"].map(c => `<span class="t-sw" style="background:${c}"></span>`).join(""),
   ];
-  const px = R_BITS.flatMap((row, y) => [...row].map((c, x) => (c === "1" ? `<rect x="${x}" y="${y}" width="1" height="1"/>` : ""))).join("");
-  const art = `<svg class="t-logo" viewBox="-1 -1 10 13" shape-rendering="crispEdges" aria-hidden="true">${px}</svg>`;
+  const dots = R_BITS.flatMap((row, y) => [...row].map((c, x) => (c === "1" ? `<rect x="${x}" y="${y}" width="1" height="1"/>` : ""))).join("");
+  const art = `<svg class="t-logo" viewBox="-1 -1 10 13" shape-rendering="crispEdges" aria-hidden="true">${dots}</svg>`;
   return `<span class="t-neo">${art}<span>${info.join("\n")}</span></span>`;
 }
 
@@ -311,5 +311,4 @@ export function termRender(w) {
 
 export function init() {
   RENDER.terminal = w => termRender(w);
-  SIG.terminal = () => "";
 }

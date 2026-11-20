@@ -12,7 +12,8 @@ import { toggleFullScreen } from "../shortcuts.js";
 
 export function setTitle() {
   const active = counts().active;
-  document.title = "[POP] Runway OS";
+  // jobs that finished while the tab was hidden, until you come back to it
+  document.title = `${S.unseen ? `(${S.unseen}) ` : ""}[POP] Runway OS`;
   const want = active ? "busy" : "idle";
   if (want !== S.favState) { S.favState = want; $("#favicon").href = "data:image/svg+xml," + encodeURIComponent(FAV[want]); }
 }

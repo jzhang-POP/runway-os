@@ -21,7 +21,7 @@ function parseKinds(src) {
   for (let j = 0; j < body.length; j++) {
     const c = body[j];
     if (c === "{" || c === "(" || c === "[") { if (depth === 0 && c === "{") { const m = body.slice(entryStart, j).match(/(\w+)\s*:\s*$/); name = m && m[1]; entryStart = j; } depth++; }
-    else if (c === "}" || c === ")" || c === "]") { depth--; if (depth === 0 && c === "}" && name) { kinds.push({ kind: name, needsArg: /\bw\.arg\b/.test(body.slice(entryStart, j)) }); name = null; entryStart = j + 1; } }
+    else if (c === "}" || c === ")" || c === "]") { depth--; if (depth === 0 && c === "}" && name) { kinds.push({ kind: name, needsArg: /\bw\.arg\b|\barg: true\b/.test(body.slice(entryStart, j)) }); name = null; entryStart = j + 1; } }
     else if (depth === 0 && c === ",") entryStart = j + 1;
   }
   return kinds;

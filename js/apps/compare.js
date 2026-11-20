@@ -4,7 +4,7 @@ import { morph } from "../core/morph.js";
 import { ACTIVE, costHTML, costOf, createdMs, filesOf, nameOf, runOf, statusHTML, statusInfo, thumbOf, typeIcon } from "../core/status.js";
 import { absTime, tOf } from "../core/time.js";
 import { balloon, loadingOr } from "../core/ui.js";
-import { RENDER } from "../wm/kinds.js";
+import { KINDS, RENDER } from "../wm/kinds.js";
 import { save } from "../wm/persist.js";
 import { CMP_MAX, MULTI, cmpBase, extendSel, isSel, selIds, selectAll } from "../wm/selection.js";
 import { defaultOpen, frontWin, open, renderWin, winOf } from "../wm/windows.js";
@@ -317,6 +317,7 @@ export function cmpBind(w) {
 
 export function init() {
   RENDER.compare = cmpRender;
+  KINDS.compare.title = w => { const n = cmpIds(w.arg).length; return `Compare — ${n} item${n === 1 ? "" : "s"}`; };
 
   // Alt+C compares the selection, Cmd+A selects everything in the list; Shift+arrows extend the selection (capture: before the plain arrow keys)
   addEventListener("keydown", ev => {
