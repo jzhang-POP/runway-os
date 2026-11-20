@@ -15,7 +15,9 @@ Add your Runway API key from **Start → Runway API key…**, or put it in a fil
 ## Files
 
 - `server.py`: local server. Serves the page, syncs jobs and the credit balance with Runway, downloads outputs, builds the Generate forms from Runway's OpenAPI spec.
-- `index.html`, `app.js`: the desktop (window manager, Generate, Jobs, galleries, Terminal, Options).
+- `index.html`: the page shell and the inline SVG icon symbols; it loads `css/` and `js/main.js`.
+- `css/`: `base.css` (fonts, tokens, themes, controls), `wm.css` (desktop, windows), `apps.css` (window contents, menus, taskbar, boot). Loaded in that order: the cascade depends on it.
+- `js/`: native ES modules, no build step. `main.js` imports everything, calls each module's `init()` in a fixed order (listener order matters), then starts up. `core/` (store `S` in `state.js`, DOM/time/API helpers, morph, job status), `wm/` (`kinds.js`: window kinds, `APP_KEYS`, the `RENDER`/`SIG` registries apps fill in; windows, sheets, selection, taskbar, persistence), `desktop/icons.js`, `apps/` (one file per window kind), and the global handlers (`menus`, `shortcuts`, `dnd`, `desk-clicks`, `boot`, `live`). Modules only declare at top level; anything reassigned lives in `S`.
 - `fonts/`: bundled fonts (MS Sans Serif pixel font from 98.css, MIT; IBM Plex Sans and Atkinson Hyperlegible, SIL OFL).
 - `runs.json`: your job log (created on first job, not committed).
 - `tests/`: the smoke test.
