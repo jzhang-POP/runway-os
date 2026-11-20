@@ -3,7 +3,7 @@ import { $, fmt, icoLabel } from "../core/dom.js";
 import { api } from "../core/api.js";
 import { balloon } from "../core/ui.js";
 import { RENDER } from "../wm/kinds.js";
-import { poll } from "../main.js";
+import { poll } from "../live.js";
 
 /* ---------- Runway API key ---------- */
 export function keyRender(w) {

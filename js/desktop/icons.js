@@ -2,7 +2,7 @@ import { S } from "../core/state.js";
 import { $, $$, clampN, desk } from "../core/dom.js";
 import { px } from "../wm/geometry.js";
 import { open } from "../wm/windows.js";
-import { deskMenu } from "../main.js";
+import { deskMenu } from "../menus.js";
 
 export const icons = $("#icons");
 /* icon grid: icons fill columns top to bottom in order, unless moved; a moved icon keeps its slot (col,row), saved per launcher */

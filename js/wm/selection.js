@@ -1,7 +1,7 @@
 import { $, $$, clampN, icoLabel } from "../core/dom.js";
 import { runOf } from "../core/status.js";
 import { save } from "./persist.js";
-import { MAC } from "../main.js";
+import { MAC } from "../shortcuts.js";
 
 /* ---------- selection in lists and galleries ---------- */
 // keep: leave a multi-selection (Cmd+click, Shift+click) as it is and only move the focused item

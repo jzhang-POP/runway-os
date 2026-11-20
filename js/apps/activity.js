@@ -9,7 +9,7 @@ import { KINDS, RENDER } from "../wm/kinds.js";
 import { save } from "../wm/persist.js";
 import { defaultOpen, fit, focus, open, place } from "../wm/windows.js";
 import { cancelJob } from "./generate.js";
-import { poll } from "../main.js";
+import { poll } from "../live.js";
 
 /* ---------- Activity: jobs in progress and recently finished, like a download manager ---------- */
 export const fresh = {}; // rows the server just returned from /api/generate, shown until a poll brings them from runs.json

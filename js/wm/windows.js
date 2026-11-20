@@ -6,7 +6,7 @@ import { save } from "./persist.js";
 import { renderTasks, taskBtn } from "./taskbar.js";
 import { layoutIcons } from "../desktop/icons.js";
 import { calm } from "../apps/options.js";
-import { windowMenu } from "../main.js";
+import { windowMenu } from "../menus.js";
 
 export const SNAP = 6;
 export const minOf = (w, d) => [Math.min(Math.max(px(KINDS[w.kind].min[0]), w.minW || 0), d.w), Math.min(px(KINDS[w.kind].min[1]), d.h)];

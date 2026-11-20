@@ -7,7 +7,8 @@ import { save } from "../wm/persist.js";
 import { fit, focus, frontWin, minOf, open, place, winOf } from "../wm/windows.js";
 import { curModel, curTask, genMsg } from "./generate.js";
 import { NOTE_DRAFT, noteEdit, noteFill, noteGet, noteListPut, noteStatus, notesFlush, notesLoad, notesSt, openNote } from "./notes.js";
-import { MAC, letterOf, showMenu } from "../main.js";
+import { showMenu } from "../menus.js";
+import { MAC, letterOf } from "../shortcuts.js";
 
 /* ---------- notes as a prompt library for Generate ----------
    Notes → Generate: Use as prompt (the selection, or the whole note), a note dragged from the list onto Generate,

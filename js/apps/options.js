@@ -5,7 +5,7 @@ import { sheetHTML, sheetKeys } from "../wm/sheet.js";
 import { fit, place, renderWin } from "../wm/windows.js";
 import { layoutIcons } from "../desktop/icons.js";
 import { spendPanel } from "./spend.js";
-import { tick } from "../main.js";
+import { tick } from "../live.js";
 
 /* ---------- options: accessibility and preferences, saved in this browser ---------- */
 export const OPT_KEY = "runway-os-options-v1";

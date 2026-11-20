@@ -57,6 +57,6 @@ export function statusHTML(r, withBar = true) {
 export const thumbInner = (src, type) => `${src ? `<img src="${src}" alt="" loading="lazy" onerror="this.hidden=true">` : ""}<span class="empty"><svg class="ico big"><use href="#${typeIcon(type)}"/></svg></span>`;
 export const miniThumb = r => `<span class="mini sunken">${thumbOf(r) ? `<img src="${thumbOf(r)}" alt="" loading="lazy" onerror="this.hidden=true">` : `<svg class="ico"><use href="#${typeIcon(r.type)}"/></svg>`}</span>`;
 
-/* ---------- live data ---------- */
-// what each window shows from the job log; poll skips windows whose signature didn't change
+// a job as a signature string: SIG functions compare these between polls and skip windows whose signature did not change
+
 export const runSig = r => r && JSON.stringify(r);

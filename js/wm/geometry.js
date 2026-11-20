@@ -3,7 +3,7 @@ import { desk } from "../core/dom.js";
 
 export const D = () => ({ w: desk.clientWidth, h: desk.clientHeight });
 
-/* ---------- window kinds ---------- */
+/* ---------- geometry ---------- */
 // every size below is at scale 1 (11 px text) and grows with the Scale option
 export const px = n => Math.round(n * S.scale);
 export const box = (d, w, h) => ({ wd: Math.min(px(w), d.w - 24), ht: Math.min(px(h), d.h - 24) });

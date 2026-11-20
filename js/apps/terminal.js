@@ -13,7 +13,7 @@ import { noteGet, noteListStale, noteTermFind, noteTermLink, notesSt, openNote }
 import { restart, shutdownDialog } from "./shutdown.js";
 import { spendTerm } from "./spend.js";
 import { usageLoad, usageMine, usageSummary } from "./usage.js";
-import { bootLog } from "../main.js";
+import { bootLog } from "../boot.js";
 
 /* ---------- terminal: a DOS-style prompt that speaks both dir and ls ---------- */
 export const bootAt = Date.now();

@@ -7,7 +7,8 @@ import { APP_KEYS, KINDS } from "./kinds.js";
 import { save } from "./persist.js";
 import { cascadeAll, focus, focusInto, frontWin, minimize, open, restore, tileAll } from "./windows.js";
 import { shutdownDialog } from "../apps/shutdown.js";
-import { deskMenu, hideMenu, menuKeys, toggleFullScreen, windowMenu } from "../main.js";
+import { deskMenu, hideMenu, menuKeys, windowMenu } from "../menus.js";
+import { toggleFullScreen } from "../shortcuts.js";
 
 export function setTitle() {
   const active = S.data.runs.filter(r => ACTIVE.has(r.status)).length;

@@ -8,7 +8,8 @@ import { RENDER } from "../wm/kinds.js";
 import { save } from "../wm/persist.js";
 import { CMP_MAX, MULTI, cmpBase, extendSel, isSel, selIds, selectAll } from "../wm/selection.js";
 import { defaultOpen, frontWin, open, renderWin, winOf } from "../wm/windows.js";
-import { MAC, letterOf, runMenu } from "../main.js";
+import { runMenu } from "../menus.js";
+import { MAC, letterOf } from "../shortcuts.js";
 
 export function compare(ids, src) {
   ids = [...new Set(ids)].filter(id => runOf(id));

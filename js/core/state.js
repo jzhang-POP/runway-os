@@ -1,4 +1,4 @@
-// Runway Dashboard: a small Win95-style window manager over the live job log (/api/state).
+// shared state: every value the app reassigns lives in the store S; wins holds the open windows
 export const S = {
   data: { runs: [], balance: null, balanceAt: null, history: [] },
   loaded: false,
