@@ -187,6 +187,7 @@
       icon: () => "i-key", title: () => "Runway API key", min: [340, 330],
       geo: d => centered(d, 460, 420, 0, true),
     },
+    keys: { icon: () => "i-keys", title: () => "Keyboard shortcuts", min: [360, 300], geo: d => centered(d, 520, 600, 0, true) },
     tree: { icon: () => "i-tree", title: () => "Job tree", min: [360, 300], geo: cascade(900, 620) },
     props: { icon: () => "i-doc", title: w => `Properties — ${runOf(w.arg) ? nameOf(runOf(w.arg)) : w.arg.slice(0, 8)}`, min: [340, 320], geo: cascade(460, 600) },
   };
@@ -527,7 +528,52 @@
       .sort((a, b) => { const x = col.get(a), y = col.get(b); return (x < y ? -1 : x > y ? 1 : 0) * w.sort.dir || createdMs(b) - createdMs(a); });
   }
 
+  // every shortcut the app handles, shown in the Keyboard shortcuts window and as hints in the menus
+  const APP_KEYS = { generate: "G", terminal: "T", jobs: "J", tree: "Shift+J", usage: "U", activity: "A", images: "I", videos: "V", audio: "M", options: "O", notes: "N", keys: "/" };
+  const SHORTCUTS = [
+    ["Windows", [
+      ["Alt+W or Alt+F4", "Close the window"],
+      ["Alt+↓", "Minimize"],
+      ["Alt+↑", "Maximize or restore"],
+      ["Alt+← / Alt+→", "Snap to the left or right half"],
+      ["Alt+`", "Switch to the next window"],
+      ["Alt+Space", "Window menu (Move, Size…)"],
+      ["Ctrl+Esc", "Start menu"],
+      ["Esc", "Close a menu, a viewer or Properties"],
+    ]],
+    ["Open apps (when you're not typing in a field)", Object.entries(APP_KEYS).filter(([k]) => KINDS[k]).map(([k, key]) => ["Alt+" + key, ({ generate: "Generate", terminal: "Terminal", jobs: "Jobs", tree: "Job tree", usage: "Usage", activity: "Activity", images: "Images", videos: "Videos", audio: "Audio", options: "Options", notes: "Notes", keys: "This list (also F1 or ?)" })[k]])],
+    ["Jobs and files", [
+      ["↑ ↓ ← →, Home, End", "Move the selection"],
+      ["Enter", "Open"],
+      ["Alt+Enter", "Properties"],
+      ["Cmd+C", "Copy the selected job (its task ID)"],
+      ["Cmd+V in Generate", "Use the copied job, or a copied image file, as an input"],
+      ["Shift+F10 or right-click", "Job menu"],
+    ]],
+    ["Text fields", [
+      ["Cmd+X, Cmd+C, Cmd+V", "Cut, copy, paste"],
+      ["Cmd+A", "Select all"],
+      ["Cmd+Z, Shift+Cmd+Z", "Undo, redo"],
+      ["Cmd+Enter in Generate", "Generate"],
+    ]],
+    ["Viewer", [
+      ["← →", "Previous or next file"],
+      ["Space", "Play or pause"],
+      ["M", "Mute"],
+      [", .", "Step one frame"],
+    ]],
+  ];
   const RENDER = {
+    keys(w) {
+      if (w.shell) return;
+      w.shell = true;
+      w.body.innerHTML = `
+        <div class="pwrap keys" data-keep="keys">
+          ${SHORTCUTS.filter(([, rows]) => rows.length).map(([title, rows]) => `<fieldset class="group"><legend>${esc(title)}</legend>
+            <dl class="ptbl keytbl">${rows.map(([k, v]) => `<dt>${k.split(/( or |, | \/ )/).map(part => /^( or |, | \/ )$/.test(part) ? `<span class="muted">${part}</span>` : `<kbd>${esc(part)}</kbd>`).join("")}</dt><dd>${esc(v)}</dd>`).join("")}</dl></fieldset>`).join("")}
+          <p class="muted">Cmd+W, Cmd+T, Cmd+N and Cmd+Q belong to the browser, so Runway OS uses Alt for windows.</p>
+        </div>`;
+    },
     // "System Properties": a Win95 property sheet with General, Usage and Connection tabs
     overview(w) {
       const runs = data.runs, running = runs.filter(r => r.status === "running"), queued = runs.filter(r => QUEUED.has(r.status));
@@ -2296,8 +2342,8 @@
       { label: "Restore", disabled: !w.max && !w.snapped && !w.minimized, act: () => (w.minimized ? restore(w) : toggleMax(w)) },
       { label: "Move", disabled: w.max || w.minimized, act: () => kbStart(w, "move") },
       { label: "Size", disabled: w.max || w.minimized, act: () => kbStart(w, "size") },
-      { label: "Minimize", disabled: w.minimized, act: () => minimize(w) },
-      { label: "Maximize", disabled: w.max, act: () => { if (w.minimized) restore(w); if (!w.max) toggleMax(w); } },
+      { label: "Minimize", hint: "Alt+↓", disabled: w.minimized, act: () => minimize(w) },
+      { label: "Maximize", hint: "Alt+↑", disabled: w.max, act: () => { if (w.minimized) restore(w); if (!w.max) toggleMax(w); } },
       { sep: true },
       { label: "Close", bold: true, hint: "Alt+W", act: () => close(w) },
     ]);
@@ -2376,6 +2422,31 @@
   }
 
   /* ---------- clipboard, files, balloons ---------- */
+  // a copied job is its task ID as text; Cmd+V in Generate turns it back into an input
+  function copyJob(r) {
+    const id = r._of ? `${r._of}~${r._n}` : r.taskId;
+    navigator.clipboard?.writeText(id).then(
+      () => balloon({ title: `Copied ${r.asset || nameOf(r)}`, text: "In Generate, press Cmd+V to use it as an input.", ms: 3200 }),
+      () => balloon({ title: "Couldn't copy", text: "The browser blocked the clipboard.", ms: 2600 }));
+  }
+  addEventListener("paste", ev => {
+    const f = frontWin(); if (!f || f.kind !== "generate" || !f.el.contains(document.activeElement) && document.activeElement !== document.body) return;
+    const files = [...(ev.clipboardData?.files || [])];
+    const typing = ev.target instanceof Element && ev.target.closest("input, textarea");
+    if (files.length) { ev.preventDefault(); files.forEach(file => genUpload(f, file)); return; }
+    if (typing) return;
+    const text = (ev.clipboardData?.getData("text") || "").trim(), r = text && runOf(text);
+    if (r) { ev.preventDefault(); genDropRun(f, text); }
+    else if (text) genMsg(f, "To use a job as an input, select it in Jobs, a gallery or the Job tree and press Cmd+C first.", true);
+  });
+  function snapHalf(w, side) {
+    const d = D();
+    if (w.minimized) restore(w);
+    if (!w.snapped) w.pre = { x: w.x, y: w.y, wd: w.wd, ht: w.ht };
+    const half = Math.round(d.w / 2);
+    Object.assign(w, { max: false, snapped: true, x: side === "left" ? 0 : d.w - half, y: 0, wd: half, ht: d.h });
+    place(w); focus(w); save();
+  }
   function copyText(text, done = "Copied") {
     navigator.clipboard?.writeText(text).then(() => balloon({ title: done, text: text.length > 80 ? text.slice(0, 80) + "…" : text, ms: 2200 }))
       .catch(() => balloon({ title: "Couldn't copy", text: "The browser blocked clipboard access.", ms: 3000 }));
@@ -2547,6 +2618,7 @@
     $('input[name="sd"]:checked', d).focus();
   }
   startMenu.addEventListener("keydown", e => menuKeys(startMenu, e));
+  $$("[data-launch]", startMenu).forEach(b => { const k = APP_KEYS[b.dataset.launch]; if (k) b.insertAdjacentHTML("beforeend", `<kbd>Alt+${k}</kbd>`); });
   document.addEventListener("pointerdown", e => {
     if (!startMenu.hidden && !e.target.closest("#startmenu, #start")) setStart(false);
     if (!menuEl.hidden && !e.target.closest("#ctxmenu")) hideMenu();
@@ -2719,7 +2791,28 @@
       next.minimized ? restore(next) : (focus(next), save(), focusInto(next));
       return;
     }
-    if (e.altKey && e.code === "KeyW" && f) { e.preventDefault(); close(f); return; }
+    if (e.altKey && (e.code === "KeyW" || e.code === "F4") && f) { e.preventDefault(); close(f); return; }
+    const typing = e.target.closest("input, textarea, select, [contenteditable]");
+    if (!typing && (e.code === "F1" || (e.key === "?" && !e.altKey && !ev.metaKey && !e.ctrlKey))) { e.preventDefault(); open("keys"); return; }
+    if (e.altKey && !typing && !ev.metaKey && !e.ctrlKey) {
+      if (f && e.code === "ArrowDown") { e.preventDefault(); minimize(f); return; }
+      if (f && e.code === "ArrowUp") { e.preventDefault(); if (f.max || f.snapped) toggleMax(f); else { f.max = true; place(f); save(); } return; }
+      if (f && (e.code === "ArrowLeft" || e.code === "ArrowRight")) { e.preventDefault(); snapHalf(f, e.code === "ArrowLeft" ? "left" : "right"); return; }
+      const want = (e.shiftKey ? "Shift+" : "") + (e.code.startsWith("Key") ? e.code.slice(3) : e.code === "Slash" ? "/" : "");
+      const app = Object.keys(APP_KEYS).find(k => APP_KEYS[k] === want && KINDS[k]);
+      if (app) { e.preventDefault(); open(app); return; }
+    }
+    if (((e.shiftKey && e.key === "F10") || e.key === "ContextMenu") && !typing && f) {
+      const r = runOf(f.kind === "viewer" || f.kind === "props" ? f.arg : f.sel);
+      const el = (f.sel && $$("[data-id]", f.body).find(x => x.dataset.id === f.sel && x.offsetParent)) || $(".titlebar", f.el), b = el.getBoundingClientRect();
+      e.preventDefault();
+      r ? runMenu(r, b.left + 8, b.bottom - 4, el) : windowMenu(f, b.left + 8, b.bottom - 4);
+      return;
+    }
+    if ((ev.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === "KeyC" && !typing && f && !String(getSelection())) {
+      const r = runOf(f.kind === "viewer" || f.kind === "props" ? f.arg : f.sel);
+      if (r) { e.preventDefault(); copyJob(r); return; }
+    }
     if (e.altKey && e.code === "Space" && f) { e.preventDefault(); const r = $(".titlebar", f.el).getBoundingClientRect(); windowMenu(f, r.left + 4, r.bottom); return; }
     if (e.target.closest("input, textarea")) return;
     if (!f) return;
