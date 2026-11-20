@@ -467,6 +467,49 @@
   html[data-term="amber"] .term, html[data-term="amber"] .t-in, html[data-term="amber"] .t-prompt { color: #ffb000; caret-color: #ffb000; }
   html[data-term="blue"] .term { background: #0000a8; color: #fff; } html[data-term="blue"] .t-in, html[data-term="blue"] .t-prompt { color: #fff; }
 
+  /* ---------- notes: the files in notes/ on the left, the editor on the right ----------
+     The editor is a transparent textarea laid exactly over a highlighted <pre> (same font, size, padding, wrapping).
+     Both sit in one scroller, .nt-scroll, and the line numbers are part of the <pre>, so nothing can drift apart.
+     --nt-d is the number of digits in the last line number (set by app.js); --nt-g is the gutter width. */
+  .nt-tools .combo { flex: none; width: round(calc(124 * var(--u)), 1px); }
+  .nt-tools .combo .field { min-width: 0; }
+  .nt-main { flex: 1; min-height: 0; display: grid; grid-template-columns: round(calc(180 * var(--u)), 1px) minmax(0, 1fr); gap: var(--s2); padding: 0 var(--s3) var(--s2); }
+  .nt-main > .empty-list { grid-column: 1 / -1; }
+  @container (max-width: 34em) { .nt-main { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 30%) minmax(0, 1fr); } }
+  .nt-list { min-height: 0; overflow: auto; padding: 2px; outline: none; }
+  .nt-list:focus-visible { outline: 1px dotted var(--fg); outline-offset: -4px; }
+  .nt-item { display: flex; flex-direction: column; min-height: 24px; padding: var(--g2) var(--s2); cursor: default; }
+  .nt-item b { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nt-item small { font-size: inherit; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nt-item.sel { background: var(--sel); color: #fff; }
+  .nt-item.sel small { color: #fff; }
+  .window:not(.front) .nt-item.sel { background: var(--sel-off); }
+  /* the bevel is on a frame around the scroller, so text scrolling sideways or up never paints over it */
+  .nt-frame { min-height: 0; min-width: 0; padding: 2px; display: flex; }
+  .nt-scroll { --nt-lh: round(calc(var(--fs) * 1.5), 1px); --nt-g: calc(var(--nt-d, 2) * 1ch + 2 * var(--s2));
+    flex: 1; min-width: 0; position: relative; overflow: auto; font: var(--fs)/var(--nt-lh) var(--mono); color: var(--fg); cursor: text;
+    background: linear-gradient(90deg, var(--face) calc(var(--nt-g) - 1px), var(--deep) 0 var(--nt-g), var(--face-2) 0); }
+  .nt-code { position: relative; min-width: 100%; width: max-content; min-height: 100%; }
+  .nt-scroll.wrap .nt-code { width: auto; }
+  .nt-hl, .nt-ta { display: block; margin: 0; border: 0; border-radius: 0; padding: var(--s2) var(--s3) var(--s3) calc(var(--nt-g) + var(--s2)); font: inherit; letter-spacing: 0; tab-size: 4; white-space: pre; overflow-wrap: normal; word-break: normal; }
+  .nt-scroll.wrap :is(.nt-hl, .nt-ta) { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .nt-hl { min-height: 100%; pointer-events: none; user-select: none; -webkit-user-select: none; }
+  .nt-ta { position: absolute; inset: 0; width: 100%; height: 100%; resize: none; overflow: hidden; background: transparent; color: transparent; -webkit-text-fill-color: transparent; caret-color: var(--fg); outline: none; user-select: text; -webkit-user-select: text; }
+  .nt-ta::selection { background: color-mix(in srgb, var(--sel) 55%, transparent); }
+  .nl { min-height: var(--nt-lh); }
+  .nn { position: sticky; left: 0; display: inline-block; width: var(--nt-g); margin-left: calc(-1 * (var(--nt-g) + var(--s2))); margin-right: var(--s2); padding-right: var(--s2); text-align: right; color: var(--muted); background: var(--face); box-shadow: inset -1px 0 0 var(--deep); }
+  /* token colors: dark themes, then the light ones, then high contrast */
+  .nt-scroll { --tk-c: #8d93a0; --tk-s: #9fdc7a; --tk-k: #7fb0ff; --tk-n: #ffb46a; --tk-p: #e0a8ff; }
+  html[data-theme="classic"] .nt-scroll, html[data-theme="marine"] .nt-scroll, html[data-theme="pumpkin"] .nt-scroll { --tk-c: #5f6670; --tk-s: #1c6b1c; --tk-k: #1a3fb0; --tk-n: #9a3c00; --tk-p: #7b2fa0; }
+  html.contrast .nt-scroll { --tk-c: #c0c0c0; --tk-s: #00ff00; --tk-k: #00ffff; --tk-n: #ffff00; --tk-p: #ff80ff; }
+  .tk-c { color: var(--tk-c); } .tk-s { color: var(--tk-s); } .tk-k { color: var(--tk-k); } .tk-n { color: var(--tk-n); } .tk-p { color: var(--tk-p); }
+  .nt-state { min-width: 11ch; justify-content: center; }
+  .nt-pos { min-width: 14ch; }
+  /* name and confirm dialogs (Notes): the Shut down dialog's frame */
+  .nd-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--s2); }
+  .nd-col .field { width: 100%; max-width: none; }
+  .nd-col p { margin: 0; overflow-wrap: anywhere; }
+
   /* ---------- jobs: details view ---------- */
   .table { flex: 1; min-height: 0; overflow: auto; margin: 0 var(--s3) var(--s1); padding: 2px;
     --cols: minmax(round(calc(180 * var(--u)), 1px), 1fr) round(calc(58 * var(--u)), 1px) round(calc(128 * var(--u)), 1px) round(calc(150 * var(--u)), 1px) round(calc(64 * var(--u)), 1px) round(calc(86 * var(--u)), 1px); }
@@ -817,6 +860,7 @@
   <symbol id="i-power" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect x="1" y="1" width="14" height="14" fill="#c9cbd3"/><rect x="2" y="2" width="12" height="12" fill="#1d1e22"/><path d="M5 5.5h1v5h1v1h2v-1h1v-5h1v6h-1v1H6v-1H5z" fill="#ff6b6b"/><rect x="7.5" y="3.5" width="1" height="5" fill="#ff6b6b"/></symbol>
   <symbol id="i-tree" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect x="5" y="0" width="6" height="6" fill="#1d1e22"/><rect x="6" y="1" width="4" height="4" fill="#ffc94a"/><rect x="7" y="6" width="2" height="2" fill="#c9cbd3"/><rect x="2" y="8" width="12" height="2" fill="#c9cbd3"/><rect x="0" y="10" width="6" height="6" fill="#1d1e22"/><rect x="1" y="11" width="4" height="4" fill="#6ea8ff"/><rect x="10" y="10" width="6" height="6" fill="#1d1e22"/><rect x="11" y="11" width="4" height="4" fill="#5fdc7a"/></symbol>
   <symbol id="i-cascade" viewBox="0 0 16 16"><rect x="1" y="1" width="9" height="7" fill="#5a5d66"/><rect x="3.5" y="4" width="9" height="7" fill="#9a9ca6"/><rect x="6" y="7" width="9" height="7" fill="#c9cbd3"/><rect x="6" y="7" width="9" height="2" fill="#1f6fc4"/></symbol>
+  <symbol id="i-notes" viewBox="0 0 16 16" shape-rendering="crispEdges"><path d="M3 0h1v1h-1zM6 0h1v1h-1zM9 0h1v1h-1zM12 0h1v1h-1zM2 1h1v1h-1zM4 1h2v1h-2zM7 1h2v1h-2zM10 1h2v1h-2zM13 1h1v1h-1zM1 2h2v1h-2zM4 2h2v1h-2zM7 2h2v1h-2zM10 2h2v1h-2zM13 2h2v1h-2zM1 3h1v1h-1zM3 3h1v1h-1zM6 3h1v1h-1zM9 3h1v1h-1zM12 3h1v1h-1zM14 3h1v1h-1zM1 4h1v1h-1zM14 4h1v1h-1zM1 5h1v1h-1zM14 5h1v1h-1zM1 6h1v1h-1zM14 6h1v1h-1zM1 7h1v1h-1zM14 7h1v1h-1zM1 8h1v1h-1zM14 8h1v1h-1zM1 9h1v1h-1zM14 9h1v1h-1zM1 10h1v1h-1zM14 10h1v1h-1zM1 11h1v1h-1zM14 11h1v1h-1zM1 12h1v1h-1zM14 12h1v1h-1zM1 13h1v1h-1zM14 13h1v1h-1zM1 14h14v1h-14z" fill="#000000"/><path d="M2 3h1v1h-1zM4 3h2v1h-2zM7 3h2v1h-2zM10 3h2v1h-2zM13 3h1v1h-1zM2 4h12v1h-12zM2 5h1v1h-1zM13 5h1v1h-1zM2 6h12v1h-12zM2 7h1v1h-1zM13 7h1v1h-1zM2 8h12v1h-12zM2 9h1v1h-1zM13 9h1v1h-1zM2 10h12v1h-12zM2 11h1v1h-1zM10 11h4v1h-4zM2 12h12v1h-12zM2 13h12v1h-12z" fill="#ffffff"/><path d="M3 1h1v1h-1zM6 1h1v1h-1zM9 1h1v1h-1zM12 1h1v1h-1zM3 2h1v1h-1zM6 2h1v1h-1zM9 2h1v1h-1zM12 2h1v1h-1z" fill="#c9cbd3"/><path d="M3 5h10v1h-10zM3 7h10v1h-10zM3 9h10v1h-10zM3 11h7v1h-7z" fill="#6ea8ff"/><path d="M15 5h1v1h-1zM15 6h1v1h-1zM15 7h1v1h-1zM15 8h1v1h-1zM15 9h1v1h-1zM15 10h1v1h-1zM15 11h1v1h-1zM15 12h1v1h-1zM15 13h1v1h-1zM15 14h1v1h-1zM2 15h14v1h-14z" fill="#808080"/></symbol>
 </svg>
 
 <main id="desktop" aria-label="Desktop">
@@ -831,6 +875,7 @@
     <button class="dicon" data-launch="images" title="Double-click to open"><svg><use href="#i-picture"/></svg><span>Images</span></button>
     <button class="dicon" data-launch="videos" title="Double-click to open"><svg><use href="#i-video"/></svg><span>Videos</span></button>
     <button class="dicon" data-launch="audio" title="Double-click to open"><svg><use href="#i-audio"/></svg><span>Audio</span></button>
+    <button class="dicon" data-launch="notes" title="Double-click to open"><svg><use href="#i-notes"/></svg><span>Notes</span></button>
   </div>
   <div class="snap" id="snap" hidden></div>
 </main>
@@ -846,6 +891,7 @@
   <button role="menuitem" data-launch="images"><svg><use href="#i-picture"/></svg>Images</button>
   <button role="menuitem" data-launch="videos"><svg><use href="#i-video"/></svg>Videos</button>
   <button role="menuitem" data-launch="audio"><svg><use href="#i-audio"/></svg>Audio</button>
+  <button role="menuitem" data-launch="notes"><svg><use href="#i-notes"/></svg>Notes</button>
   <button role="menuitem" data-launch="options"><svg><use href="#i-gear"/></svg>Options</button>
   <hr class="etch">
   <button role="menuitem" data-cmd="cascade"><svg><use href="#i-cascade"/></svg>Cascade windows</button>

@@ -16,6 +16,9 @@ Serves index.html plus /api/state and keeps runs.json up to date:
     a job to Runway and logs it in runs.json; POST /api/cancel {"taskId"} cancels one.
   * POST /api/key {"key"} checks a key with Runway and saves it to .runway_key; {"remove": true} deletes it.
     Without a key, the page still updates live whenever runs.json changes.
+  * GET /api/notes lists the plain-text notes in notes/, GET /api/notes/<name> reads one;
+    POST /api/notes {name, text, create?} saves one (atomically), /api/notes/rename {name, to},
+    /api/notes/delete {name}, /api/notes/reveal {name?} shows it (or the folder) in Finder.
 
 API key: env RUNWAYML_API_SECRET, or a file named .runway_key in this folder.
 Run:  python3 server.py   then open http://localhost:8765
@@ -846,6 +849,99 @@ def loop():
         wake.clear()
 
 
+# ---------- notes: plain-text files in notes/ next to this file (the Notes window) ----------
+NOTES = os.path.join(ROOT, "notes")
+NOTE_EXTS = (".txt", ".md", ".py", ".js", ".json", ".sh", ".html", ".css")
+NOTE_MAX = 2 * 1024 * 1024  # bytes of UTF-8 text per note
+notes_lock = threading.Lock()
+
+
+def note_name(raw):
+    """A safe file name inside notes/: no folders, no leading dot, one of NOTE_EXTS (.txt is added when missing)."""
+    name = " ".join(str(raw or "").split())  # no tabs or newlines, single spaces
+    if not name:
+        raise ValueError("Type a name for the note.")
+    if len(name) > 100:
+        raise ValueError("Names can be up to 100 characters.")
+    if name.startswith(".") or any(c in name for c in '/\\:*?"<>|') or any(ord(c) < 32 for c in name):
+        raise ValueError('Names can\'t start with a dot or contain / \\ : * ? " < > |')
+    if os.path.splitext(name)[1].lower() not in NOTE_EXTS:
+        name += ".txt"
+    if not os.path.splitext(name)[0].strip(" ."):
+        raise ValueError("Type a name for the note.")
+    return name
+
+
+def note_info(name):
+    st = os.stat(os.path.join(NOTES, name))
+    return {"name": name, "size": st.st_size,
+            "modified": datetime.fromtimestamp(st.st_mtime).astimezone().isoformat(timespec="seconds")}
+
+
+def list_notes():
+    if not os.path.isdir(NOTES):
+        return []
+    out = []
+    for n in os.listdir(NOTES):
+        if n.startswith(".") or os.path.splitext(n)[1].lower() not in NOTE_EXTS or not os.path.isfile(os.path.join(NOTES, n)):
+            continue
+        out.append(note_info(n))
+    return sorted(out, key=lambda x: x["name"].lower())
+
+
+def note_path(raw, must_exist=True):
+    name = note_name(raw)
+    path = os.path.join(NOTES, name)
+    if must_exist and not os.path.isfile(path):
+        raise FileNotFoundError(f"{name} isn't in the notes folder anymore.")
+    return name, path
+
+
+def note_write(path, text):
+    data = str(text).encode("utf-8")
+    if len(data) > NOTE_MAX:
+        raise ValueError("Notes can be up to 2 MB.")
+    os.makedirs(NOTES, exist_ok=True)
+    tmp = os.path.join(NOTES, "." + os.path.basename(path) + "." + uuid.uuid4().hex[:8] + ".tmp")
+    with open(tmp, "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)  # atomic: a reader sees the old text or the new one, never half
+
+
+def notes_post(action, body):
+    """POST /api/notes (save), /api/notes/rename, /api/notes/delete, /api/notes/reveal."""
+    with notes_lock:
+        if action == "notes":  # save {name, text, create?}: create refuses to overwrite an existing note
+            name, path = note_path(body.get("name"), must_exist=False)
+            if body.get("create") and os.path.exists(path):
+                raise FileExistsError(f"There's already a note named {name}.")
+            note_write(path, body.get("text", ""))
+            return note_info(name)
+        if action == "rename":
+            name, path = note_path(body.get("name"))
+            to, dest = note_path(body.get("to"), must_exist=False)
+            if to != name:
+                if os.path.exists(dest) and to.lower() != name.lower():
+                    raise FileExistsError(f"There's already a note named {to}.")
+                os.replace(path, dest)
+            return note_info(to)
+        if action == "delete":
+            name, path = note_path(body.get("name"))
+            os.remove(path)
+            return {"ok": True}
+        if action == "reveal":  # the note in Finder, or the folder itself
+            os.makedirs(NOTES, exist_ok=True)
+            if body.get("name"):
+                name, path = note_path(body.get("name"))
+                subprocess.run(["open", "-R", path], check=False)
+            else:
+                subprocess.run(["open", NOTES], check=False)
+            return {"ok": True}
+    raise LookupError
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=ROOT, **kw)
@@ -854,6 +950,23 @@ class Handler(SimpleHTTPRequestHandler):
         pass
 
     def do_GET(self):
+        route = self.path.split("?")[0]
+        if route == "/api/notes" or route.startswith("/api/notes/"):
+            try:
+                if route == "/api/notes":
+                    self.send_json(200, {"notes": list_notes()})
+                else:
+                    name, path = note_path(urllib.parse.unquote(route[len("/api/notes/"):]))
+                    with open(path, "rb") as f:
+                        text = f.read().decode("utf-8", errors="replace")
+                    self.send_json(200, {**note_info(name), "text": text})
+            except ValueError as e:
+                self.send_json(400, {"error": str(e)})
+            except FileNotFoundError as e:
+                self.send_json(404, {"error": str(e)})
+            except OSError as e:
+                self.send_json(500, {"error": f"Couldn't read the notes folder ({type(e).__name__})."})
+            return
         if self.path.startswith("/api/usage"):
             key = api_key()
             if not key:
@@ -924,6 +1037,27 @@ class Handler(SimpleHTTPRequestHandler):
                 and (origin is None or origin.split("://", 1)[-1] in ok))
 
     def do_POST(self):
+        route = self.path.split("?")[0]
+        if route in ("/api/notes", "/api/notes/rename", "/api/notes/delete", "/api/notes/reveal"):
+            if not self.same_origin():
+                self.send_error(403)
+                return
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            if length > NOTE_MAX * 2 + 4096:
+                self.send_json(413, {"error": "Notes can be up to 2 MB."})
+                return
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
+                self.send_json(200, notes_post(route.rsplit("/", 1)[-1], body if isinstance(body, dict) else {}))
+            except FileExistsError as e:
+                self.send_json(409, {"error": str(e)})
+            except FileNotFoundError as e:
+                self.send_json(404, {"error": str(e)})
+            except ValueError as e:  # bad name, too big, or not JSON
+                self.send_json(400, {"error": str(e) if not isinstance(e, json.JSONDecodeError) else "Couldn't read the request."})
+            except OSError as e:
+                self.send_json(500, {"error": f"Couldn't write to the notes folder ({type(e).__name__})."})
+            return
         action = self.path.split("?")[0].rsplit("/", 1)[-1]
         if not self.path.startswith("/api/") or action not in ("reveal", "open", "generate", "cancel", "key", "upload", "price"):
             self.send_error(404)
