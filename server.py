@@ -994,6 +994,27 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def send_response(self, code, message=None):
+        self._code, self._cache_set = code, False
+        super().send_response(code, message)
+
+    def send_header(self, keyword, value):
+        if keyword.lower() == "cache-control":
+            self._cache_set = True
+        super().send_header(keyword, value)
+
+    def end_headers(self):
+        # static files: the page's own code revalidates every load (so an edit shows up on reload), while thumbnails
+        # and media, whose names never get reused for other content, are cached for a day
+        if not getattr(self, "_cache_set", True) and getattr(self, "_code", 0) in (200, 304):
+            path = urllib.parse.unquote(self.path.split("?")[0]).lower()
+            media = path.startswith(("/thumbs/", "/inputs/")) or (path.count("/") == 1 and type_of(path))
+            if media:
+                self.send_header("Cache-Control", "max-age=86400")
+            elif path.endswith(("/", ".js", ".mjs", ".css", ".html", ".svg")):
+                self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def body_length(self):
         try:
             return max(0, int(self.headers.get("Content-Length", 0) or 0))
