@@ -98,7 +98,9 @@ export function activityShow(gw, row) {
   activityRender(aw);
 }
 
+// time left on running jobs, refreshed by the clock tick (live.js)
+export const activityTick = () => $$(".act [data-eta]").forEach(e => { e.textContent = etaText(+e.dataset.eta); });
+
 export function init() {
   RENDER.activity = w => activityRender(w);
-  setInterval(() => $$(".act [data-eta]").forEach(e => { e.textContent = etaText(+e.dataset.eta); }), 5000);
 }

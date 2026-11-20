@@ -9,6 +9,7 @@ import { SIG } from "./wm/kinds.js";
 import { renderTasks, renderTray } from "./wm/taskbar.js";
 import { renderWin } from "./wm/windows.js";
 import { spendUpdate } from "./apps/spend.js";
+import { activityTick } from "./apps/activity.js";
 
 // the server answers 304 when nothing changed, so an idle poll costs almost nothing
 export function schedulePoll() {
@@ -53,15 +54,17 @@ export async function poll() {
   }
 }
 
-// clock + relative times
+// clock, relative times and time left: one 5 s timer (main.js), idle while the page is hidden, caught up when it shows
 export const clock = $("#clock");
 export function tick() {
+  if (document.hidden) return;
   const now = new Date();
   clock.textContent = now.toLocaleTimeString([], S.opts.clock24 ? { hour: "2-digit", minute: "2-digit", hour12: false } : { hour: "numeric", minute: "2-digit", hour12: true });
   clock.title = now.toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   $$("time[data-t]").forEach(t => { t.textContent = t.dataset.kind === "elapsed" ? dur(Date.now() - +t.dataset.t) : ago(+t.dataset.t); });
+  activityTick();
 }
 
 export function init() {
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) poll().finally(schedulePoll); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { tick(); poll().finally(schedulePoll); } });
 }
