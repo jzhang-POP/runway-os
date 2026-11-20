@@ -1,174 +1,15 @@
-// Runway Dashboard: a small Win95-style window manager over the live job log (/api/state).
-const S = {
-  data: { runs: [], balance: null, balanceAt: null, history: [] },
-  loaded: false,
-  runsSig: "",
-  stateSig: "",
-  conn: { cls: "", text: "Connecting…" },
-  sessionStart: null,
-  prevStatus: new Map(),
-  unseen: 0,
-  markReady: undefined,
-  zTop: 10,
-  seqTop: 0,
-  uid: 0,
-  scale: 1,
-  tabbing: false,
-  treeMemo: null,
-  CAT: null,
-  catFailed: false,
-  notePref: { wrap: true },
-  opts: undefined,
-  menuItems: [],
-  menuReturn: null,
-  kb: null,
-  layoutMap: null,
-  balloonT: 0,
-  balloonLeft: 0,
-  balloonAt: 0,
-  srSeq: 0,
-  favState: "",
-  resetting: false,
-  lastPointer: "mouse",
-  iconSlots: {},
-  iconDragged: false,
-  saveT: undefined,
-  bootDone: true,
-  stateTag: null,
-  lastConn: null,
-  pollT: 0,
-};
-/* ---------- helpers ---------- */
-const $ = (s, el = document) => el.querySelector(s);
-const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-const fmt = n => Number(n || 0).toLocaleString("en-US");
-const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const cap = s => (s ? s[0].toUpperCase() + s.slice(1) : "");
-const clampN = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const reduced = matchMedia("(prefers-reduced-motion: reduce)");
-const ACTIVE = new Set(["pending", "running", "throttled"]);
-const QUEUED = new Set(["pending", "throttled"]);
+import { S, ready, wins } from "./core/state.js";
+import { $, $$, cap, clampN, desk, esc, fmt, icoLabel, menuEl, reduced, startBtn, startMenu, tasksEl } from "./core/dom.js";
+import { OFFLINE, api } from "./core/api.js";
+import { FAV, R_BITS, ledHTML, logoSVG, spark } from "./core/graphics.js";
+import { morph } from "./core/morph.js";
+import { ACTIVE, QUEUED, assetsOf, childrenOf, costHTML, costOf, createdMs, fileItem, filesOf, miniThumb, nameOf, newestFirst, plural, relHTML, runOf, runSig, statusHTML, statusInfo, thumbInner, thumbOf, typeIcon, typicalMs } from "./core/status.js";
+import { absTime, ago, dur, sleep, tOf, upTo } from "./core/time.js";
+
 const KEY = "runway-os-layout-v3";
 const SNAP = 6;
 
-const tOf = s => (s ? Date.parse(s) : NaN);
-const ago = ms => {
-  const s = Math.round((Date.now() - ms) / 1000);
-  if (s < 45) return "just now";
-  const m = Math.round(s / 60); if (m < 60) return `${m} min ago`;
-  const h = Math.round(m / 60); if (h < 24) return `${h} h ago`;
-  return `${Math.round(h / 24)} d ago`;
-};
-const dur = ms => { const s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`; };
-const absTime = ms => new Date(ms).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
-
-/* ---------- state ---------- */
-const desk = $("#desktop"), tasksEl = $("#tasks"), startBtn = $("#start"), startMenu = $("#startmenu"), menuEl = $("#ctxmenu");
-const sleep = ms => new Promise(res => setTimeout(res, ms));
-const upTo = (p, ms) => Promise.race([p.then(() => true), sleep(ms).then(() => false)]); // false on timeout
-// resolves on the first successful /api/state poll
-const ready = new Promise(res => { S.markReady = res; });
-const wins = new Map();
-
 const D = () => ({ w: desk.clientWidth, h: desk.clientHeight });
-// a job can return several files (outputCount, numVariants): each extra file is its own item, id "taskId~2", "~3"…
-const filesOf = r => (r.assets?.length ? r.assets : r.asset ? [r.asset] : []);
-const fileItem = (r, i) => (i === 0 ? r : { ...r, taskId: `${r.taskId}~${i + 1}`, asset: filesOf(r)[i], _of: r.taskId, _n: i + 1 });
-const runOf = id => {
-  const [base, n] = String(id ?? "").split("~"), r = S.data.runs.find(x => x.taskId === base);
-  return r && n ? (filesOf(r)[n - 1] ? fileItem(r, n - 1) : undefined) : r;
-};
-const newestFirst = () => [...S.data.runs].sort((a, b) => createdMs(b) - createdMs(a));
-const assetsOf = type => newestFirst().filter(r => r.type === type && r.asset).flatMap(r => filesOf(r).map((_, i) => fileItem(r, i)));
-const childrenOf = id => S.data.runs.filter(r => r.parent === id);
-const createdMs = r => tOf(r.createdAt) || tOf(r.date) || 0;
-const thumbOf = r => (!r || !r.asset || r.type === "audio" ? null : `thumbs/${encodeURIComponent(r.asset)}.jpg`); // the server redirects to the original if it can't make one
-const typeIcon = t => (t === "video" ? "i-video" : t === "audio" ? "i-audio" : "i-picture");
-const plural = t => (t === "audio" ? "Audio" : cap(t) + "s");
-const nameOf = r => r.asset || r.prompt.slice(0, 48);
-const costOf = r => r.credits ?? r.estimatedCredits ?? null;
-
-function statusInfo(r) {
-  const p = r.progress != null ? Math.round(r.progress * 100) : null;
-  if (r.status === "running") return { cls: "running", label: p != null ? `Rendering ${p}%` : "Rendering", p };
-  if (r.status === "throttled") return { cls: "queued", label: "Queued (rate limit)" };
-  if (r.status === "pending") return { cls: "queued", label: "Queued" };
-  if (r.status === "succeeded") return { cls: "done", label: "Done" };
-  if (r.status === "failed") return { cls: "failed", label: "Failed" };
-  if (r.status === "cancelled") return { cls: "failed", label: "Cancelled" };
-  return { cls: "queued", label: cap(r.status || "unknown") };
-}
-// median finished duration for the same model, used to estimate time left
-function typicalMs(model) {
-  const d = S.data.runs.filter(r => r.model === model && r.finishedAt && r.createdAt).map(r => tOf(r.finishedAt) - tOf(r.createdAt)).filter(x => x > 0).sort((a, b) => a - b);
-  return d.length ? d[Math.floor(d.length / 2)] : null;
-}
-const relHTML = (iso, kind = "ago") => {
-  const t = tOf(iso);
-  if (!t) return "—";
-  return `<time datetime="${esc(iso)}" data-t="${t}" data-kind="${kind}" title="${esc(absTime(t))}">${kind === "ago" ? ago(t) : dur(Date.now() - t)}</time>`;
-};
-const costHTML = r => r.credits != null ? fmt(r.credits)
-  : r.estimatedCredits != null ? `<span class="est" title="Runway's estimate while the job runs">~${fmt(r.estimatedCredits)}</span>` : "—";
-function statusHTML(r, withBar = true) {
-  const s = statusInfo(r);
-  let extra = "";
-  if (withBar && s.cls === "running") {
-    const typ = typicalMs(r.model), el = Date.now() - createdMs(r);
-    extra = `<span class="mprog sunken"><i style="width:${s.p ?? 8}%" class="${s.p == null ? "ind" : ""}"></i></span>`
-      + `<small class="muted">${relHTML(r.createdAt, "elapsed")}${typ ? (typ > el ? ` · ~${dur(typ - el)} left` : " · longer than usual") : ""}</small>`;
-  }
-  return `<span class="st ${s.cls}"><i class="dot"></i>${esc(s.label)}</span>${extra}`;
-}
-// thumbnail contents: the picture when there is one, the type icon underneath as a fallback
-const thumbInner = (src, type) => `${src ? `<img src="${src}" alt="" loading="lazy" onerror="this.hidden=true">` : ""}<span class="empty"><svg class="ico big"><use href="#${typeIcon(type)}"/></svg></span>`;
-const miniThumb = r => `<span class="mini sunken">${thumbOf(r) ? `<img src="${thumbOf(r)}" alt="" loading="lazy" onerror="this.hidden=true">` : `<svg class="ico"><use href="#${typeIcon(r.type)}"/></svg>`}</span>`;
-
-/* ---------- server calls ---------- */
-const OFFLINE = "The dashboard server is offline. Start it with python3 server.py.";
-// POST JSON (or a raw body with init) to the dashboard server; throws an Error with a readable message
-async function api(path, body, init) {
-  let res;
-  try { res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), ...init }); }
-  catch (e) { if (e.name === "AbortError") throw e; throw new Error(OFFLINE); }
-  const out = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(out.error || `The server answered ${res.status}.`);
-  return out;
-}
-
-/* ---------- seven-segment balance readout ---------- */
-const SEG = {
-  a: "4,1 16,1 13.5,3.8 6.5,3.8", d: "6.5,32.2 13.5,32.2 16,35 4,35",
-  b: "17.2,2.2 17.2,16.4 15.8,17.6 14.4,16.2 14.4,4.8", c: "17.2,19.6 17.2,33.8 14.4,31.2 14.4,19.8 15.8,18.4",
-  e: "2.8,19.6 4.2,18.4 5.6,19.8 5.6,31.2 2.8,33.8", f: "2.8,2.2 5.6,4.8 5.6,16.2 4.2,17.6 2.8,16.4",
-  g: "5.8,16.6 14.2,16.6 15.6,18 14.2,19.4 5.8,19.4 4.4,18",
-};
-const DIG = { 0: "abcdef", 1: "bc", 2: "abdeg", 3: "abcdg", 4: "bcfg", 5: "acdfg", 6: "acdefg", 7: "abc", 8: "abcdefg", 9: "abcdfg", "-": "g" };
-function ledHTML(n) {
-  const s = n == null ? "-------" : String(Math.round(n));
-  return [...s].map((ch, i) => {
-    const on = DIG[ch] || "", left = s.length - i - 1;
-    return `<svg class="dig" viewBox="0 0 20 36" aria-hidden="true">${Object.entries(SEG).map(([k, p]) => `<polygon points="${p}" class="${on.includes(k) ? "on" : "off"}"/>`).join("")}</svg>`
-      + (left > 0 && left % 3 === 0 ? '<i class="gap"></i>' : "");
-  }).join("");
-}
-
-// org balance over the last 24 h as a stepped line; returns svg + credits spent
-function spark(hist, W = 160, H = 34, grid = false) {
-  const now = Date.now() / 1000, t0 = now - 86400;
-  const pts = (hist || []).map(([t, b]) => [Math.max(t, t0), b]);
-  let spent = 0;
-  for (let i = 1; i < pts.length; i++) if (pts[i][1] < pts[i - 1][1]) spent += pts[i - 1][1] - pts[i][1];
-  if (pts.length < 2) return { svg: "", spent: null };
-  pts.push([now, pts[pts.length - 1][1]]);
-  const lo = Math.min(...pts.map(p => p[1])), hi = Math.max(...pts.map(p => p[1]));
-  const X = t => ((t - t0) / 86400) * W, Y = b => (hi === lo ? H / 2 : 3 + (1 - (b - lo) / (hi - lo)) * (H - 6));
-  let d = `M${X(pts[0][0]).toFixed(1)},${Y(pts[0][1]).toFixed(1)}`;
-  for (let i = 1; i < pts.length; i++) d += `H${X(pts[i][0]).toFixed(1)}V${Y(pts[i][1]).toFixed(1)}`;
-  const end = pts[pts.length - 1];
-  const lines = grid ? Array.from({ length: 23 }, (_, i) => `<line class="gl" x1="${((i + 1) * W / 24).toFixed(1)}" y1="0" x2="${((i + 1) * W / 24).toFixed(1)}" y2="${H}"/>`).join("") + [1, 2, 3].map(i => `<line class="gl" x1="0" y1="${i * H / 4}" x2="${W}" y2="${i * H / 4}"/>`).join("") : "";
-  return { spent, svg: `<svg class="spark${grid ? " big" : ""}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${lines}<path d="${d}"/><circle cx="${X(end[0]) - 2}" cy="${Y(end[1])}" r="2.5"/></svg>` };
-}
 
 /* ---------- window kinds ---------- */
 // every size below is at scale 1 (11 px text) and grows with the Scale option
@@ -313,9 +154,6 @@ function focusInto(w) {
 }
 // after a close or minimize, once the caller is done (it may raise another window): focus the front window, else none()
 const refocus = none => queueMicrotask(() => { const f = frontWin(); f ? focusInto(f) : none()?.focus(); });
-// true while a Tab keypress moves focus
-addEventListener("keydown", e => { S.tabbing = e.key === "Tab"; }, true);
-addEventListener("keyup", () => { S.tabbing = false; }, true);
 
 /* ---------- geometry ---------- */
 function fit(w) {
@@ -506,44 +344,12 @@ function sheetKeys(w) {
 }
 // drag and drop of saved files between windows (Jobs rows, gallery tiles, the viewer) into Generate's inputs
 const DRAG_TYPE = "application/x-runway-run";
-addEventListener("dragstart", e => {
-  const src = e.target.closest?.("[draggable][data-id]"); if (!src) return;
-  const r = runOf(src.dataset.id); if (!r?.asset) { e.preventDefault(); return; }
-  e.dataTransfer.setData(DRAG_TYPE, r.taskId);
-  e.dataTransfer.setData("text/plain", r.asset);
-  e.dataTransfer.effectAllowed = "copy";
-  const img = src.querySelector("img"); if (img?.complete) e.dataTransfer.setDragImage(img, 16, 16);
-});
 const loadingOr = msg => `<div class="empty-list">${S.loaded ? msg : "Loading…"}</div>`;
-// update an element to match new HTML, touching only what changed: no flashing, images don't reload, scroll and hover stay.
-// Elements marked data-live (e.g. a hover preview video) are left alone.
-function morph(el, html) {
-  const tpl = document.createElement("template");
-  tpl.innerHTML = html;
-  morphKids(el, tpl.content);
-}
-function morphKids(a, b) {
-  const old = [...a.childNodes].filter(n => !(n.nodeType === 1 && n.hasAttribute("data-live"))), neu = [...b.childNodes];
-  const anchor = old.length ? old[old.length - 1].nextSibling : a.firstChild;
-  neu.forEach((nb, i) => (old[i] ? morphNode(old[i], nb) : a.insertBefore(nb, i && old.length ? null : anchor)));
-  for (let i = neu.length; i < old.length; i++) old[i].remove();
-}
-function morphNode(a, b) {
-  if (a.nodeType !== b.nodeType || a.nodeName !== b.nodeName) { a.replaceWith(b); return; }
-  if (a.nodeType !== 1) { if (a.nodeValue !== b.nodeValue) a.nodeValue = b.nodeValue; return; }
-  for (const { name } of [...a.attributes]) if (!b.hasAttribute(name)) a.removeAttribute(name);
-  for (const { name, value } of [...b.attributes]) if (a.getAttribute(name) !== value) a.setAttribute(name, value);
-  if (a.tagName === "VIDEO" || a.tagName === "AUDIO" || a.tagName === "TEXTAREA") return;
-  if (a.tagName === "INPUT" && document.activeElement !== a && a.value !== b.value) a.value = b.value;
-  morphKids(a, b);
-}
 // a button under an empty list's message
 const emptyAct = html => `<div class="empty-act">${html}</div>`;
 const GEN_BTN = '<button class="raised btn-s b-default" data-open="generate"><svg class="ico" aria-hidden="true"><use href="#i-wand"/></svg><span>Open Generate</span></button>';
 // id of a row or tile, stable for the window's life, so the list can point aria-activedescendant at it
 const itemId = (w, id) => `it${w.oid ||= ++S.uid}-${String(id).replace(/[^\w-]/g, "_")}`;
-// button content: a 16 px icon before the label (index.html, "button icons and tones"); label is trusted HTML
-const icoLabel = (icon, label) => `<svg class="ico" aria-hidden="true"><use href="#${icon}"/></svg><span>${label}</span>`;
 
 /* jobs table */
 const COLS = [
@@ -621,7 +427,6 @@ function keysRender(w) {
           <p class="muted">Chrome keeps Cmd+W, Cmd+T, Cmd+N and Cmd+Q for itself, except in full screen, where Runway OS gets Cmd+W. The Alt shortcuts work everywhere.</p>
         </div>`;
 }
-RENDER.keys = keysRender;
 // "System Properties": a Win95 property sheet with General, Usage and Connection tabs
 function overviewRender(w) {
   const runs = S.data.runs, running = runs.filter(r => r.status === "running"), queued = runs.filter(r => QUEUED.has(r.status));
@@ -682,7 +487,6 @@ function overviewRender(w) {
   sheetKeys(w);
   w.prev = v;
 }
-RENDER.overview = overviewRender;
 function jobsRender(w) {
   if (!w.shell) {
     w.shell = true;
@@ -730,18 +534,6 @@ function jobsRender(w) {
   segs[1].textContent = `${fmt(list.reduce((s, r) => s + (r.credits || 0), 0))} credits`;
   segs[2].textContent = "Double-click or Enter to open";
 }
-RENDER.jobs = jobsRender;
-RENDER.generate = w => genRender(w);
-RENDER.key = w => keyRender(w);
-RENDER.terminal = w => termRender(w);
-RENDER.options = w => optionsRender(w);
-RENDER.usage = w => usageRender(w);
-RENDER.activity = w => activityRender(w);
-RENDER.images = w => gallery(w, "image");
-RENDER.audio = w => gallery(w, "audio");
-RENDER.videos = w => gallery(w, "video");
-RENDER.tree = w => treeRender(w);
-RENDER.notes = w => notesRender(w);
 function viewerRender(w) {
   const r = runOf(w.arg);
   if (!r || !r.asset) { w.rendered = null; w.body.innerHTML = loadingOr(r ? "This file isn't saved yet. It opens here when the job finishes." : "This job is no longer in runs.json."); return; }
@@ -768,7 +560,6 @@ function viewerRender(w) {
   else if (video) media.addEventListener("loadedmetadata", () => addDims(media.videoWidth, media.videoHeight, ` · ${media.duration.toFixed(1)}s`), { once: true });
   else { media.complete && media.naturalWidth ? addDims(media.naturalWidth, media.naturalHeight) : media.addEventListener("load", () => addDims(media.naturalWidth, media.naturalHeight), { once: true }); bindZoom(w); }
 }
-RENDER.viewer = viewerRender;
 function propsRender(w) {
   const r = runOf(w.arg);
   if (!r) { morph(w.body, loadingOr("This job is no longer in runs.json.")); return; }
@@ -811,7 +602,6 @@ function propsRender(w) {
         </div>`);
   fitActions(w);
 }
-RENDER.props = propsRender;
 
 function gallery(w, type) {
   if (!w.shell) {
@@ -1676,7 +1466,6 @@ function activityRender(w) {
     }
   }
 }
-setInterval(() => $$(".act [data-eta]").forEach(e => { e.textContent = etaText(+e.dataset.eta); }), 5000);
 // after a job is sent: show it in Activity, opening the window beside Generate if it isn't open; focus stays in Generate
 function activityShow(gw, row) {
   fresh[row.taskId] = row;
@@ -2047,7 +1836,6 @@ const NOTE_DRAFT = "\u0000link"; // w.sel while the unsaved note from a link is 
 const NOTE_PREF = "runway-os-notes-v1";
 const NOTE_LINK_WARN = 8000;
 const notesSt = { list: null, err: "", at: 0, draft: null, dirty: new Set() };
-try { S.notePref = { ...S.notePref, ...JSON.parse(localStorage.getItem(NOTE_PREF)) }; } catch {}
 const langOfName = n => (NOTE_LANGS.find(l => l[2] === (/\.([^.]+)$/.exec(n || "")?.[1] || "").toLowerCase()) || NOTE_LANGS[0])[0];
 const extOf = lang => (NOTE_LANGS.find(l => l[0] === lang) || NOTE_LANGS[0])[2];
 // a typed name keeps its own known extension, else gets the current language's
@@ -2157,9 +1945,6 @@ async function noteSave(ed) {
   await ed.busy;
 }
 const notesFlush = () => Promise.all([...notesSt.dirty].map(noteSave));
-addEventListener("pagehide", () => notesSt.dirty.forEach(ed => {
-  if (ed.name && ed.text !== ed.saved) fetch("/api/notes", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: ed.name, text: ed.text }) }).catch(() => {});
-}));
 
 // show a note (a name in notes/, or NOTE_DRAFT) in the editor; a newer call wins over one still loading
 async function noteShow(w, key, focusEd) {
@@ -2510,8 +2295,6 @@ function notesRender(w) {
     if (pick) noteShow(w, pick, frontWin() === w && S.bootDone);
   });
 }
-// terminal links to notes (ls notes, tree)
-desk.addEventListener("click", e => { const a = e.target.closest("[data-note-open]"); if (a) openNote(a.dataset.noteOpen, a); });
 
 // a #note= link: open it as an unsaved note once the desktop is up (after the boot screen), then clear the fragment
 async function noteFromHash(hash) {
@@ -2531,8 +2314,6 @@ async function noteFromHash(hash) {
   history.replaceState(null, "", location.pathname + location.search);
 }
 const noteHash = location.hash; // read now, before anything can change it
-setTimeout(() => { notesLoad(); noteFromHash(noteHash); }, 0);
-addEventListener("hashchange", () => noteFromHash(location.hash));
 
 /* ---------- notes as a prompt library for Generate ----------
    Notes → Generate: Use as prompt (the selection, or the whole note), a note dragged from the list onto Generate,
@@ -2608,46 +2389,10 @@ function noteUseAsPrompt(w) {
   if (!text) { w.ntMsg = { text: "This note is empty. Write a prompt in it first.", warn: true }; noteStatus(w); return; }
   genTakeText(genBeside(w), text, { replace: true });
 }
-addEventListener("dragstart", e => {
-  const it = e.target.closest?.("[data-nt-item]");
-  if (it) {
-    const key = it.dataset.ntItem;
-    e.dataTransfer.setData(NOTE_DRAG, key === NOTE_DRAFT ? NOTE_DRAG_LINK : key);
-    e.dataTransfer.effectAllowed = "copy";
-    if (key !== NOTE_DRAFT) noteTextOf(key).catch(() => {}); // warm the cache for the drop
-    return;
-  }
-  if (e.target.matches?.(".nt-ta")) e.dataTransfer.effectAllowed = "copy"; // text dragged out of a note is copied, never cut from it
-});
 
 /* Generate side: dropping a note */
 const isNoteDrag = e => [...(e.dataTransfer?.types || [])].includes(NOTE_DRAG);
 const caretAt = (ta, x, y) => { const p = document.caretPositionFromPoint?.(x, y); return p && p.offsetNode === ta ? p.offset : null; };
-desk.addEventListener("dragover", e => {
-  if (!isNoteDrag(e)) return;
-  const w = winOf(e.target); if (!w || w.kind !== "generate" || !w.shell) return;
-  e.preventDefault(); e.dataTransfer.dropEffect = "copy"; w.el.classList.add("drop");
-  const ta = e.target.closest("textarea.gprompt"), at = ta && caretAt(ta, e.clientX, e.clientY);
-  if (at != null) { ta.focus({ preventScroll: true }); ta.setSelectionRange(at, at); } // the caret shows where the note goes
-});
-desk.addEventListener("drop", async e => {
-  if (!isNoteDrag(e)) return;
-  const w = winOf(e.target); if (!w || w.kind !== "generate") return;
-  e.preventDefault(); w.el.classList.remove("drop");
-  const key = e.dataTransfer.getData(NOTE_DRAG), name = key === NOTE_DRAG_LINK ? "The note from the link" : key;
-  const strip = e.target.closest("[data-strip]");
-  if (strip) {
-    const f = curModel(w)?.fields.find(x => x.name === strip.dataset.strip);
-    genMsg(w, `${f?.label || "This input"} takes ${f ? f.accept.join(" or ") : "media"} files, not notes. Drop ${key === NOTE_DRAG_LINK ? "the note" : key} on the prompt instead.`);
-    return;
-  }
-  const ta = e.target.closest("textarea.gprompt"), at = ta ? caretAt(ta, e.clientX, e.clientY) : null;
-  let text;
-  try { text = await noteTextOf(key); } catch (err) { genMsg(w, `Couldn't read ${name}: ${err.message}`); return; }
-  if (!text.trim()) { genMsg(w, `${name} is empty.`, true); return; }
-  focus(w); save();
-  if (ta) { genMsg(w, null); promptInsert(ta, text, at != null ? { at } : {}); } else genTakeText(w, text);
-});
 
 /* Generate side: Prompts… and Save to Notes… under the prompt */
 // called at the end of genFields: adds the two buttons to the prompt's footer, and puts in text that was waiting for a prompt
@@ -2723,30 +2468,10 @@ async function promptSaveMenu(w, btn) {
     ...list.map(n => ({ label: `Add to ${clipText(n.name, 36)}`, sub: n.text == null ? "" : notePreview(n.text), icon: "i-notes", act: () => promptSave(w, n.name) })),
   ]);
 }
-desk.addEventListener("click", e => {
-  const b = e.target.closest("[data-plib]"), w = b && winOf(b); if (!w) return;
-  (b.dataset.plib === "pick" ? promptsMenu : promptSaveMenu)(w, b);
-});
-// Cmd+Shift+S (Ctrl+Shift+S off the Mac) in Generate: save the prompt as a new note. letterOf: the S key on any layout (AZERTY too)
-addEventListener("keydown", ev => {
-  if (!ev.shiftKey || ev.altKey || !(MAC ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey && !ev.metaKey) || letterOf(ev) !== "s") return;
-  const f = frontWin(); if (!f || f.kind !== "generate" || !f.shell || !menuEl.hidden || $("#notedlg")) return;
-  ev.preventDefault(); promptSave(f);
-});
 
 /* ---------- options: accessibility and preferences, saved in this browser ---------- */
 const OPT_KEY = "runway-os-options-v1";
 const OPT_DEFAULT = { textPx: 0, textSize: "medium", font: "plex", contrast: false, motion: "system", theme: "dark", desk: "", boot: true, clock24: false, termScheme: "dos", balloons: true, sound: false, notify: false };
-S.opts = { ...OPT_DEFAULT };
-try {
-  const saved = JSON.parse(localStorage.getItem(OPT_KEY)) || {};
-  if (!saved.theme && saved.desk === "#0b2e2e") delete saved.desk; // the old default desktop color now comes from the theme
-  if (!saved.fontV2) { delete saved.font; delete saved.textPx; saved.fontV2 = true; } // readable smooth font became the default
-  if (!saved.fontV3) { delete saved.font; saved.fontV3 = true; } // IBM Plex Sans became the default
-  if (!saved.sizeV4) { delete saved.textPx; delete saved.textSize; saved.sizeV4 = true; } // bigger default text for the smooth fonts
-  if (!saved.sizeV5) { if (saved.font !== "pixel" && +saved.textPx < 13) delete saved.textPx; saved.sizeV5 = true; } // sizes under 13 px came from the pixel-font marks and are too small for the outline fonts
-  S.opts = { ...OPT_DEFAULT, ...saved };
-} catch {}
 // color schemes, like Win95's Display Properties → Appearance; the tokens live in index.html (html[data-theme])
 const THEMES = [["dark", "Dark"], ["classic", "Classic"], ["storm", "Storm"], ["eggplant", "Eggplant"], ["marine", "Marine"], ["pumpkin", "Pumpkin"]];
 const DESKS = [["#0b2e2e", "Teal night"], ["#008080", "Classic teal"], ["#000000", "Black"], ["#10204a", "Navy"], ["#3a1f3d", "Plum"], ["#2b2b2b", "Graphite"]];
@@ -2815,7 +2540,6 @@ function setOpt(k, v) {
   wins.forEach(w => (w.kind === "options" || w.kind === "props") && renderWin(w));
   if (sel && host) $(sel, host)?.focus({ preventScroll: true });
 }
-reduced.addEventListener?.("change", applyOptions);
 
 // the job-finished chime is a sound made with Runway itself: task ce1c486d-9ec2-49c1-a413-98c42e47333b,
 // eleven_text_to_sound_v2, prompt "a single soft chime", 2 s, 2 credits, saved as sounds/chime.mp3.
@@ -3419,7 +3143,6 @@ function cmpRender(w) {
   segs[1].textContent = `${est ? "~" : ""}${fmt(total)} credits in total`;
   segs[2].textContent = wipe ? "Drag the divider or press ← →" : "Double-click to open";
 }
-RENDER.compare = cmpRender;
 
 // sizes and durations once the files load (shown and compared in the Size row); sync and panning
 function cmpMediaBind(w) {
@@ -3595,26 +3318,6 @@ function cmpBind(w) {
   });
 }
 
-// Alt+C compares the selection, Cmd+A selects everything in the list; Shift+arrows extend the selection (capture: before the plain arrow keys)
-addEventListener("keydown", ev => {
-  if (S.kb || !menuEl.hidden || !startMenu.hidden) return;
-  const f = frontWin(), t = ev.target instanceof Element ? ev.target : document.body;
-  if (!f || !MULTI.has(f.kind) || t.closest("input, textarea, select, [contenteditable], .dicon")) return;
-  const cmd = MAC ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey && !ev.metaKey, L = letterOf(ev);
-  if (ev.altKey && !cmd && !ev.shiftKey && !ev.metaKey && !ev.ctrlKey && L === "c") { ev.preventDefault(); ev.stopPropagation(); compareSel(f); return; }
-  if (cmd && !ev.altKey && !ev.shiftKey && L === "a") { ev.preventDefault(); ev.stopPropagation(); selectAll(f); return; }
-  if (!ev.shiftKey || ev.altKey || ev.metaKey || ev.ctrlKey) return;
-  const grid = f.kind !== "jobs";
-  const d = { ArrowDown: grid ? 2 : 1, ArrowUp: grid ? -2 : -1, ArrowRight: grid ? 1 : 0, ArrowLeft: grid ? -1 : 0, Home: -1e6, End: 1e6 }[ev.key];
-  if (!d) return;
-  ev.preventDefault(); ev.stopPropagation();
-  extendSel(f, d);
-}, true);
-desk.addEventListener("click", e => {
-  const s = e.target.closest("[data-compare-sel]"); if (s) { compareSel(winOf(s), s); return; }
-  const c = e.target.closest("[data-compare]"); if (c) compare(c.dataset.compare.split(","), c);
-});
-
 /* ---------- context menus ---------- */
 function showMenu(x, y, items) {
   S.menuItems = items.filter(Boolean);
@@ -3628,18 +3331,12 @@ function showMenu(x, y, items) {
   $("button:not(:disabled)", menuEl)?.focus();
 }
 const hideMenu = () => { if (!menuEl.hidden) { menuEl.hidden = true; S.menuReturn?.focus?.(); } };
-menuEl.addEventListener("click", e => {
-  const b = e.target.closest("button[data-i]"); if (!b) return;
-  const it = S.menuItems[+b.dataset.i]; hideMenu(); it.act();
-});
-menuEl.addEventListener("contextmenu", e => e.preventDefault());
 const menuKeys = (root, e) => {
   const items = $$("button:not(:disabled)", root), i = items.indexOf(document.activeElement);
   if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); items[(i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus(); }
   if (e.key === "Home") { e.preventDefault(); items[0]?.focus(); }
   if (e.key === "End") { e.preventDefault(); items[items.length - 1]?.focus(); }
 };
-menuEl.addEventListener("keydown", e => menuKeys(menuEl, e));
 
 function runMenu(r, x, y, src) {
   showMenu(x, y, [
@@ -3694,23 +3391,6 @@ function kbEnd(keep) {
   if (keep) save();
   const b = $("#balloon"); if (b && !b.hidden && b.textContent.includes(KB_HINT)) b.hidden = true; // the hint no longer applies
 }
-// capture phase: runs before the terminal, list and gallery keys, and swallows the keys it uses
-addEventListener("keydown", e => {
-  if (!S.kb || ["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
-  const { w, mode } = S.kb, dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
-  if (wins.get(w.id) !== w || w.minimized || w.max || (!dir && e.key !== "Enter" && e.key !== "Escape")) { kbEnd(true); return; } // any other key keeps the change and does its usual job
-  e.preventDefault(); e.stopPropagation();
-  if (!dir) { kbEnd(e.key === "Enter"); return; }
-  const d = D(), [mw, mh] = minOf(w, d), st = e.shiftKey ? 1 : px(8);
-  if (w.snapped) { // leaving a snapped layout: moving gets the size from before the snap back, as with the mouse
-    if (mode === "move" && w.pre) Object.assign(w, { wd: w.pre.wd, ht: w.pre.ht });
-    w.snapped = false; w.pre = null;
-  }
-  if (mode === "move") { w.x += dir[0] * st; w.y += dir[1] * st; }
-  else { w.wd = clampN(w.wd + dir[0] * st, mw, d.w - w.x); w.ht = clampN(w.ht + dir[1] * st, mh, d.h - w.y); }
-  fit(w); place(w);
-}, true);
-addEventListener("pointerdown", () => kbEnd(true), true);
 const deskMenu = (x, y) => showMenu(x, y, [
   { label: "Arrange icons", act: () => arrangeIcons() },
   { sep: true },
@@ -3746,7 +3426,6 @@ function resetLayout() {
 }
 
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
-navigator.keyboard?.getLayoutMap?.().then(m => { S.layoutMap = m; }).catch(() => {});
 // the letter printed on the key, whatever the layout (Option on a Mac changes e.key, so go through the code)
 const letterOf = ev => String(S.layoutMap?.get(ev.code) || (ev.code?.startsWith("Key") ? ev.code.slice(3) : ev.key) || "").toLowerCase();
 const codesFor = letters => { const out = []; S.layoutMap?.forEach((k, code) => { if (letters.includes(k)) out.push(code); }); return out.length ? out : letters.map(l => "Key" + l.toUpperCase()); };
@@ -3758,7 +3437,6 @@ async function toggleFullScreen() {
     balloon({ title: "Full screen", text: "Cmd+W now closes the window in Runway OS. Hold Esc to leave full screen.", ms: 3600 });
   } catch (err) { balloon({ title: "Couldn't go full screen", text: err.message, ms: 3000 }); }
 }
-document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement) navigator.keyboard?.unlock?.(); });
 
 /* ---------- clipboard, files, balloons ---------- */
 // a copied job is its task ID as text; Cmd+V in Generate turns it back into an input
@@ -3768,16 +3446,6 @@ function copyJob(r) {
     () => balloon({ title: `Copied ${r.asset || nameOf(r)}`, text: "In Generate, press Cmd+V to use it as an input.", ms: 3200 }),
     () => balloon({ title: "Couldn't copy", text: "The browser blocked the clipboard.", ms: 2600 }));
 }
-addEventListener("paste", ev => {
-  const f = frontWin(); if (!f || f.kind !== "generate" || !f.el.contains(document.activeElement) && document.activeElement !== document.body) return;
-  const files = [...(ev.clipboardData?.files || [])];
-  const typing = ev.target instanceof Element && ev.target.closest("input, textarea");
-  if (files.length) { ev.preventDefault(); files.forEach(file => genUpload(f, file)); return; }
-  if (typing) return;
-  const text = (ev.clipboardData?.getData("text") || "").trim(), r = text && runOf(text);
-  if (r) { ev.preventDefault(); genDropRun(f, text); }
-  else if (text) genMsg(f, "To use a job as an input, select it in Jobs, a gallery or the Job tree and press Cmd+C first.", true);
-});
 function snapHalf(w, side) {
   const d = D();
   if (w.minimized) restore(w);
@@ -3801,10 +3469,6 @@ const balloonEl = $("#balloon"), srStatus = $("#sr-status");
 function balloonRun() { clearTimeout(S.balloonT); S.balloonAt = Date.now(); S.balloonT = setTimeout(() => { S.balloonT = 0; balloonEl.hidden = true; }, S.balloonLeft); }
 function balloonPause() { if (!S.balloonT) return; clearTimeout(S.balloonT); S.balloonT = 0; S.balloonLeft = Math.max(0, S.balloonLeft - (Date.now() - S.balloonAt)); }
 const balloonResume = () => { if (!balloonEl.hidden && !S.balloonT) balloonRun(); };
-balloonEl.addEventListener("pointerenter", balloonPause);
-balloonEl.addEventListener("pointerleave", () => { if (!balloonEl.contains(document.activeElement)) balloonResume(); });
-balloonEl.addEventListener("focusin", balloonPause);
-balloonEl.addEventListener("focusout", e => { if (!balloonEl.contains(e.relatedTarget) && !balloonEl.matches(":hover")) balloonResume(); });
 function balloon({ title, text, icon = "i-doc", ms = 8000, onOpen }) {
   const b = balloonEl;
   b.innerHTML = `<svg class="ico"><use href="#${icon}"/></svg><div class="bt"><b id="balloon-t">${esc(title)}</b><span id="balloon-x">${esc(text)}</span>${onOpen ? '<button class="raised btn-s bopen" aria-describedby="balloon-t balloon-x">Open</button>' : ""}</div><button class="raised bx" aria-label="Dismiss"><i class="g-close"></i></button>`;
@@ -3835,17 +3499,6 @@ function announce(r) {
     onOpen: () => open(ok && r.asset ? "viewer" : "props", r.taskId, $("#tray-run")),
   });
 }
-document.addEventListener("visibilitychange", () => { if (!document.hidden) { S.unseen = 0; setTitle(); } });
-
-/* ---------- tab title + favicon: live status, readable from another tab ---------- */
-// the runway os logo: a bold pixel "R" on a beveled Win95-blue tile (16x16 grid)
-const R_BITS = ["1111111.", "11111111", "11....11", "11....11", "11....11", "11111111", "1111111.", "11.11...", "11..11..", "11...11.", "11....11"];
-function logoSVG(fg) {
-  const px = (dx, dy, fill) => R_BITS.flatMap((row, y) => [...row].map((c, x) => (c === "1" ? `<rect x="${4 + x + dx}" y="${3 + y + dy}" width="1" height="1" fill="${fill}"/>` : ""))).join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1f6fc4"/><stop offset="1" stop-color="#000a5c"/></linearGradient></defs>`
-    + `<rect width="16" height="16" fill="#08090b"/><rect width="15" height="15" fill="#c9cbd3"/><rect x="1" y="1" width="14" height="14" fill="url(#g)"/>${px(1, 1, "#000000")}${px(0, 0, fg)}</svg>`;
-}
-const FAV = { idle: logoSVG("#ffffff"), busy: logoSVG("#ffc94a") };
 function setTitle() {
   const active = S.data.runs.filter(r => ACTIVE.has(r.status)).length;
   document.title = "[POP] Runway OS";
@@ -3862,19 +3515,6 @@ function renderTasks() {
     return `<button class="task raised" data-task="${esc(w.id)}" aria-pressed="${w === f}" title="${esc(title)}"><svg class="ico"><use href="#${K.icon(w)}"/></svg><span>${esc(title)}</span></button>`;
   }).join("");
 }
-tasksEl.addEventListener("pointerdown", e => { if (e.target.closest("[data-task]")) e.preventDefault(); });
-tasksEl.addEventListener("click", e => {
-  const b = e.target.closest("[data-task]"); if (!b) return;
-  const w = wins.get(b.dataset.task); if (!w) return;
-  if (w.minimized) restore(w);
-  else if (w === frontWin()) minimize(w);
-  else { focus(w); save(); focusInto(w); }
-});
-$(".taskbar").addEventListener("contextmenu", e => {
-  e.preventDefault();
-  const b = e.target.closest("[data-task]");
-  b && wins.get(b.dataset.task) ? windowMenu(wins.get(b.dataset.task), e.clientX, e.clientY - 4) : deskMenu(e.clientX, e.clientY - 4);
-});
 
 function renderTray() {
   setTitle();
@@ -3884,25 +3524,12 @@ function renderTray() {
   run.title = `${active} job${active === 1 ? "" : "s"} rendering or queued. Open Jobs`;
   $("span", bal).textContent = S.data.balance == null ? "—" : fmt(S.data.balance);
 }
-$("#tray-run").addEventListener("click", e => open("activity", null, e.currentTarget));
-$("#tray-bal").addEventListener("click", e => open("overview", null, e.currentTarget));
 
 function setStart(on) {
   startMenu.hidden = !on;
   startBtn.setAttribute("aria-expanded", on);
   if (on) $("button", startMenu).focus();
 }
-startBtn.addEventListener("click", () => setStart(startMenu.hidden));
-startMenu.addEventListener("click", e => {
-  const b = e.target.closest("button"); if (!b) return;
-  setStart(false);
-  if (b.dataset.launch) open(b.dataset.launch, null, startBtn);
-  if (b.dataset.cmd === "folder") fileAction("reveal", "runs.json");
-  if (b.dataset.cmd === "cascade") cascadeAll();
-  if (b.dataset.cmd === "tile") tileAll();
-  if (b.dataset.cmd === "fullscreen") toggleFullScreen();
-  if (b.dataset.cmd === "shutdown") shutdownDialog();
-});
 
 /* ---------- spending guard: a daily credit limit for the whole org (Options → Spending) ----------
    The server works out data.spent.today from balance_history.json: every drop in the org balance since local midnight,
@@ -3997,14 +3624,6 @@ function spendTerm() {
   if (s == null) return `<b class="t-acc">today</b>: spending unknown`;
   return `<b class="t-acc">today, whole org</b>: <span class="t-red">${fmt(s)}</span> credits spent${lim ? ` of a ${fmt(lim)} daily limit (${Math.round(s / lim * 100)}%)` : ", no daily limit (set one in Options, Spending)"}`;
 }
-// Options → Spending: the limit field saves on change (Enter or leaving the field)
-document.addEventListener("change", e => {
-  const el = e.target.closest?.("[data-limit]"); if (!el) return;
-  const v = el.value.trim(), n = Math.round(+v), had = document.activeElement === el;
-  setOpt("dailyLimit", v === "" || !(n >= 1) ? null : n);
-  if (had) $("[data-limit]")?.focus({ preventScroll: true });
-  spendRefresh();
-});
 function spendPanel() {
   const lim = spendLimit(), src = S.data.spent?.source;
   return `
@@ -4067,19 +3686,9 @@ function shutdownDialog() {
   d.addEventListener("click", e => { const b = e.target.closest("[data-sd]"); if (b) done(b.dataset.sd === "ok"); });
   $('input[name="sd"]:checked', d).focus();
 }
-startMenu.addEventListener("keydown", e => menuKeys(startMenu, e));
-$$("[data-launch]", startMenu).forEach(b => { const k = APP_KEYS[b.dataset.launch]; if (k && !$("kbd", b)) b.insertAdjacentHTML("beforeend", `<kbd>Alt+${k}</kbd>`); });
-document.addEventListener("pointerdown", e => {
-  if (!startMenu.hidden && !e.target.closest("#startmenu, #start")) setStart(false);
-  if (!menuEl.hidden && !e.target.closest("#ctxmenu")) hideMenu();
-});
-
-/* ---------- desktop icons: click selects, double-click / Enter / tap opens ---------- */
-addEventListener("pointerdown", e => { S.lastPointer = e.pointerType; }, true);
 const icons = $("#icons");
 /* icon grid: icons fill columns top to bottom in order, unless moved; a moved icon keeps its slot (col,row), saved per launcher */
 const ICON_KEY = "runway-os-icons-v1";
-try { S.iconSlots = JSON.parse(localStorage.getItem(ICON_KEY)) || {}; } catch {}
 const iconGrid = () => {
   const list = $$(".dicon", icons), w = Math.max(...list.map(b => b.offsetWidth), 1), h = Math.max(...list.map(b => b.offsetHeight), 1), gap = px(10), pad = px(10);
   return { cw: w + gap, ch: h + gap, pad, cols: Math.max(1, Math.floor((desk.clientWidth - pad) / (w + gap))), rows: Math.max(1, Math.floor((desk.clientHeight - pad) / (h + gap))) };
@@ -4098,6 +3707,414 @@ function layoutIcons() {
   icons.classList.add("ready");
 }
 const saveIcons = () => { try { localStorage.setItem(ICON_KEY, JSON.stringify(S.iconSlots)); } catch {} };
+const arrangeIcons = () => { S.iconSlots = {}; saveIcons(); layoutIcons(); };
+
+/* ---------- right-click: an in-app menu everywhere; Shift + right-click keeps the browser's own menu ---------- */
+async function pasteInto(el) {
+  try {
+    const t = await navigator.clipboard.readText();
+    el.focus(); el.setRangeText(t, el.selectionStart, el.selectionEnd, "end");
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  } catch { balloon({ title: "Couldn't paste", text: "The browser blocked reading the clipboard. Press Cmd+V instead.", ms: 4000 }); }
+}
+function textMenu(el, x, y) {
+  const sel = el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0), ro = el.readOnly || el.disabled;
+  showMenu(x, y, [
+    { label: "Cut", icon: "i-copy", hint: "Cmd+X", disabled: !sel || ro, act: () => { navigator.clipboard?.writeText(sel).catch(() => {}); el.focus(); el.setRangeText("", el.selectionStart, el.selectionEnd, "end"); el.dispatchEvent(new Event("input", { bubbles: true })); } },
+    { label: "Copy", icon: "i-copy", hint: "Cmd+C", disabled: !sel, act: () => copyText(sel, "Copied") },
+    { label: "Paste", hint: "Cmd+V", disabled: ro, act: () => pasteInto(el) },
+    { sep: true },
+    { label: "Select all", hint: "Cmd+A", disabled: !el.value, act: () => { el.focus(); el.select(); } },
+  ]);
+}
+
+/* ---------- clicks inside windows ---------- */
+const winOf = el => wins.get(el.closest(".window")?.dataset.id);
+
+/* ---------- persistence ---------- */
+function save() {
+  clearTimeout(S.saveT);
+  if (S.resetting) return;
+  S.saveT = setTimeout(() => {
+    const list = [...wins.values()].map(w => ({ kind: w.kind, arg: w.arg, x: w.x, y: w.y, wd: w.wd, ht: w.ht, max: w.max, minimized: w.minimized, snapped: w.snapped, pre: w.pre, z: w.z, seq: w.seq, filter: w.filter, q: w.q, sort: w.sort, size: w.size, sel: w.sel, tab: w.tab, days: w.days, act: w.kind === "activity" ? w.act : undefined, solo: w.kind === "tree" ? !!w.solo : undefined, gen: w.kind === "generate" ? w.gen : undefined, cmp: w.kind === "compare" ? w.cmp : undefined }));
+    try { localStorage.setItem(KEY, JSON.stringify(list)); } catch {}
+  }, 150);
+}
+function restoreLayout() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(KEY)); } catch {}
+  if (!Array.isArray(saved)) { open("terminal"); return; } // first launch: just the terminal
+  saved.filter(s => KINDS[s.kind] && (s.kind === "viewer" || s.kind === "props" || s.kind === "compare" ? s.arg : true)).sort((a, b) => a.z - b.z).forEach(s => make(s.kind, s.arg, s));
+  refreshFront();
+}
+// first launch (no saved layout, so restoreLayout opens just the terminal): once the first state poll answers
+// and there is no API key, open the key window on top as well. Later loads have a saved layout and skip this.
+const firstLaunch = (() => { try { return !Array.isArray(JSON.parse(localStorage.getItem(KEY))); } catch { return true; } })();
+
+/* ---------- boot screen: a BIOS self-test over the real startup; the log stays up until you start ---------- */
+// each startup check with its time (ms since the page started loading), kept for the bootlog command
+const bootLog = [];
+async function bootScreen(modelsLoaded) {
+  // the checks run and are logged even with the boot screen off; the screen only shows them
+  const show = S.opts.boot, fast = calm(), deadline = Date.now() + 8000;
+  let el = null, log = null, hint = null, phase = "loading", early = false;
+  const setHint = t => { if (hint) hint.textContent = t; };
+  const btns = () => (el ? $$(".boot-act button", el) : []);
+  const start = async withKey => {
+    if (S.bootDone) return;
+    S.bootDone = true;
+    removeEventListener("keydown", onKey, true); removeEventListener("pointerdown", onPointer, true);
+    document.body.classList.remove("booting");
+    el.classList.add("out");
+    setTimeout(() => el.remove(), fast ? 0 : 200);
+    if (withKey) open("key");
+    const f = frontWin(); if (f) $("input:not([type=hidden]):not([type=range]), textarea", f.body)?.focus();
+  };
+  // while loading: Esc starts now, any other key or a click starts as soon as loading finishes.
+  // when ready: Enter or Space presses the focused button, Tab moves between the buttons, Esc starts.
+  const onKey = e => {
+    e.stopPropagation(); // the desktop behind doesn't see keys while the boot screen is up
+    if (e.metaKey || e.ctrlKey || ["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return; // browser shortcuts still work
+    e.preventDefault();
+    if (S.bootDone) return;
+    if (e.key === "Escape") { start(false); return; }
+    if (phase === "loading") {
+      if (!early) { early = true; setHint("Starting when loading finishes… Press Esc to start now."); }
+      return;
+    }
+    const list = btns(), i = list.indexOf(document.activeElement);
+    if (e.key === "Enter" || e.key === " ") (list[i] || list[0])?.click();
+    else if (e.key === "Tab" && list.length) list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length].focus();
+  };
+  const onPointer = e => {
+    e.stopPropagation();
+    if (S.bootDone || phase !== "loading") return;
+    e.preventDefault();
+    if (!early) { early = true; setHint("Starting when loading finishes… Press Esc to start now."); }
+  };
+  if (show) {
+    S.bootDone = false;
+    el = document.createElement("div");
+    el.className = "boot";
+    // one centered column: logo, name, progress bar, the checks as they run, then the Start button
+    el.innerHTML = `<div class="boot-col">
+          <span class="boot-logo" aria-hidden="true">${logoSVG("#ffffff")}</span>
+          <b class="boot-name">runway os</b>
+          <div class="boot-bar" role="progressbar" aria-label="Starting runway os" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
+          <ul class="boot-log" role="log" aria-live="polite"></ul>
+          <div class="boot-sum" aria-live="polite"></div>
+          <div class="boot-act"></div>
+          <div class="boot-hint" aria-live="polite">Press any key to start when loading finishes, or Esc to start now.</div>
+        </div>`;
+    document.body.append(el); document.body.classList.add("booting");
+    log = $(".boot-log", el); hint = $(".boot-hint", el);
+    addEventListener("keydown", onKey, true); addEventListener("pointerdown", onPointer, true);
+  }
+  // a line prints when its check starts; its result is added, and the line logged, when the check finishes
+  const STEPS = 5;
+  let doneSteps = 0;
+  const begin = text => {
+    const d = log && document.createElement("li");
+    if (d) { d.innerHTML = `<span></span><span class="res wait">…</span>`; d.firstChild.textContent = text; log.append(d); }
+    return { d, text };
+  };
+  const end = (row, res, bad = false) => {
+    bootLog.push({ ms: Math.round(performance.now()), text: row.text, res, bad });
+    doneSteps++;
+    if (el) { const pct = Math.min(100, Math.round((doneSteps / STEPS) * 100)); $(".boot-bar i", el).style.width = pct + "%"; $(".boot-bar", el).setAttribute("aria-valuenow", pct); }
+    if (!row.d) return;
+    const r = row.d.lastChild; r.textContent = res || "OK"; r.className = "res" + (bad ? " bad" : "");
+  };
+  const summary = text => { bootLog.push({ ms: Math.round(performance.now()), text, res: "", bad: false }); if (el) $(".boot-sum", el).textContent = text; };
+  const wait = p => upTo(p, Math.max(0, deadline - Date.now()));
+
+  let row = begin("Server");
+  end(row, location.protocol === "file:" ? "opened as a file" : location.host, location.protocol === "file:");
+  row = begin("Loading model list…");
+  if (!(await wait(modelsLoaded)) || !S.CAT) end(row, "failed. Generate can't list models", true);
+  else { const t = S.CAT.tasks || []; end(row, `${new Set(t.flatMap(x => x.models.map(m => m.id))).size} models, ${t.length} tasks`); }
+  row = begin("Connecting to Runway API…");
+  // the first /api/state answer, or the first failed poll (poll keeps retrying every 3 s)
+  while (!S.loaded && S.conn.cls !== "off" && Date.now() < deadline) await upTo(ready, 50);
+  if (!S.loaded) end(row, S.conn.cls === "off" ? "server not reachable" : "no answer after 8 s", true);
+  else if (!S.data.live) end(row, "no key", true);
+  else if (S.data.error) end(row, S.data.error, true);
+  else end(row, "OK");
+  const live = S.loaded && S.data.live && !S.data.error, n = S.data.runs.length;
+  const when = S.data.balanceAt ? `, last known ${absTime(tOf(S.data.balanceAt))}` : ", last known";
+  end(begin("Credits"), !S.loaded || S.data.balance == null ? "unknown" : fmt(S.data.balance) + (live ? "" : when), !S.loaded || S.data.balance == null);
+  end(begin("Jobs"), S.loaded ? `${fmt(n)} found` : "unknown", !S.loaded);
+  summary(!S.loaded ? (S.conn.cls === "off" ? `Server not reachable. Run python3 server.py${location.protocol === "file:" ? " and open the address it prints" : "; runway os keeps trying"}.` : "The server hasn't answered yet; runway os keeps trying.")
+    : !S.data.live ? "Ready without a Runway key."
+    : S.data.error ? "Ready, but the Runway API reported an error."
+    : `Ready. ${S.data.balance == null ? "Credits unavailable" : fmt(S.data.balance) + " credits"}, ${fmt(n)} job${n === 1 ? "" : "s"}.`);
+  phase = "ready";
+  if (!show || S.bootDone) return;
+  if (early) { start(false); return; }
+  const act = $(".boot-act", el), keyBtn = S.loaded && !live;
+  act.innerHTML = `<button class="raised btn-s default" data-start>Start runway os</button>${keyBtn ? '<button class="raised btn-s" data-start="key">Start and add API key</button>' : ""}`;
+  act.addEventListener("click", e => { const b = e.target.closest("[data-start]"); if (b) start(b.dataset.start === "key"); });
+  $("button", act).focus();
+  setHint(keyBtn ? "Press Enter to start, or Tab to choose the other button." : "Press Enter to start");
+}
+const SIG = {};
+// the server answers 304 when nothing changed, so an idle poll costs almost nothing
+function schedulePoll() {
+  clearTimeout(S.pollT);
+  const ms = document.hidden ? 30000 : S.data.runs.some(r => ACTIVE.has(r.status)) ? 2000 : 5000;
+  S.pollT = setTimeout(() => poll().finally(schedulePoll), ms);
+}
+async function poll() {
+  try {
+    const res = await fetch("/api/state", { cache: "no-store", headers: S.stateTag && S.loaded ? { "If-None-Match": S.stateTag } : {} });
+    if (res.status === 304) {
+      if (S.conn.cls === "off" && S.lastConn) { S.conn = S.lastConn; wins.forEach(w => w.kind === "overview" && renderWin(w)); }
+      return;
+    }
+    S.stateTag = res.headers.get("ETag");
+    const d = await res.json();
+    const c = d.error ? { cls: "warn", text: "Runway API: " + d.error } : d.live ? { cls: "on", text: "Connected" } : { cls: "warn", text: "No API key" };
+    const runs = d.runs || [], rs = JSON.stringify(runs) + JSON.stringify(d.inputs || []), ss = rs + d.balance + d.balanceAt + (d.history || []).length;
+    const first = !S.loaded, runsChanged = rs !== S.runsSig, anyChanged = ss !== S.stateSig;
+    const connChanged = c.text !== S.conn.text || c.cls !== S.conn.cls;
+    const keySig = [d.live, d.keySource, d.keyHint, d.error].join("|"), keyChanged = keySig !== S.data.keySig;
+    S.data = { runs, balance: d.balance, balanceAt: d.balanceAt, history: d.history || [], live: !!d.live, keySource: d.keySource, keyHint: d.keyHint, error: d.error, keySig, inputs: d.inputs || [] };
+    spendUpdate(d);
+    if (S.sessionStart == null && d.balance != null) S.sessionStart = { balance: d.balance, at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
+    S.runsSig = rs; S.stateSig = ss; S.conn = c; S.lastConn = c; S.loaded = true; S.markReady();
+    if (!first) runs.forEach(r => { const was = S.prevStatus.get(r.taskId); if (was && ACTIVE.has(was) && !ACTIVE.has(r.status)) announce(r); });
+    S.prevStatus = new Map(runs.map(r => [r.taskId, r.status]));
+    wins.forEach(w => {
+      if (w.kind === "overview" || w.kind === "key") { if (first || anyChanged || connChanged) renderWin(w); return; }
+      if (!first && !runsChanged) return;
+      const sig = SIG[w.kind]?.(w);
+      if (sig !== undefined && sig === w.sig && !first) return; // this window's data didn't change
+      w.sig = sig; renderWin(w);
+    });
+    if (!first && keyChanged && !runsChanged) wins.forEach(w => (w.kind === "key" || w.kind === "generate") && renderWin(w));
+    if (first || runsChanged) renderTasks();
+    if (first || anyChanged) renderTray();
+  } catch {
+    const c = { cls: "off", text: location.protocol === "file:" ? "Run python3 server.py" : "Server offline" };
+    if (c.text !== S.conn.text) { S.conn = c; wins.forEach(w => w.kind === "overview" && renderWin(w)); }
+  }
+}
+
+// clock + relative times
+const clock = $("#clock");
+function tick() {
+  const now = new Date();
+  clock.textContent = now.toLocaleTimeString([], S.opts.clock24 ? { hour: "2-digit", minute: "2-digit", hour12: false } : { hour: "numeric", minute: "2-digit", hour12: true });
+  clock.title = now.toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+  $$("time[data-t]").forEach(t => { t.textContent = t.dataset.kind === "elapsed" ? dur(Date.now() - +t.dataset.t) : ago(+t.dataset.t); });
+}
+
+// the model list and the first state load in parallel
+const modelsLoaded = fetch("/api/models").then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(c => { S.CAT = c; }).catch(() => { S.catFailed = true; })
+  .finally(() => wins.forEach(w => w.kind === "generate" && renderWin(w)));
+
+
+// start: every module's listeners and saved state, in the order the single-file app had them
+
+// true while a Tab keypress moves focus
+addEventListener("keydown", e => { S.tabbing = e.key === "Tab"; }, true);
+addEventListener("keyup", () => { S.tabbing = false; }, true);
+addEventListener("dragstart", e => {
+  const src = e.target.closest?.("[draggable][data-id]"); if (!src) return;
+  const r = runOf(src.dataset.id); if (!r?.asset) { e.preventDefault(); return; }
+  e.dataTransfer.setData(DRAG_TYPE, r.taskId);
+  e.dataTransfer.setData("text/plain", r.asset);
+  e.dataTransfer.effectAllowed = "copy";
+  const img = src.querySelector("img"); if (img?.complete) e.dataTransfer.setDragImage(img, 16, 16);
+});
+RENDER.keys = keysRender;
+RENDER.overview = overviewRender;
+RENDER.jobs = jobsRender;
+RENDER.generate = w => genRender(w);
+RENDER.key = w => keyRender(w);
+RENDER.terminal = w => termRender(w);
+RENDER.options = w => optionsRender(w);
+RENDER.usage = w => usageRender(w);
+RENDER.activity = w => activityRender(w);
+RENDER.images = w => gallery(w, "image");
+RENDER.audio = w => gallery(w, "audio");
+RENDER.videos = w => gallery(w, "video");
+RENDER.tree = w => treeRender(w);
+RENDER.notes = w => notesRender(w);
+RENDER.viewer = viewerRender;
+RENDER.props = propsRender;
+setInterval(() => $$(".act [data-eta]").forEach(e => { e.textContent = etaText(+e.dataset.eta); }), 5000);
+try { S.notePref = { ...S.notePref, ...JSON.parse(localStorage.getItem(NOTE_PREF)) }; } catch {}
+addEventListener("pagehide", () => notesSt.dirty.forEach(ed => {
+  if (ed.name && ed.text !== ed.saved) fetch("/api/notes", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: ed.name, text: ed.text }) }).catch(() => {});
+}));
+// terminal links to notes (ls notes, tree)
+desk.addEventListener("click", e => { const a = e.target.closest("[data-note-open]"); if (a) openNote(a.dataset.noteOpen, a); });
+setTimeout(() => { notesLoad(); noteFromHash(noteHash); }, 0);
+addEventListener("hashchange", () => noteFromHash(location.hash));
+addEventListener("dragstart", e => {
+  const it = e.target.closest?.("[data-nt-item]");
+  if (it) {
+    const key = it.dataset.ntItem;
+    e.dataTransfer.setData(NOTE_DRAG, key === NOTE_DRAFT ? NOTE_DRAG_LINK : key);
+    e.dataTransfer.effectAllowed = "copy";
+    if (key !== NOTE_DRAFT) noteTextOf(key).catch(() => {}); // warm the cache for the drop
+    return;
+  }
+  if (e.target.matches?.(".nt-ta")) e.dataTransfer.effectAllowed = "copy"; // text dragged out of a note is copied, never cut from it
+});
+desk.addEventListener("dragover", e => {
+  if (!isNoteDrag(e)) return;
+  const w = winOf(e.target); if (!w || w.kind !== "generate" || !w.shell) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = "copy"; w.el.classList.add("drop");
+  const ta = e.target.closest("textarea.gprompt"), at = ta && caretAt(ta, e.clientX, e.clientY);
+  if (at != null) { ta.focus({ preventScroll: true }); ta.setSelectionRange(at, at); } // the caret shows where the note goes
+});
+desk.addEventListener("drop", async e => {
+  if (!isNoteDrag(e)) return;
+  const w = winOf(e.target); if (!w || w.kind !== "generate") return;
+  e.preventDefault(); w.el.classList.remove("drop");
+  const key = e.dataTransfer.getData(NOTE_DRAG), name = key === NOTE_DRAG_LINK ? "The note from the link" : key;
+  const strip = e.target.closest("[data-strip]");
+  if (strip) {
+    const f = curModel(w)?.fields.find(x => x.name === strip.dataset.strip);
+    genMsg(w, `${f?.label || "This input"} takes ${f ? f.accept.join(" or ") : "media"} files, not notes. Drop ${key === NOTE_DRAG_LINK ? "the note" : key} on the prompt instead.`);
+    return;
+  }
+  const ta = e.target.closest("textarea.gprompt"), at = ta ? caretAt(ta, e.clientX, e.clientY) : null;
+  let text;
+  try { text = await noteTextOf(key); } catch (err) { genMsg(w, `Couldn't read ${name}: ${err.message}`); return; }
+  if (!text.trim()) { genMsg(w, `${name} is empty.`, true); return; }
+  focus(w); save();
+  if (ta) { genMsg(w, null); promptInsert(ta, text, at != null ? { at } : {}); } else genTakeText(w, text);
+});
+desk.addEventListener("click", e => {
+  const b = e.target.closest("[data-plib]"), w = b && winOf(b); if (!w) return;
+  (b.dataset.plib === "pick" ? promptsMenu : promptSaveMenu)(w, b);
+});
+// Cmd+Shift+S (Ctrl+Shift+S off the Mac) in Generate: save the prompt as a new note. letterOf: the S key on any layout (AZERTY too)
+addEventListener("keydown", ev => {
+  if (!ev.shiftKey || ev.altKey || !(MAC ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey && !ev.metaKey) || letterOf(ev) !== "s") return;
+  const f = frontWin(); if (!f || f.kind !== "generate" || !f.shell || !menuEl.hidden || $("#notedlg")) return;
+  ev.preventDefault(); promptSave(f);
+});
+S.opts = { ...OPT_DEFAULT };
+try {
+  const saved = JSON.parse(localStorage.getItem(OPT_KEY)) || {};
+  if (!saved.theme && saved.desk === "#0b2e2e") delete saved.desk; // the old default desktop color now comes from the theme
+  if (!saved.fontV2) { delete saved.font; delete saved.textPx; saved.fontV2 = true; } // readable smooth font became the default
+  if (!saved.fontV3) { delete saved.font; saved.fontV3 = true; } // IBM Plex Sans became the default
+  if (!saved.sizeV4) { delete saved.textPx; delete saved.textSize; saved.sizeV4 = true; } // bigger default text for the smooth fonts
+  if (!saved.sizeV5) { if (saved.font !== "pixel" && +saved.textPx < 13) delete saved.textPx; saved.sizeV5 = true; } // sizes under 13 px came from the pixel-font marks and are too small for the outline fonts
+  S.opts = { ...OPT_DEFAULT, ...saved };
+} catch {}
+reduced.addEventListener?.("change", applyOptions);
+RENDER.compare = cmpRender;
+
+// Alt+C compares the selection, Cmd+A selects everything in the list; Shift+arrows extend the selection (capture: before the plain arrow keys)
+addEventListener("keydown", ev => {
+  if (S.kb || !menuEl.hidden || !startMenu.hidden) return;
+  const f = frontWin(), t = ev.target instanceof Element ? ev.target : document.body;
+  if (!f || !MULTI.has(f.kind) || t.closest("input, textarea, select, [contenteditable], .dicon")) return;
+  const cmd = MAC ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey && !ev.metaKey, L = letterOf(ev);
+  if (ev.altKey && !cmd && !ev.shiftKey && !ev.metaKey && !ev.ctrlKey && L === "c") { ev.preventDefault(); ev.stopPropagation(); compareSel(f); return; }
+  if (cmd && !ev.altKey && !ev.shiftKey && L === "a") { ev.preventDefault(); ev.stopPropagation(); selectAll(f); return; }
+  if (!ev.shiftKey || ev.altKey || ev.metaKey || ev.ctrlKey) return;
+  const grid = f.kind !== "jobs";
+  const d = { ArrowDown: grid ? 2 : 1, ArrowUp: grid ? -2 : -1, ArrowRight: grid ? 1 : 0, ArrowLeft: grid ? -1 : 0, Home: -1e6, End: 1e6 }[ev.key];
+  if (!d) return;
+  ev.preventDefault(); ev.stopPropagation();
+  extendSel(f, d);
+}, true);
+desk.addEventListener("click", e => {
+  const s = e.target.closest("[data-compare-sel]"); if (s) { compareSel(winOf(s), s); return; }
+  const c = e.target.closest("[data-compare]"); if (c) compare(c.dataset.compare.split(","), c);
+});
+menuEl.addEventListener("click", e => {
+  const b = e.target.closest("button[data-i]"); if (!b) return;
+  const it = S.menuItems[+b.dataset.i]; hideMenu(); it.act();
+});
+menuEl.addEventListener("contextmenu", e => e.preventDefault());
+menuEl.addEventListener("keydown", e => menuKeys(menuEl, e));
+// capture phase: runs before the terminal, list and gallery keys, and swallows the keys it uses
+addEventListener("keydown", e => {
+  if (!S.kb || ["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
+  const { w, mode } = S.kb, dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+  if (wins.get(w.id) !== w || w.minimized || w.max || (!dir && e.key !== "Enter" && e.key !== "Escape")) { kbEnd(true); return; } // any other key keeps the change and does its usual job
+  e.preventDefault(); e.stopPropagation();
+  if (!dir) { kbEnd(e.key === "Enter"); return; }
+  const d = D(), [mw, mh] = minOf(w, d), st = e.shiftKey ? 1 : px(8);
+  if (w.snapped) { // leaving a snapped layout: moving gets the size from before the snap back, as with the mouse
+    if (mode === "move" && w.pre) Object.assign(w, { wd: w.pre.wd, ht: w.pre.ht });
+    w.snapped = false; w.pre = null;
+  }
+  if (mode === "move") { w.x += dir[0] * st; w.y += dir[1] * st; }
+  else { w.wd = clampN(w.wd + dir[0] * st, mw, d.w - w.x); w.ht = clampN(w.ht + dir[1] * st, mh, d.h - w.y); }
+  fit(w); place(w);
+}, true);
+addEventListener("pointerdown", () => kbEnd(true), true);
+navigator.keyboard?.getLayoutMap?.().then(m => { S.layoutMap = m; }).catch(() => {});
+document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement) navigator.keyboard?.unlock?.(); });
+addEventListener("paste", ev => {
+  const f = frontWin(); if (!f || f.kind !== "generate" || !f.el.contains(document.activeElement) && document.activeElement !== document.body) return;
+  const files = [...(ev.clipboardData?.files || [])];
+  const typing = ev.target instanceof Element && ev.target.closest("input, textarea");
+  if (files.length) { ev.preventDefault(); files.forEach(file => genUpload(f, file)); return; }
+  if (typing) return;
+  const text = (ev.clipboardData?.getData("text") || "").trim(), r = text && runOf(text);
+  if (r) { ev.preventDefault(); genDropRun(f, text); }
+  else if (text) genMsg(f, "To use a job as an input, select it in Jobs, a gallery or the Job tree and press Cmd+C first.", true);
+});
+balloonEl.addEventListener("pointerenter", balloonPause);
+balloonEl.addEventListener("pointerleave", () => { if (!balloonEl.contains(document.activeElement)) balloonResume(); });
+balloonEl.addEventListener("focusin", balloonPause);
+balloonEl.addEventListener("focusout", e => { if (!balloonEl.contains(e.relatedTarget) && !balloonEl.matches(":hover")) balloonResume(); });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { S.unseen = 0; setTitle(); } });
+tasksEl.addEventListener("pointerdown", e => { if (e.target.closest("[data-task]")) e.preventDefault(); });
+tasksEl.addEventListener("click", e => {
+  const b = e.target.closest("[data-task]"); if (!b) return;
+  const w = wins.get(b.dataset.task); if (!w) return;
+  if (w.minimized) restore(w);
+  else if (w === frontWin()) minimize(w);
+  else { focus(w); save(); focusInto(w); }
+});
+$(".taskbar").addEventListener("contextmenu", e => {
+  e.preventDefault();
+  const b = e.target.closest("[data-task]");
+  b && wins.get(b.dataset.task) ? windowMenu(wins.get(b.dataset.task), e.clientX, e.clientY - 4) : deskMenu(e.clientX, e.clientY - 4);
+});
+$("#tray-run").addEventListener("click", e => open("activity", null, e.currentTarget));
+$("#tray-bal").addEventListener("click", e => open("overview", null, e.currentTarget));
+startBtn.addEventListener("click", () => setStart(startMenu.hidden));
+startMenu.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  setStart(false);
+  if (b.dataset.launch) open(b.dataset.launch, null, startBtn);
+  if (b.dataset.cmd === "folder") fileAction("reveal", "runs.json");
+  if (b.dataset.cmd === "cascade") cascadeAll();
+  if (b.dataset.cmd === "tile") tileAll();
+  if (b.dataset.cmd === "fullscreen") toggleFullScreen();
+  if (b.dataset.cmd === "shutdown") shutdownDialog();
+});
+// Options → Spending: the limit field saves on change (Enter or leaving the field)
+document.addEventListener("change", e => {
+  const el = e.target.closest?.("[data-limit]"); if (!el) return;
+  const v = el.value.trim(), n = Math.round(+v), had = document.activeElement === el;
+  setOpt("dailyLimit", v === "" || !(n >= 1) ? null : n);
+  if (had) $("[data-limit]")?.focus({ preventScroll: true });
+  spendRefresh();
+});
+startMenu.addEventListener("keydown", e => menuKeys(startMenu, e));
+$$("[data-launch]", startMenu).forEach(b => { const k = APP_KEYS[b.dataset.launch]; if (k && !$("kbd", b)) b.insertAdjacentHTML("beforeend", `<kbd>Alt+${k}</kbd>`); });
+document.addEventListener("pointerdown", e => {
+  if (!startMenu.hidden && !e.target.closest("#startmenu, #start")) setStart(false);
+  if (!menuEl.hidden && !e.target.closest("#ctxmenu")) hideMenu();
+});
+
+/* ---------- desktop icons: click selects, double-click / Enter / tap opens ---------- */
+addEventListener("pointerdown", e => { S.lastPointer = e.pointerType; }, true);
+try { S.iconSlots = JSON.parse(localStorage.getItem(ICON_KEY)) || {}; } catch {}
 // drag an icon: it follows the pointer after a few pixels, then snaps to the nearest free slot; a plain click stays a click
 icons.addEventListener("pointerdown", e => {
   const b = e.target.closest(".dicon"); if (!b || e.button !== 0) return;
@@ -4128,7 +4145,6 @@ icons.addEventListener("pointerdown", e => {
   };
   addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);
 });
-const arrangeIcons = () => { S.iconSlots = {}; saveIcons(); layoutIcons(); };
 icons.addEventListener("click", e => { if (S.iconDragged) { e.stopPropagation(); return; } const b = e.target.closest("[data-launch]"); if (b && (e.detail === 0 || S.lastPointer === "touch")) open(b.dataset.launch, null, b); }, true);
 icons.addEventListener("dblclick", e => { const b = e.target.closest("[data-launch]"); if (b) open(b.dataset.launch, null, b); });
 icons.addEventListener("keydown", e => {
@@ -4137,25 +4153,6 @@ icons.addEventListener("keydown", e => {
 });
 desk.addEventListener("pointerdown", e => { if (e.target === desk) document.activeElement?.blur(); });
 desk.addEventListener("contextmenu", e => { if (e.target === desk || e.target.closest(".icons")) { e.preventDefault(); deskMenu(e.clientX, e.clientY); } });
-
-/* ---------- right-click: an in-app menu everywhere; Shift + right-click keeps the browser's own menu ---------- */
-async function pasteInto(el) {
-  try {
-    const t = await navigator.clipboard.readText();
-    el.focus(); el.setRangeText(t, el.selectionStart, el.selectionEnd, "end");
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-  } catch { balloon({ title: "Couldn't paste", text: "The browser blocked reading the clipboard. Press Cmd+V instead.", ms: 4000 }); }
-}
-function textMenu(el, x, y) {
-  const sel = el.value.slice(el.selectionStart ?? 0, el.selectionEnd ?? 0), ro = el.readOnly || el.disabled;
-  showMenu(x, y, [
-    { label: "Cut", icon: "i-copy", hint: "Cmd+X", disabled: !sel || ro, act: () => { navigator.clipboard?.writeText(sel).catch(() => {}); el.focus(); el.setRangeText("", el.selectionStart, el.selectionEnd, "end"); el.dispatchEvent(new Event("input", { bubbles: true })); } },
-    { label: "Copy", icon: "i-copy", hint: "Cmd+C", disabled: !sel, act: () => copyText(sel, "Copied") },
-    { label: "Paste", hint: "Cmd+V", disabled: ro, act: () => pasteInto(el) },
-    { sep: true },
-    { label: "Select all", hint: "Cmd+A", disabled: !el.value, act: () => { el.focus(); el.select(); } },
-  ]);
-}
 addEventListener("contextmenu", e => {
   if (e.defaultPrevented || e.shiftKey) return; // handled by a more specific menu, or Shift asks for the browser's own
   e.preventDefault();
@@ -4177,9 +4174,6 @@ addEventListener("contextmenu", e => {
   if (w) { windowMenu(w, e.clientX, e.clientY); return; }
   if (t.closest("#desktop")) deskMenu(e.clientX, e.clientY);
 });
-
-/* ---------- clicks inside windows ---------- */
-const winOf = el => wins.get(el.closest(".window")?.dataset.id);
 desk.addEventListener("click", e => {
   const c = e.target.closest("[data-copy]");
   if (c) {
@@ -4308,26 +4302,6 @@ addEventListener("keydown", ev => {
     else if (v && (e.key === "," || e.key === ".")) { v.pause(); v.currentTime = clampN(v.currentTime + (e.key === "." ? 1 : -1) / 24, 0, v.duration || 0); }
   }
 });
-
-/* ---------- persistence ---------- */
-function save() {
-  clearTimeout(S.saveT);
-  if (S.resetting) return;
-  S.saveT = setTimeout(() => {
-    const list = [...wins.values()].map(w => ({ kind: w.kind, arg: w.arg, x: w.x, y: w.y, wd: w.wd, ht: w.ht, max: w.max, minimized: w.minimized, snapped: w.snapped, pre: w.pre, z: w.z, seq: w.seq, filter: w.filter, q: w.q, sort: w.sort, size: w.size, sel: w.sel, tab: w.tab, days: w.days, act: w.kind === "activity" ? w.act : undefined, solo: w.kind === "tree" ? !!w.solo : undefined, gen: w.kind === "generate" ? w.gen : undefined, cmp: w.kind === "compare" ? w.cmp : undefined }));
-    try { localStorage.setItem(KEY, JSON.stringify(list)); } catch {}
-  }, 150);
-}
-function restoreLayout() {
-  let saved = null;
-  try { saved = JSON.parse(localStorage.getItem(KEY)); } catch {}
-  if (!Array.isArray(saved)) { open("terminal"); return; } // first launch: just the terminal
-  saved.filter(s => KINDS[s.kind] && (s.kind === "viewer" || s.kind === "props" || s.kind === "compare" ? s.arg : true)).sort((a, b) => a.z - b.z).forEach(s => make(s.kind, s.arg, s));
-  refreshFront();
-}
-// first launch (no saved layout, so restoreLayout opens just the terminal): once the first state poll answers
-// and there is no API key, open the key window on top as well. Later loads have a saved layout and skip this.
-const firstLaunch = (() => { try { return !Array.isArray(JSON.parse(localStorage.getItem(KEY))); } catch { return true; } })();
 if (firstLaunch) ready.then(() => { if (!S.data.live) $(".kin", open("key").body)?.focus({ preventScroll: true }); });
 // jobs keep rendering on Runway across a refresh or restart (the server tracks them in runs.json):
 // if any are still queued or rendering, bring Activity back so they stay in view, without taking focus
@@ -4337,118 +4311,6 @@ ready.then(() => {
   if (prev && prev !== aw) { focus(prev); focusInto(prev); }
 });
 addEventListener("resize", () => { wins.forEach(w => { fit(w); place(w); }); layoutIcons(); });
-
-/* ---------- boot screen: a BIOS self-test over the real startup; the log stays up until you start ---------- */
-// each startup check with its time (ms since the page started loading), kept for the bootlog command
-const bootLog = [];
-async function bootScreen(modelsLoaded) {
-  // the checks run and are logged even with the boot screen off; the screen only shows them
-  const show = S.opts.boot, fast = calm(), deadline = Date.now() + 8000;
-  let el = null, log = null, hint = null, phase = "loading", early = false;
-  const setHint = t => { if (hint) hint.textContent = t; };
-  const btns = () => (el ? $$(".boot-act button", el) : []);
-  const start = async withKey => {
-    if (S.bootDone) return;
-    S.bootDone = true;
-    removeEventListener("keydown", onKey, true); removeEventListener("pointerdown", onPointer, true);
-    document.body.classList.remove("booting");
-    el.classList.add("out");
-    setTimeout(() => el.remove(), fast ? 0 : 200);
-    if (withKey) open("key");
-    const f = frontWin(); if (f) $("input:not([type=hidden]):not([type=range]), textarea", f.body)?.focus();
-  };
-  // while loading: Esc starts now, any other key or a click starts as soon as loading finishes.
-  // when ready: Enter or Space presses the focused button, Tab moves between the buttons, Esc starts.
-  const onKey = e => {
-    e.stopPropagation(); // the desktop behind doesn't see keys while the boot screen is up
-    if (e.metaKey || e.ctrlKey || ["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return; // browser shortcuts still work
-    e.preventDefault();
-    if (S.bootDone) return;
-    if (e.key === "Escape") { start(false); return; }
-    if (phase === "loading") {
-      if (!early) { early = true; setHint("Starting when loading finishes… Press Esc to start now."); }
-      return;
-    }
-    const list = btns(), i = list.indexOf(document.activeElement);
-    if (e.key === "Enter" || e.key === " ") (list[i] || list[0])?.click();
-    else if (e.key === "Tab" && list.length) list[(i + (e.shiftKey ? -1 : 1) + list.length) % list.length].focus();
-  };
-  const onPointer = e => {
-    e.stopPropagation();
-    if (S.bootDone || phase !== "loading") return;
-    e.preventDefault();
-    if (!early) { early = true; setHint("Starting when loading finishes… Press Esc to start now."); }
-  };
-  if (show) {
-    S.bootDone = false;
-    el = document.createElement("div");
-    el.className = "boot";
-    // one centered column: logo, name, progress bar, the checks as they run, then the Start button
-    el.innerHTML = `<div class="boot-col">
-          <span class="boot-logo" aria-hidden="true">${logoSVG("#ffffff")}</span>
-          <b class="boot-name">runway os</b>
-          <div class="boot-bar" role="progressbar" aria-label="Starting runway os" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i></i></div>
-          <ul class="boot-log" role="log" aria-live="polite"></ul>
-          <div class="boot-sum" aria-live="polite"></div>
-          <div class="boot-act"></div>
-          <div class="boot-hint" aria-live="polite">Press any key to start when loading finishes, or Esc to start now.</div>
-        </div>`;
-    document.body.append(el); document.body.classList.add("booting");
-    log = $(".boot-log", el); hint = $(".boot-hint", el);
-    addEventListener("keydown", onKey, true); addEventListener("pointerdown", onPointer, true);
-  }
-  // a line prints when its check starts; its result is added, and the line logged, when the check finishes
-  const STEPS = 5;
-  let doneSteps = 0;
-  const begin = text => {
-    const d = log && document.createElement("li");
-    if (d) { d.innerHTML = `<span></span><span class="res wait">…</span>`; d.firstChild.textContent = text; log.append(d); }
-    return { d, text };
-  };
-  const end = (row, res, bad = false) => {
-    bootLog.push({ ms: Math.round(performance.now()), text: row.text, res, bad });
-    doneSteps++;
-    if (el) { const pct = Math.min(100, Math.round((doneSteps / STEPS) * 100)); $(".boot-bar i", el).style.width = pct + "%"; $(".boot-bar", el).setAttribute("aria-valuenow", pct); }
-    if (!row.d) return;
-    const r = row.d.lastChild; r.textContent = res || "OK"; r.className = "res" + (bad ? " bad" : "");
-  };
-  const summary = text => { bootLog.push({ ms: Math.round(performance.now()), text, res: "", bad: false }); if (el) $(".boot-sum", el).textContent = text; };
-  const wait = p => upTo(p, Math.max(0, deadline - Date.now()));
-
-  let row = begin("Server");
-  end(row, location.protocol === "file:" ? "opened as a file" : location.host, location.protocol === "file:");
-  row = begin("Loading model list…");
-  if (!(await wait(modelsLoaded)) || !S.CAT) end(row, "failed. Generate can't list models", true);
-  else { const t = S.CAT.tasks || []; end(row, `${new Set(t.flatMap(x => x.models.map(m => m.id))).size} models, ${t.length} tasks`); }
-  row = begin("Connecting to Runway API…");
-  // the first /api/state answer, or the first failed poll (poll keeps retrying every 3 s)
-  while (!S.loaded && S.conn.cls !== "off" && Date.now() < deadline) await upTo(ready, 50);
-  if (!S.loaded) end(row, S.conn.cls === "off" ? "server not reachable" : "no answer after 8 s", true);
-  else if (!S.data.live) end(row, "no key", true);
-  else if (S.data.error) end(row, S.data.error, true);
-  else end(row, "OK");
-  const live = S.loaded && S.data.live && !S.data.error, n = S.data.runs.length;
-  const when = S.data.balanceAt ? `, last known ${absTime(tOf(S.data.balanceAt))}` : ", last known";
-  end(begin("Credits"), !S.loaded || S.data.balance == null ? "unknown" : fmt(S.data.balance) + (live ? "" : when), !S.loaded || S.data.balance == null);
-  end(begin("Jobs"), S.loaded ? `${fmt(n)} found` : "unknown", !S.loaded);
-  summary(!S.loaded ? (S.conn.cls === "off" ? `Server not reachable. Run python3 server.py${location.protocol === "file:" ? " and open the address it prints" : "; runway os keeps trying"}.` : "The server hasn't answered yet; runway os keeps trying.")
-    : !S.data.live ? "Ready without a Runway key."
-    : S.data.error ? "Ready, but the Runway API reported an error."
-    : `Ready. ${S.data.balance == null ? "Credits unavailable" : fmt(S.data.balance) + " credits"}, ${fmt(n)} job${n === 1 ? "" : "s"}.`);
-  phase = "ready";
-  if (!show || S.bootDone) return;
-  if (early) { start(false); return; }
-  const act = $(".boot-act", el), keyBtn = S.loaded && !live;
-  act.innerHTML = `<button class="raised btn-s default" data-start>Start runway os</button>${keyBtn ? '<button class="raised btn-s" data-start="key">Start and add API key</button>' : ""}`;
-  act.addEventListener("click", e => { const b = e.target.closest("[data-start]"); if (b) start(b.dataset.start === "key"); });
-  $("button", act).focus();
-  setHint(keyBtn ? "Press Enter to start, or Tab to choose the other button." : "Press Enter to start");
-}
-
-/* ---------- live data ---------- */
-// what each window shows from the job log; poll skips windows whose signature didn't change
-const runSig = r => r && JSON.stringify(r);
-const SIG = {};
 SIG.options = () => "";
 SIG.terminal = () => "";
 SIG.usage = () => "";
@@ -4457,62 +4319,7 @@ SIG.images = w => JSON.stringify(assetsOf("image").map(r => [r.taskId, r.asset, 
 SIG.videos = w => JSON.stringify(assetsOf("video").map(r => [r.taskId, r.asset, r.prompt]));
 SIG.audio = w => JSON.stringify(assetsOf("audio").map(r => [r.taskId, r.asset, r.prompt]));
 SIG.props = w => { const r = runOf(w.arg); return r ? [runSig(r), runSig(runOf(r.parent)), ...childrenOf(r.taskId).map(runSig)].join("|") : "-"; };
-// the server answers 304 when nothing changed, so an idle poll costs almost nothing
-function schedulePoll() {
-  clearTimeout(S.pollT);
-  const ms = document.hidden ? 30000 : S.data.runs.some(r => ACTIVE.has(r.status)) ? 2000 : 5000;
-  S.pollT = setTimeout(() => poll().finally(schedulePoll), ms);
-}
 document.addEventListener("visibilitychange", () => { if (!document.hidden) poll().finally(schedulePoll); });
-async function poll() {
-  try {
-    const res = await fetch("/api/state", { cache: "no-store", headers: S.stateTag && S.loaded ? { "If-None-Match": S.stateTag } : {} });
-    if (res.status === 304) {
-      if (S.conn.cls === "off" && S.lastConn) { S.conn = S.lastConn; wins.forEach(w => w.kind === "overview" && renderWin(w)); }
-      return;
-    }
-    S.stateTag = res.headers.get("ETag");
-    const d = await res.json();
-    const c = d.error ? { cls: "warn", text: "Runway API: " + d.error } : d.live ? { cls: "on", text: "Connected" } : { cls: "warn", text: "No API key" };
-    const runs = d.runs || [], rs = JSON.stringify(runs) + JSON.stringify(d.inputs || []), ss = rs + d.balance + d.balanceAt + (d.history || []).length;
-    const first = !S.loaded, runsChanged = rs !== S.runsSig, anyChanged = ss !== S.stateSig;
-    const connChanged = c.text !== S.conn.text || c.cls !== S.conn.cls;
-    const keySig = [d.live, d.keySource, d.keyHint, d.error].join("|"), keyChanged = keySig !== S.data.keySig;
-    S.data = { runs, balance: d.balance, balanceAt: d.balanceAt, history: d.history || [], live: !!d.live, keySource: d.keySource, keyHint: d.keyHint, error: d.error, keySig, inputs: d.inputs || [] };
-    spendUpdate(d);
-    if (S.sessionStart == null && d.balance != null) S.sessionStart = { balance: d.balance, at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
-    S.runsSig = rs; S.stateSig = ss; S.conn = c; S.lastConn = c; S.loaded = true; S.markReady();
-    if (!first) runs.forEach(r => { const was = S.prevStatus.get(r.taskId); if (was && ACTIVE.has(was) && !ACTIVE.has(r.status)) announce(r); });
-    S.prevStatus = new Map(runs.map(r => [r.taskId, r.status]));
-    wins.forEach(w => {
-      if (w.kind === "overview" || w.kind === "key") { if (first || anyChanged || connChanged) renderWin(w); return; }
-      if (!first && !runsChanged) return;
-      const sig = SIG[w.kind]?.(w);
-      if (sig !== undefined && sig === w.sig && !first) return; // this window's data didn't change
-      w.sig = sig; renderWin(w);
-    });
-    if (!first && keyChanged && !runsChanged) wins.forEach(w => (w.kind === "key" || w.kind === "generate") && renderWin(w));
-    if (first || runsChanged) renderTasks();
-    if (first || anyChanged) renderTray();
-  } catch {
-    const c = { cls: "off", text: location.protocol === "file:" ? "Run python3 server.py" : "Server offline" };
-    if (c.text !== S.conn.text) { S.conn = c; wins.forEach(w => w.kind === "overview" && renderWin(w)); }
-  }
-}
-
-// clock + relative times
-const clock = $("#clock");
-function tick() {
-  const now = new Date();
-  clock.textContent = now.toLocaleTimeString([], S.opts.clock24 ? { hour: "2-digit", minute: "2-digit", hour12: false } : { hour: "numeric", minute: "2-digit", hour12: true });
-  clock.title = now.toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-  $$("time[data-t]").forEach(t => { t.textContent = t.dataset.kind === "elapsed" ? dur(Date.now() - +t.dataset.t) : ago(+t.dataset.t); });
-}
-
-// the model list and the first state load in parallel
-const modelsLoaded = fetch("/api/models").then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-  .then(c => { S.CAT = c; }).catch(() => { S.catFailed = true; })
-  .finally(() => wins.forEach(w => w.kind === "generate" && renderWin(w)));
 poll();
 applyOptions();
 document.getElementById("i-logo").innerHTML = logoSVG("#ffffff").replace(/^<svg[^>]*>|<\/svg>$/g, "");
@@ -4520,7 +4327,9 @@ $("#favicon").href = "data:image/svg+xml," + encodeURIComponent(FAV.idle);
 bootScreen(modelsLoaded);
 restoreLayout();
 renderTasks();
-layoutIcons(); document.fonts?.ready.then(layoutIcons);
-tick(); setInterval(tick, 5000);
+layoutIcons();
+document.fonts?.ready.then(layoutIcons);
+tick();
+setInterval(tick, 5000);
 schedulePoll();
 window.__rwosReady = true;
