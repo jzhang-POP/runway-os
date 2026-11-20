@@ -1,19 +1,28 @@
 import { S, ready, wins } from "./core/state.js";
-import { $, $$, cap, clampN, desk, esc, fmt, icoLabel, menuEl, reduced, startBtn, startMenu } from "./core/dom.js";
+import { $, $$, cap, clampN, desk, esc, fmt, icoLabel, menuEl, startBtn, startMenu } from "./core/dom.js";
 import { OFFLINE, api } from "./core/api.js";
-import { FAV, R_BITS, ledHTML, logoSVG, spark } from "./core/graphics.js";
+import { FAV, R_BITS, logoSVG, spark } from "./core/graphics.js";
 import { morph } from "./core/morph.js";
-import { ACTIVE, QUEUED, assetsOf, childrenOf, costHTML, costOf, createdMs, fileItem, filesOf, miniThumb, nameOf, newestFirst, plural, relHTML, runOf, runSig, statusHTML, statusInfo, thumbInner, thumbOf, typeIcon, typicalMs } from "./core/status.js";
+import { ACTIVE, assetsOf, costHTML, costOf, createdMs, fileItem, filesOf, miniThumb, nameOf, newestFirst, plural, relHTML, runOf, statusHTML, statusInfo, thumbInner, thumbOf, typeIcon } from "./core/status.js";
 import { absTime, ago, dur, sleep, tOf, upTo } from "./core/time.js";
 import { GEN_BTN, announce, balloon, copyJob, copyText, emptyAct, fileAction, itemId, loadingOr, init as uiInit } from "./core/ui.js";
 import { D, px } from "./wm/geometry.js";
 import { APP_KEYS, KINDS, RENDER, SIG } from "./wm/kinds.js";
 import { KEY, resetLayout, restoreLayout, save } from "./wm/persist.js";
 import { CMP_BTN, CMP_MAX, MULTI, activeSync, cmpBase, cmpBtnSync, extendSel, isSel, menuSelect, moveSel, multiClick, selIds, selNote, select, selectAll } from "./wm/selection.js";
-import { sheetHTML, sheetKeys } from "./wm/sheet.js";
 import { renderTasks, renderTray, setStart, init as taskbarInit } from "./wm/taskbar.js";
-import { cascadeAll, close, defaultOpen, fit, fitActions, focus, focusInto, frontWin, minOf, minimize, open, place, renderWin, restore, retitle, snapHalf, tileAll, toggleMax, winOf, init as windowsInit } from "./wm/windows.js";
+import { cascadeAll, close, defaultOpen, fit, focus, focusInto, frontWin, minOf, minimize, open, place, renderWin, restore, retitle, snapHalf, tileAll, toggleMax, winOf, init as windowsInit } from "./wm/windows.js";
 import { arrangeIcons, layoutIcons, init as iconsInit } from "./desktop/icons.js";
+import { activityShow, init as activityInit } from "./apps/activity.js";
+import { init as keyInit } from "./apps/key.js";
+import { init as keysInit } from "./apps/keys.js";
+import { applyOptions, calm, init as optionsInit } from "./apps/options.js";
+import { init as overviewInit } from "./apps/overview.js";
+import { init as propsInit } from "./apps/props.js";
+import { restart, shutdownDialog } from "./apps/shutdown.js";
+import { spendCheck, spendHint, spendTerm, spendUpdate, init as spendInit } from "./apps/spend.js";
+import { usageLoad, usageMine, usageSummary, init as usageInit } from "./apps/usage.js";
+import { step, init as viewerInit } from "./apps/viewer.js";
 
 // drag and drop of saved files between windows (Jobs rows, gallery tiles, the viewer) into Generate's inputs
 const DRAG_TYPE = "application/x-runway-run";
@@ -32,123 +41,6 @@ function jobsFor(w) {
   return S.data.runs
     .filter(r => (w.filter === "all" || r.type === w.filter) && (!q || [r.prompt, r.model, r.taskId, r.asset, r.settings].some(v => String(v || "").toLowerCase().includes(q))))
     .sort((a, b) => { const x = col.get(a), y = col.get(b); return (x < y ? -1 : x > y ? 1 : 0) * w.sort.dir || createdMs(b) - createdMs(a); });
-}
-const SHORTCUTS = [
-  ["Windows", [
-    ["Cmd+W or Alt+W", "Close the window (Cmd+W only in full screen)"],
-    ["Cmd+M or Alt+↓", "Minimize"],
-    ["Alt+↑", "Maximize or restore"],
-    ["Alt+← / Alt+→", "Snap to the left or right half"],
-    ["Cmd+` or Alt+`", "Switch to the next window"],
-    ["Ctrl+Cmd+F or F11", "Full screen, where Cmd+W reaches Runway OS"],
-    ["Alt+Space", "Window menu (Move, Size…)"],
-    ["Ctrl+Esc", "Start menu"],
-    ["Esc", "Close a menu, a viewer, Compare or Properties"],
-    ["Cmd+,", "Options"],
-    ["Cmd+?", "This list"],
-  ]],
-  ["Open apps (when you're not typing in a field)", Object.entries(APP_KEYS).filter(([k]) => KINDS[k]).map(([k, key]) => ["Alt+" + key, ({ generate: "Generate", terminal: "Terminal", jobs: "Jobs", tree: "Job tree", usage: "Usage", activity: "Activity", images: "Images", videos: "Videos", audio: "Audio", options: "Options", notes: "Notes", keys: "This list (also F1 or ?)" })[k]])],
-  ["Jobs and files", [
-    ["↑ ↓ ← →, Home, End", "Move the selection"],
-    ["Enter, Cmd+O or Cmd+↓", "Open"],
-    ["Cmd+I or Alt+Enter", "Properties (Get Info)"],
-    ["Cmd+F", "Search jobs"],
-    ["Cmd+C", "Copy the selected job (its task ID)"],
-    ["Cmd+V in Generate", "Use the copied job, or a copied image file, as an input"],
-    ["Shift+F10 or right-click", "Job menu"],
-    ["Cmd+click, Shift+click", "Select several jobs or files"],
-    ["Shift+↑ ↓ ← →", "Extend the selection"],
-    ["Cmd+A", "Select all"],
-    ["Alt+C", "Compare the selected files"],
-  ]],
-  ["Text fields", [
-    ["Cmd+X, Cmd+C, Cmd+V", "Cut, copy, paste"],
-    ["Cmd+A", "Select all"],
-    ["Cmd+Z, Shift+Cmd+Z", "Undo, redo"],
-    ["Cmd+Enter in Generate", "Generate"],
-    ["Cmd+Shift+S in Generate", "Save the prompt to Notes"],
-  ]],
-  ["Viewer", [
-    ["← →", "Previous or next file"],
-    ["Space", "Play or pause"],
-    ["M", "Mute"],
-    [", .", "Step one frame"],
-  ]],
-  ["Compare", [
-    ["← →", "Move the wipe divider (Shift: 10%)"],
-    ["Space", "Play or pause all"],
-    ["Enter", "Open the selected file"],
-  ]],
-];
-function keysRender(w) {
-  if (w.shell) return;
-  w.shell = true;
-  w.body.innerHTML = `
-        <div class="pwrap keys" data-keep="keys">
-          ${SHORTCUTS.filter(([, rows]) => rows.length).map(([title, rows]) => `<fieldset class="group"><legend>${esc(title)}</legend>
-            <dl class="ptbl keytbl">${rows.map(([k, v]) => `<dt>${k.split(/( or |, | \/ )/).map(part => /^( or |, | \/ )$/.test(part) ? `<span class="muted">${part}</span>` : `<kbd>${esc(part)}</kbd>`).join("")}</dt><dd>${esc(v)}</dd>`).join("")}</dl></fieldset>`).join("")}
-          <p class="muted">Chrome keeps Cmd+W, Cmd+T, Cmd+N and Cmd+Q for itself, except in full screen, where Runway OS gets Cmd+W. The Alt shortcuts work everywhere.</p>
-        </div>`;
-}
-// "System Properties": a Win95 property sheet with General, Usage and Connection tabs
-function overviewRender(w) {
-  const runs = S.data.runs, running = runs.filter(r => r.status === "running"), queued = runs.filter(r => QUEUED.has(r.status));
-  const v = { balance: S.data.balance };
-  const fl = "";
-  const delta = S.sessionStart != null && S.data.balance != null ? S.sessionStart.balance - S.data.balance : 0;
-  const ps = running.map(r => r.progress).filter(p => p != null);
-  const det = running.length && ps.length === running.length ? Math.round((ps.reduce((a, b) => a + b, 0) / ps.length) * 100) : null;
-  const checked = S.data.balanceAt ? new Date(S.data.balanceAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : null;
-  const count = t => runs.filter(r => r.type === t && r.asset).length;
-  const tab = w.tab || "general", T = [["general", "General"], ["usage", "Usage"], ["connection", "Connection"]];
-  let panel = "";
-  if (tab === "general") {
-    panel = `
-          <div class="sp-gen">
-            <div class="sp-logo">${logoSVG("#ffffff")}</div>
-            <dl class="sp-facts">
-              <dt>System:</dt><dd>runway os<br><span class="muted">Runway API 2024-11-06</span></dd>
-              <dt>Credits left:</dt><dd><div class="led sunken${fl}" role="img" aria-label="${v.balance == null ? "Balance unknown" : fmt(v.balance) + " credits left"}">${ledHTML(v.balance)}</div>
-                <span class="muted">${delta > 0 ? `<span class="down">▼ ${fmt(delta)}</span> since you opened this at ${esc(S.sessionStart.at)}` : checked ? `Checked at ${esc(checked)}` : "Waiting for Runway"}</span></dd>
-              <dt>Activity:</dt><dd>${running.length ? `Rendering ${running.length} job${running.length > 1 ? "s" : ""}${det != null ? ` · ${det}%` : "…"}` : queued.length ? `${queued.length} job${queued.length > 1 ? "s" : ""} queued…` : "Idle. No jobs rendering."}
-                <div class="prog sunken${running.length + queued.length && det == null ? " busy" : ""}"><i style="${det != null ? `width:${det}%;opacity:1` : ""}"></i></div></dd>
-            </dl>
-          </div>`;
-  } else if (tab === "usage") {
-    const sp = spark(S.data.history, 480, 120, true);
-    const row = (label, val, open) => `<button class="sp-row" data-open="${open}"><span>${label}</span><b>${val}</b></button>`;
-    panel = `
-          <fieldset class="group"><legend>Your jobs</legend>
-            <div class="sp-rows">
-              ${row("Jobs logged", fmt(runs.length), "jobs")}
-              ${row("Credits spent", fmt(runs.reduce((s, r) => s + (r.credits || 0), 0)), "jobs")}
-              ${row("Rendering or queued", fmt(running.length + queued.length), "jobs")}
-              ${row("Images", fmt(count("image")), "images")}
-              ${row("Videos", fmt(count("video")), "videos")}
-              ${row("Audio files", fmt(count("audio")), "audio")}
-            </div>
-          </fieldset>
-          <fieldset class="group sp-chart"><legend>Org balance · last 24 h</legend>
-            ${sp.svg || '<div class="spark-empty big">Collecting balance history. The chart fills in as the server checks every 20 s.</div>'}
-            <div class="muted">${sp.spent != null ? `Your org spent ${fmt(sp.spent)} credits in the last 24 h.` : ""}</div>
-          </fieldset>`;
-  } else {
-    const where = S.data.keySource === "file" ? "saved in .runway_key" : S.data.keySource === "env" ? "from RUNWAYML_API_SECRET" : "none";
-    panel = `
-          <fieldset class="group"><legend>Runway API</legend>
-            <dl class="sp-facts tight">
-              <dt>Status:</dt><dd><span class="live ${S.conn.cls}">${esc(S.conn.text)}</span></dd>
-              <dt>API key:</dt><dd>${S.data.live ? `Ending in ${esc(S.data.keyHint || "…")} <span class="muted">(${where})</span>` : "Not set"}</dd>
-              <dt>Balance:</dt><dd>${checked ? `Checked at ${esc(checked)}` : "Not checked yet"}</dd>
-              <dt>Sync:</dt><dd>Jobs every 8 s, balance every 20 s</dd>
-              <dt>Server:</dt><dd>${esc(location.host)}</dd>
-            </dl>
-            <div class="actions"><button class="raised btn-s" data-open="key">${icoLabel("i-key", "Change key…")}</button></div>
-          </fieldset>`;
-  }
-  morph(w.body, sheetHTML(T, tab, panel));
-  sheetKeys(w);
-  w.prev = v;
 }
 function jobsRender(w) {
   if (!w.shell) {
@@ -196,74 +88,6 @@ function jobsRender(w) {
   cmpBtnSync(w);
   segs[1].textContent = `${fmt(list.reduce((s, r) => s + (r.credits || 0), 0))} credits`;
   segs[2].textContent = "Double-click or Enter to open";
-}
-function viewerRender(w) {
-  const r = runOf(w.arg);
-  if (!r || !r.asset) { w.rendered = null; w.body.innerHTML = loadingOr(r ? "This file isn't saved yet. It opens here when the job finishes." : "This job is no longer in runs.json."); return; }
-  const list = assetsOf(r.type), i = list.findIndex(x => x.taskId === r.taskId);
-  const nav = `<button class="raised btn-s" data-step="-1" ${i <= 0 ? "disabled" : ""} title="Newer (←)">◀</button><span class="sunken seg">${i + 1} / ${list.length}</span><button class="raised btn-s" data-step="1" ${i >= list.length - 1 ? "disabled" : ""} title="Older (→)">▶</button>`;
-  if (w.rendered === r.asset) { $(".nav", w.body).innerHTML = nav; return; }
-  w.rendered = r.asset;
-  const src = encodeURI(r.asset), audio = r.type === "audio", video = r.type === "video" || audio;
-  w.body.innerHTML = `
-        <div class="stage sunken${audio ? " audio" : ""}" data-keep="stage" data-id="${esc(r.taskId)}" draggable="true" title="${video ? "" : "Click to toggle actual size"}">${audio
-      ? `<svg class="aud-ico" aria-hidden="true"><use href="#i-audio"/></svg><div class="aud-txt">${esc(r.prompt)}</div><audio src="${src}" controls autoplay></audio>`
-      : video ? `<video src="${src}" poster="${thumbOf(r)}" controls autoplay muted loop playsinline></video>`
-      : `<img src="${src}" alt="${esc(r.prompt)}" draggable="false">`}</div>
-        <div class="footbar">
-          <span class="nav">${nav}</span>
-          <span class="sunken seg grow info" title="${esc(r.prompt)}">${esc(r.model)} · ${esc(r.settings)} · ${costHTML(r)} cr</span>
-          ${video ? "" : `<button class="raised btn-s zoombtn" title="Toggle actual size">${icoLabel("i-zoom", "Fit")}</button>`}
-          <button class="raised btn-s" data-open="props" data-id="${esc(r.taskId)}" title="Alt+Enter">${icoLabel("i-doc", "Properties")}</button>
-          <button class="raised btn-s" data-file="reveal" data-name="${esc(r.asset)}">${icoLabel("i-finder", "Show in Finder")}</button>
-        </div>`;
-  const media = $(audio ? "audio" : video ? "video" : "img", w.body), info = $(".info", w.body);
-  const addDims = (wd, ht, extra = "") => { info.innerHTML += ` · ${wd}×${ht}${extra}`; };
-  if (audio) media.addEventListener("loadedmetadata", () => { info.innerHTML += ` · ${media.duration.toFixed(1)}s`; }, { once: true });
-  else if (video) media.addEventListener("loadedmetadata", () => addDims(media.videoWidth, media.videoHeight, ` · ${media.duration.toFixed(1)}s`), { once: true });
-  else { media.complete && media.naturalWidth ? addDims(media.naturalWidth, media.naturalHeight) : media.addEventListener("load", () => addDims(media.naturalWidth, media.naturalHeight), { once: true }); bindZoom(w); }
-}
-function propsRender(w) {
-  const r = runOf(w.arg);
-  if (!r) { morph(w.body, loadingOr("This job is no longer in runs.json.")); return; }
-  const parent = r.parent ? runOf(r.parent) : null, kids = childrenOf(r.taskId), took = r.finishedAt && r.createdAt ? tOf(r.finishedAt) - tOf(r.createdAt) : null;
-  const chip = x => `<button class="chip raised" data-open="props" data-id="${esc(x.taskId)}" title="${esc(x.prompt)}">${miniThumb(x)}<span>${esc(nameOf(x))}</span></button>`;
-  const rows = [
-    ["Status", statusHTML(r)],
-    ["Credits", r.credits != null ? `${fmt(r.credits)}${r.costSource === "runway" ? ' <span class="muted">reported by Runway</span>' : ""}` : r.estimatedCredits != null ? `~${fmt(r.estimatedCredits)} <span class="muted">estimate</span>` : "—"],
-    ...(r.quotedCredits != null ? [["Quoted", `${r.quoteExact ? "" : "≈ "}${fmt(r.quotedCredits)}${r.credits != null ? (r.credits === r.quotedCredits ? ' <span class="muted">matches the charge</span>' : ` <span class="bad">charge differs by ${fmt(r.credits - r.quotedCredits)}</span>`) : ' <span class="muted">before submitting</span>'}`]] : []),
-    ["Created", r.createdAt ? `${esc(absTime(tOf(r.createdAt)))} <span class="muted">(${relHTML(r.createdAt)})</span>` : esc(r.date)],
-    ...(took ? [["Took", dur(took)]] : []),
-    ["Model", esc(r.model)], ["Settings", esc(r.settings)],
-    ...(r.failure ? [["Failure", `<span class="bad">${esc(r.failure)}</span>${r.failureCode ? ` <code>${esc(r.failureCode)}</code>` : ""}`]] : []),
-    ["Task ID", `<code>${esc(r._of || r.taskId)}</code>`], ["File", r.asset ? esc(r.asset) + (filesOf(r).length > 1 ? ` <span class="muted">(file ${r._n || 1} of ${filesOf(r).length})</span>` : "") : "Not saved yet"],
-    ...(parent ? [["Made from", parent.asset && r.asset ? `<span class="chips">${chip(parent)}<button class="raised btn-s" data-compare="${esc(parent.taskId + "," + r.taskId)}" title="This file and its source side by side">${icoLabel("i-compare", "Compare")}</button></span>` : chip(parent)]] : []),
-    ...(kids.length ? [["Used in", `<span class="chips">${kids.map(chip).join("")}</span>`]] : []),
-  ];
-  morph(w.body, `
-        <div class="pwrap" data-keep="p">
-          <div class="ptop">${r.asset ? `<button class="thumb sunken" data-open="viewer" data-id="${esc(r.taskId)}" title="Open">${thumbInner(thumbOf(r), r.type)}</button>` : `<span class="thumb sunken">${thumbInner(null, r.type)}</span>`}
-            <div><b>${esc(nameOf(r))}</b><div class="muted">${esc(cap(r.type))} · ${esc(r.model)}</div></div></div>
-          <hr class="etch">
-          <dl class="ptbl">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>
-          <hr class="etch">
-          <div class="plabel">Prompt</div>
-          <div class="promptbox sunken">${esc(r.prompt)}</div>
-          <div class="actions" role="group" aria-label="This file">
-            ${r.asset ? `<button class="raised btn-s b-default" data-open="viewer" data-id="${esc(r.taskId)}">${icoLabel(typeIcon(r.type), "Open")}</button><button class="raised btn-s" data-file="reveal" data-name="${esc(r.asset)}">${icoLabel("i-finder", "Show in Finder")}</button>` : ""}
-            ${ACTIVE.has(r.status) ? `<button class="raised btn-s b-danger" data-cancel="${esc(r.taskId)}">${icoLabel("i-stop", "Cancel job")}</button>` : ""}
-            <button class="raised btn-s" data-copy="${esc(r.prompt)}" data-done="Prompt copied">${icoLabel("i-copy", "Copy prompt")}</button>
-            <button class="raised btn-s" data-copy="${esc(r._of || r.taskId)}" data-done="ID copied">${icoLabel("i-copy", "Copy task ID")}</button>
-            ${r.failure ? `<button class="raised btn-s" data-copy="${esc(r.failure)}" data-done="Error copied">${icoLabel("i-copy", "Copy error")}</button>` : ""}
-          </div>
-          <div class="actions" role="group" aria-label="Make from this">
-            ${r.type === "image" && r.asset ? `<button class="raised btn-s" data-gen="animate" data-id="${esc(r.taskId)}">${icoLabel("i-animate", "Animate…")}</button>` : ""}
-            ${(r.type === "image" || r.type === "video") && r.asset ? `<button class="raised btn-s" data-gen="upscale" data-id="${esc(r.taskId)}">${icoLabel("i-upscale", "Upscale…")}</button>` : ""}
-            ${r.type === "video" && r.asset ? `<button class="raised btn-s" data-gen="sound" data-id="${esc(r.taskId)}">${icoLabel("i-sound", "Add sound…")}</button><button class="raised btn-s" data-gen="hdr" data-id="${esc(r.taskId)}">${icoLabel("i-hdr", "Convert to HDR…")}</button>` : ""}
-            <button class="raised btn-s${r.asset || ACTIVE.has(r.status) ? "" : " b-default"}" data-gen="again" data-id="${esc(r.taskId)}">${icoLabel("i-again", "Generate again…")}</button>
-          </div>
-        </div>`);
-  fitActions(w);
 }
 
 function gallery(w, type) {
@@ -608,7 +432,7 @@ function treeMove(w, key) {
 }
 
 // image viewer: click toggles fit / actual size, drag pans at actual size
-function bindZoom(w) {
+export function bindZoom(w) {
   const stage = $(".stage", w.body), img = $("img", stage), btn = $(".zoombtn", w.body);
   const set = (actual, cx, cy) => {
     const r = img.getBoundingClientRect(), fx = r.width ? (cx - r.left) / r.width : .5, fy = r.height ? (cy - r.top) / r.height : .5;
@@ -635,19 +459,6 @@ function bindZoom(w) {
   });
 }
 
-// move a viewer to the next or previous file of the same type
-function step(w, delta) {
-  const r = runOf(w.arg); if (!r) return;
-  const list = assetsOf(r.type), next = list[list.findIndex(x => x.taskId === r.taskId) + delta];
-  if (!next) return;
-  const id = `viewer:${next.taskId}`;
-  if (wins.has(id)) { close(w); focus(wins.get(id)); return; }
-  wins.delete(w.id);
-  Object.assign(w, { id, arg: next.taskId, rendered: null });
-  w.el.dataset.id = id; wins.set(id, w);
-  renderWin(w); renderTasks(); save();
-}
-
 /* ---------- generate: every Runway task and model, as forms built from Runway's API spec ---------- */
 const aspectCache = new Map();
 const COMMON = [[1, 1], [16, 9], [9, 16], [4, 3], [3, 4], [3, 2], [2, 3], [5, 4], [4, 5], [21, 9], [9, 21], [7, 4], [4, 7], [12, 5], [5, 12], [7, 3], [3, 7], [2, 1], [1, 2]];
@@ -666,13 +477,13 @@ const optLabel = (f, v) => {
   return String(v).replace(/_/g, " ");
 };
 const closestRatio = (list, aspect) => list.filter(isWH).reduce((best, x) => { const [a, b] = dims(x), d = Math.abs(Math.log(a / b / aspect)); return d < best.d - 1e-9 ? { x, d } : best; }, { x: null, d: Infinity }).x;
-const secondsOf = r => r.duration ?? (+(String(r.settings || "").match(/(\d+)\s*s\b/)?.[1] || 0) || null);
+export const secondsOf = r => r.duration ?? (+(String(r.settings || "").match(/(\d+)\s*s\b/)?.[1] || 0) || null);
 const refKey = ref => (ref.run ? "r:" + ref.run : "i:" + ref.input);
 
 const cats = () => [...new Set((S.CAT?.tasks || []).map(t => t.category))];
 const tasksOf = cat => (S.CAT?.tasks || []).filter(t => t.category === cat);
-const curTask = w => { const ts = tasksOf(w.gen.cat); return ts.find(t => t.endpoint === w.gen.ep[w.gen.cat]) || ts[0]; };
-const curModel = w => { const t = curTask(w); if (!t) return null; const ms = t.models; return ms.find(m => m.id === w.gen.model[t.endpoint]) || ms[0]; };
+export const curTask = w => { const ts = tasksOf(w.gen.cat); return ts.find(t => t.endpoint === w.gen.ep[w.gen.cat]) || ts[0]; };
+export const curModel = w => { const t = curTask(w); if (!t) return null; const ms = t.models; return ms.find(m => m.id === w.gen.model[t.endpoint]) || ms[0]; };
 // Additional parameters: free JSON for API fields the form doesn't cover
 const xtext = w => (w.gen.extra ||= {})[mkey(w)] || "";
 function genExtra(w) {
@@ -681,7 +492,7 @@ function genExtra(w) {
   catch (e) { return { err: "isn't valid JSON (" + e.message.replace(/^JSON\.parse: /, "").slice(0, 80) + ")" }; }
 }
 const mkey = w => { const t = curTask(w), m = curModel(w); return t && m ? `${t.endpoint}|${m.id}` : ""; };
-const vals = w => (w.gen.vals[mkey(w)] ||= {});
+export const vals = w => (w.gen.vals[mkey(w)] ||= {});
 const picks = w => (w.gen.media[mkey(w)] ||= {});
 
 // everything that can feed a media field: finished jobs plus files uploaded into inputs/
@@ -698,7 +509,7 @@ function library(accept) {
   return out;
 }
 
-const shownVal = (f, v) => (v !== undefined ? v : f.default ?? (f.kind === "select" && f.required ? f.options[0] : f.kind === "bool" ? !!f.default : ""));
+export const shownVal = (f, v) => (v !== undefined ? v : f.default ?? (f.kind === "select" && f.required ? f.options[0] : f.kind === "bool" ? !!f.default : ""));
 // why Generate can't run yet, or null
 function genBlock(w) {
   const m = curModel(w); if (!m) return "Loading models…";
@@ -983,7 +794,7 @@ function genAddExtra(w, name) {
   ta.focus(); genMsg(w, null); genRefresh(w); save();
 }
 
-function genRefresh(w, fromPrice) {
+export function genRefresh(w, fromPrice) {
   const f = w.body, hint = $(".ghint", f); if (!hint) return;
   const why = genBlock(w), btn = $(".btn-go", f);
   const key = !why && curModel(w) ? JSON.stringify(genBody(w)) : "";
@@ -1011,7 +822,7 @@ function genMsg(w, text, neutral) {
 }
 
 // the request Generate would send, also used to price it
-function genBody(w) {
+export function genBody(w) {
   const t = curTask(w), m = curModel(w), v = vals(w), p = picks(w), values = {}, media = {};
   m.fields.forEach(f => {
     if (f.kind === "media") { if ((p[f.name] || []).length) media[f.name] = p[f.name]; return; }
@@ -1062,93 +873,6 @@ async function genSubmit(w) {
   }
 }
 
-/* ---------- Activity: jobs in progress and recently finished, like a download manager ---------- */
-const fresh = {}; // rows the server just returned from /api/generate, shown until a poll brings them from runs.json
-const sentRun = (w, id) => runOf(id) || fresh[id];
-const etaText = end => (end > Date.now() ? `~${dur(end - Date.now())} left` : "longer than usual");
-// every queued or rendering job, then finished ones from the last 24 h that weren't cleared, newest first
-function activityList(w) {
-  const since = Math.max(Date.now() - 86400000, w.act?.clearedAt || 0), hide = new Set(w.act?.hide || []);
-  const ids = new Set(S.data.runs.map(r => r.taskId));
-  const rows = [...S.data.runs, ...Object.values(fresh).filter(r => !ids.has(r.taskId))];
-  return rows.filter(r => !hide.has(r.taskId) && (ACTIVE.has(r.status) || createdMs(r) >= since))
-    .sort((a, b) => (ACTIVE.has(b.status) - ACTIVE.has(a.status)) || createdMs(b) - createdMs(a)).slice(0, 20);
-}
-function genSentItem(w, r) {
-  const s = statusInfo(r), id = esc(r.taskId), name = `${r.task || cap(r.type)} · ${r.model}`;
-  let st = `<span class="st ${s.cls}"><i class="dot"></i>${esc(s.label)}</span>`, acts = "";
-  if (ACTIVE.has(r.status)) {
-    const typ = s.cls === "running" ? typicalMs(r.model) : null, end = createdMs(r) + typ;
-    if (s.cls === "running") st += `<span class="mprog sunken" aria-hidden="true"><i style="width:${s.p ?? 8}%" class="${s.p == null ? "ind" : ""}"></i></span>`;
-    st += `<small class="muted">${relHTML(r.createdAt || r.date, "elapsed")}${typ ? ` · <span data-eta="${end}">${etaText(end)}</span>` : ""}</small>`;
-    const busy = w.gsBusy?.has(r.taskId);
-    acts = `<button type="button" class="raised btn-s b-danger" data-gs="cancel" data-run="${id}" aria-label="${busy ? "Cancelling" : "Cancel"} ${esc(name)}" ${busy ? "disabled" : ""}>${icoLabel("i-stop", busy ? "Cancelling…" : "Cancel")}</button>`;
-  } else if (r.status === "succeeded") {
-    const c = r.credits, q = r.quotedCredits;
-    const cost = c != null ? `${fmt(c)} credits${q != null ? (c === q ? ", as quoted" : `, quoted ${r.quoteExact ? "" : "≈"}${fmt(q)}`) : ""}`
-      : r.estimatedCredits != null ? `~${fmt(r.estimatedCredits)} credits, estimated` : "Cost not reported yet";
-    st += `<small class="muted">${cost} · ${relHTML(r.finishedAt || r.createdAt || r.date)}</small>`;
-    const label = r.asset ? "Open" : "Properties";
-    acts = `<button type="button" class="raised btn-s b-default" data-gs="open" data-run="${id}" aria-label="${label} ${esc(r.asset || name)}">${icoLabel(r.asset ? typeIcon(r.type) : "i-doc", label)}</button>`;
-  } else if (r.status === "failed") st += `<small class="gs-why" title="${esc(r.failure || "")}">${esc(r.failure || "Runway gave no reason")}</small>`;
-  return `<li class="gs-item">
-        <div class="gs-name" title="${esc(name + "\n" + r.prompt)}">${miniThumb(r)}<span><b>${esc(r.prompt)}</b><small class="muted">${esc(name)}</small></span></div><div class="gs-st">${st}</div>
-        <div class="gs-acts">${acts}<button type="button" class="raised gs-x" data-gs="x" data-run="${id}" aria-label="Remove ${esc(name)} from this list" title="Remove from this list"><i class="g-close"></i></button></div>
-      </li>`;
-}
-function activityRender(w) {
-  w.act ||= { clearedAt: 0, hide: [] };
-  if (!w.shell) {
-    w.shell = true;
-    w.body.innerHTML = `<div class="gsent act" data-keep="act"></div><div class="statusbar"><span class="sunken seg grow"></span></div>`;
-    $(".act", w.body).addEventListener("click", async e => {
-      const b = e.target.closest("button[data-gs]"); if (!b) return;
-      const act = b.dataset.gs, id = b.dataset.run, r = id && sentRun(w, id);
-      if (act === "open" && r) defaultOpen(r, b);
-      else if (act === "cancel" && r) {
-        (w.gsBusy ||= new Set()).add(id); activityRender(w);
-        await cancelJob(r); await poll();
-        w.gsBusy.delete(id); activityRender(w);
-      } else if (act === "x") { w.act.hide = [...(w.act.hide || []), id].slice(-200); activityRender(w); save(); }
-      else if (act === "clear") { w.act.clearedAt = Date.now(); w.act.hide = []; activityRender(w); save(); }
-    });
-  }
-  const box = $(".act", w.body), list = activityList(w);
-  const sig = JSON.stringify(list.map(r => [r.taskId, r.status, r.progress, r.credits, r.estimatedCredits, r.quotedCredits, r.failure, r.asset, typicalMs(r.model), !!w.gsBusy?.has(r.taskId)]));
-  if (sig !== box.dataset.sig) {
-    box.dataset.sig = sig;
-    const a = document.activeElement, had = box.contains(a) ? a.dataset : null;
-    const running = list.filter(r => ACTIVE.has(r.status)).length;
-    morph(box, !list.length ? `<div class="empty-list">${S.loaded ? `Nothing in progress. Jobs you send show up here while they render.${emptyAct(GEN_BTN)}` : "Loading…"}</div>` : `
-        <div class="gs-head"><span>${running ? `${running} in progress` : "Nothing in progress"}</span>${list.some(r => !ACTIVE.has(r.status)) ? '<button type="button" class="raised btn-s" data-gs="clear">Clear finished</button>' : ""}</div>
-        <ul class="gs-list sunken">${list.map(r => genSentItem(w, r)).join("")}</ul>`);
-    $(".statusbar .seg", w.body).textContent = `${list.length} job${list.length === 1 ? "" : "s"} · ${running} rendering or queued`;
-    if (had) {
-      const find = (gs, run) => $$("[data-gs]", box).find(b => b.dataset.gs === gs && !b.disabled && (run === undefined || b.dataset.run === run));
-      (find(had.gs, had.run) || find("x", had.run) || find("x") || box)?.focus?.({ preventScroll: true });
-    }
-  }
-}
-// after a job is sent: show it in Activity, opening the window beside Generate if it isn't open; focus stays in Generate
-function activityShow(gw, row) {
-  fresh[row.taskId] = row;
-  let aw = wins.get("activity");
-  if (!aw) {
-    aw = open("activity");
-    // side by side with Generate: Activity on the right; slide Generate left, or narrow Activity, to make room
-    const d = D(), gap = px(8), minW = Math.min(px(KINDS.activity.min[0]), d.w);
-    let wd = Math.min(px(420), d.w);
-    if (!gw.max && gw.wd + gap + minW <= d.w) {
-      wd = Math.min(wd, d.w - gw.wd - gap);
-      if (gw.x + gw.wd + gap + wd > d.w) { gw.x = Math.max(0, d.w - wd - gap - gw.wd); gw.snapped = false; place(gw); }
-      Object.assign(aw, { wd, ht: Math.min(gw.ht, d.h), y: gw.y, x: gw.x + gw.wd + gap });
-    } else Object.assign(aw, { wd, ht: Math.min(px(520), d.h), y: 0, x: d.w - wd });
-    fit(aw); place(aw); save();
-    focus(gw); $("textarea", gw.body)?.focus({ preventScroll: true });
-  }
-  activityRender(aw);
-}
-
 // open Generate prefilled from a job. mode: again | animate | upscale | sound | hdr
 function genFrom(r, mode, src) {
   const w = open("generate", null, src), g = w.gen;
@@ -1185,7 +909,7 @@ function genApplyPending(w) {
   $("textarea", w.body)?.focus();
 }
 
-async function cancelJob(r) {
+export async function cancelJob(r) {
   try {
     await api("/api/cancel", { taskId: r.taskId });
     balloon({ title: "Cancelling job", text: `${r.model} · ${r.taskId.slice(0, 8)}. It shows as Cancelled once Runway confirms.`, ms: 4000 });
@@ -2131,455 +1855,6 @@ async function promptSaveMenu(w, btn) {
     ...list.map(n => ({ label: `Add to ${clipText(n.name, 36)}`, sub: n.text == null ? "" : notePreview(n.text), icon: "i-notes", act: () => promptSave(w, n.name) })),
   ]);
 }
-
-/* ---------- options: accessibility and preferences, saved in this browser ---------- */
-const OPT_KEY = "runway-os-options-v1";
-const OPT_DEFAULT = { textPx: 0, textSize: "medium", font: "plex", contrast: false, motion: "system", theme: "dark", desk: "", boot: true, clock24: false, termScheme: "dos", balloons: true, sound: false, notify: false };
-// color schemes, like Win95's Display Properties → Appearance; the tokens live in index.html (html[data-theme])
-const THEMES = [["dark", "Dark"], ["classic", "Classic"], ["storm", "Storm"], ["eggplant", "Eggplant"], ["marine", "Marine"], ["pumpkin", "Pumpkin"]];
-const DESKS = [["#0b2e2e", "Teal night"], ["#008080", "Classic teal"], ["#000000", "Black"], ["#10204a", "Navy"], ["#3a1f3d", "Plum"], ["#2b2b2b", "Graphite"]];
-const TERMS = [["dos", "DOS gray"], ["green", "Green phosphor"], ["amber", "Amber"], ["blue", "Blue screen"]];
-export const calm = () => S.opts.motion === "reduce" || (S.opts.motion === "system" && reduced.matches);
-
-// text sizes that land on whole screen pixels for the pixel font (11 px design size)
-function textSizes() {
-  const dpr = Math.max(1, Math.round(devicePixelRatio || 1)), steps = dpr >= 2 ? [2, 3, 4] : [1, 2, 3];
-  return { small: (11 * steps[0]) / dpr, medium: (11 * steps[1]) / dpr, large: (11 * steps[2]) / dpr, dpr };
-}
-// the Scale slider for the current font and screen. def is the size applyOptions uses when no size is saved, marked "Medium".
-// The outline fonts start at 12 px; the pixel font keeps its sharp sizes, whole multiples of 11 screen pixels.
-function tszRange() {
-  const hi = textSizes().dpr >= 2;
-  if (S.opts.font === "pixel") { const def = hi ? 16.5 : 11; return { min: 10, max: 24, def, marks: hi ? [[11, "Small"], [def, "Medium"], [22, "Large"]] : [[def, "Medium"], [22, "Large"]] }; }
-  const def = hi ? 16 : 14;
-  return { min: 12, max: 24, def, marks: [[13, "Small"], [def, "Medium"], [18, "Large"], [22, "Larger"]] };
-}
-function applyOptions() {
-  const root = document.documentElement, ts = textSizes(), pixel = S.opts.font === "pixel";
-  // on a 1x screen the "medium" pixel size is 22 px, which is too big: keep 11 px unless Large is picked
-  let fs = +S.opts.textPx || 0;
-  if (!fs) {
-    fs = ts[S.opts.textSize] ?? ts.medium;
-    if (ts.dpr < 2 && S.opts.textSize === "medium") fs = pixel ? 11 : 13;
-    if (!pixel) fs = (ts.dpr >= 2 ? { small: 14, medium: 16, large: 19 } : { small: 12, medium: 14, large: 17 })[S.opts.textSize] || (ts.dpr >= 2 ? 16 : 14);
-  }
-  // one factor sizes the whole interface: text, bars, buttons, icons, spacing and window geometry
-  const was = S.scale;
-  S.scale = fs / 11;
-  root.style.setProperty("--scale", String(S.scale));
-  root.style.setProperty("--fs", fs + "px");
-  root.style.setProperty("--fs2", (pixel ? fs * 2 : Math.round(fs * 1.7)) + "px");
-  root.style.setProperty("--fsL", (pixel ? Math.max(22, fs) : Math.round(fs * 1.35)) + "px");
-  if (S.opts.contrast) root.style.setProperty("--desk", "#000000");
-  else if (S.opts.desk) root.style.setProperty("--desk", S.opts.desk);
-  else root.style.removeProperty("--desk"); // the theme's own desktop color
-  root.dataset.theme = THEMES.some(([k]) => k === S.opts.theme) ? S.opts.theme : "dark";
-  root.classList.toggle("smooth", !pixel);
-  root.classList.toggle("hyper", S.opts.font === "hyper");
-  root.classList.toggle("plex", S.opts.font === "plex");
-  root.classList.toggle("dot", S.opts.font === "dot");
-  root.classList.toggle("contrast", !!S.opts.contrast);
-  root.classList.toggle("calm", calm());
-  requestAnimationFrame(() => layoutIcons()); // icon sizes follow Scale
-  root.dataset.term = S.opts.termScheme;
-  // scale open windows along with the interface, then keep them on screen
-  if (was !== S.scale) wins.forEach(w => {
-    const k = S.scale / was, sc = g => g && Object.assign(g, { x: Math.round(g.x * k), y: Math.round(g.y * k), wd: Math.round(g.wd * k), ht: Math.round(g.ht * k) });
-    sc(w); sc(w.pre); if (w.minW) w.minW = Math.round(w.minW * k);
-    fit(w); place(w);
-    if (w.kind === "tree") renderWin(w); // the tree is laid out in pixels
-  });
-  tick();
-}
-function setOpt(k, v) {
-  // the pixel font and the outline fonts have different default sizes, so a chosen size doesn't carry over between them
-  if (k === "font" && (v === "pixel") !== (S.opts.font === "pixel")) S.opts.textPx = 0;
-  S.opts[k] = v;
-  if (!S.resetting) try { localStorage.setItem(OPT_KEY, JSON.stringify(S.opts)); } catch {}
-  applyOptions();
-  // re-render keeps each panel's scroll (data-keep); give focus back to the control that was used
-  const a = document.activeElement, sel = a?.dataset?.opt ? `[data-opt="${a.dataset.opt}"]${a.value && a.type === "radio" ? `[value="${CSS.escape(a.value)}"]` : ""}${a.dataset.val ? `[data-val="${CSS.escape(a.dataset.val)}"]` : ""}` : null;
-  const host = a?.closest?.(".window");
-  wins.forEach(w => (w.kind === "options" || w.kind === "props") && renderWin(w));
-  if (sel && host) $(sel, host)?.focus({ preventScroll: true });
-}
-
-// the job-finished chime is a sound made with Runway itself: task ce1c486d-9ec2-49c1-a413-98c42e47333b,
-// eleven_text_to_sound_v2, prompt "a single soft chime", 2 s, 2 credits, saved as sounds/chime.mp3.
-// A failed or cancelled job plays the low two-note tone instead, so the two never sound alike.
-// A fresh Audio each time lets chimes overlap; if the file can't load or play (autoplay blocked
-// before the first click or key press), the Web Audio tones play instead.
-export function chime(ok = true) {
-  if (!ok) { chimeTone(false); return null; }
-  const a = new Audio("sounds/chime.mp3");
-  a.volume = 0.6;
-  a.play().catch(() => chimeTone(true));
-  return a;
-}
-// a short two-note chime made with Web Audio, no sound files needed
-function chimeTone(ok = true) {
-  try {
-    const ac = chime.ac ||= new (window.AudioContext || window.webkitAudioContext)();
-    const notes = ok ? [880, 1318.5] : [440, 330];
-    notes.forEach((f, i) => {
-      const o = ac.createOscillator(), g = ac.createGain(), t = ac.currentTime + i * 0.12;
-      o.type = "square"; o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.08, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
-      o.connect(g).connect(ac.destination); o.start(t); o.stop(t + 0.18);
-    });
-  } catch {}
-}
-
-function tszRead(w, preview) {
-  const el = $(".tsz-read", w.body); if (!el) return;
-  const applied = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--fs")) || 11;
-  const fs = preview ?? applied, dpr = Math.max(1, Math.round(devicePixelRatio || 1));
-  const sharp = Math.abs((fs * dpr) / 11 - Math.round((fs * dpr) / 11)) < 1e-6;
-  const sl = $(".tsz", w.body), min = sl ? +sl.min : 10, max = sl ? +sl.max : 24, pct = Math.round((fs / 11) * 100);
-  el.textContent = `${fs} px text · ${pct}% · ${S.opts.font !== "pixel" ? "smooth font, any size works" : sharp ? "sharp with the pixel font" : `slightly soft with the pixel font. Sharp sizes here: ${[1, 2, 3, 4].map(n => (11 * n) / dpr).filter(x => x >= min && x <= max).join(", ")} px`}${preview != null && preview !== applied ? " · release to apply" : ""}`;
-  sl?.setAttribute("aria-valuetext", `${fs} px text, ${pct}%`);
-  $$("[data-tsz]", w.body).forEach(b => b.setAttribute("aria-pressed", +b.dataset.tsz === fs));
-}
-function optionsRender(w) {
-  const tab = w.tab && w.tab !== "general" ? w.tab : "access", T = [["access", "Accessibility"], ["look", "Appearance"], ["alerts", "Alerts"], ["spend", "Spending"]];
-  const ts = textSizes(), pixel = S.opts.font === "pixel";
-  const radio = (k, v, label, hint) => `<label class="opt-radio"><input type="radio" name="o-${k}" data-opt="${k}" value="${esc(v)}" ${String(S.opts[k]) === String(v) ? "checked" : ""}><span>${label}${hint ? ` <span class="muted">${hint}</span>` : ""}</span></label>`;
-  const check = (k, label, hint) => `<label class="check opt-check"><input type="checkbox" data-opt="${k}" ${S.opts[k] ? "checked" : ""}><span>${label}${hint ? `<br><span class="muted">${hint}</span>` : ""}</span></label>`;
-  const cur = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--fs")) || 11;
-  // marks sit under the slider's thumb positions; two marks too close to center both labels share the gap between them
-  const R = tszRange(), at = v => (v - R.min) / (R.max - R.min), near = (a, b) => !!b && Math.abs(at(a[0]) - at(b[0])) < 0.15;
-  let panel;
-  if (tab === "access") panel = `
-      <fieldset class="group"><legend>Scale</legend>
-        <div class="tsize">
-          <span class="tsz-a" aria-hidden="true">A</span>
-          <input type="range" class="tsz" min="${R.min}" max="${R.max}" step="0.5" value="${cur}" list="tsz-ticks" aria-label="Scale, as text size in pixels">
-          <span class="tsz-b" aria-hidden="true">A</span>
-          <span></span>
-          <div class="tsz-marks">${R.marks.map((m, i, a) => `<button class="linkish${near(m, a[i + 1]) ? " tsz-end" : near(m, a[i - 1]) ? " tsz-start" : ""}" data-tsz="${m[0]}" style="left:calc(5.5 * var(--u) + ${at(m[0])} * (100% - 11 * var(--u)))">${m[1]}</button>`).join("")}</div>
-          <datalist id="tsz-ticks">${R.marks.map(([v]) => `<option value="${v}"></option>`).join("")}</datalist>
-        </div>
-        <div class="tsz-read muted"></div>
-      </fieldset>
-      <fieldset class="group"><legend>Font</legend>
-        ${radio("font", "plex", "IBM Plex Sans", "clean and even at small sizes")}
-        ${radio("font", "dot", "DotGothic16", "pixel look, drawn as outlines so it stays sharp at any size")}
-        ${radio("font", "smooth", "Tahoma", "the Windows 98/2000 system font")}
-        ${radio("font", "hyper", "Atkinson Hyperlegible", "designed for low-vision readability, the easiest to read")}
-        ${radio("font", "pixel", "Pixel font", "MS Sans Serif, sharp only at the marked sizes")}
-      </fieldset>
-      <fieldset class="group"><legend>Display</legend>
-        ${check("contrast", "High contrast", "Black background, white text, yellow highlights")}
-        <div class="opt-sub">Animations</div>
-        ${radio("motion", "system", "Follow macOS", reduced.matches ? "Reduce motion is on" : "Reduce motion is off")}
-        ${radio("motion", "reduce", "Reduce", "No window animations, blinking or marquees")}
-        ${radio("motion", "full", "Full")}
-      </fieldset>`;
-  else if (tab === "look") panel = `
-      <fieldset class="group"><legend>Theme</legend>
-        <div class="swatches">${THEMES.map(([k, n]) => `<button class="swatch${S.opts.theme === k ? " on" : ""}" data-opt="theme" data-val="${k}" aria-pressed="${S.opts.theme === k}"><span class="tprev" data-theme="${k}" aria-hidden="true"><span class="tp-win raised"><span class="tp-title"></span><span class="tp-btn raised"></span></span></span><span>${n}</span></button>`).join("")}</div>
-      </fieldset>
-      <fieldset class="group"><legend>Desktop color</legend>
-        <div class="swatches"><button class="swatch${!S.opts.desk ? " on" : ""}" data-opt="desk" data-val="" aria-pressed="${!S.opts.desk}"><i class="tdesk"></i><span>Theme default</span></button>${DESKS.map(([c, n]) => `<button class="swatch${S.opts.desk === c ? " on" : ""}" data-opt="desk" data-val="${c}" title="${n}" aria-label="${n}" aria-pressed="${S.opts.desk === c}"><i style="background:${c}"></i><span>${n}</span></button>`).join("")}</div>
-      </fieldset>
-      <fieldset class="group"><legend>Startup</legend>
-        ${check("boot", "Show boot screen when the page loads")}
-      </fieldset>
-      <fieldset class="group"><legend>Clock</legend>
-        ${radio("clock24", "false", "12-hour", new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true }))}
-        ${radio("clock24", "true", "24-hour", new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }))}
-      </fieldset>
-      <fieldset class="group"><legend>Terminal colors</legend>
-        ${TERMS.map(([v, n]) => radio("termScheme", v, n)).join("")}
-      </fieldset>`;
-  else if (tab === "spend") panel = spendPanel();
-  else panel = `
-      <fieldset class="group"><legend>When a job finishes</legend>
-        ${check("balloons", "Show a balloon above the clock")}
-        ${check("sound", "Play a chime")} <button class="raised btn-s opt-test" data-chime>Play</button>
-        ${check("notify", "macOS notification while this tab is in the background", "Your browser asks for permission the first time.")}
-        ${S.opts.notify && "Notification" in window && Notification.permission === "denied" ? '<div class="gmsg">The browser blocks notifications for this page. Allow them in the browser\'s site settings.</div>' : ""}
-      </fieldset>`;
-  w.body.innerHTML = sheetHTML(T, tab, panel, '<button class="raised btn-s" data-opt-reset>Restore defaults</button><span class="grow"></span>');
-  sheetKeys(w);
-  tszRead(w);
-  if (!w.optBound) {
-    w.optBound = true;
-    // the default size is saved as no size, so it keeps following the font and the screen; the re-render keeps keyboard focus on the slider or mark
-    const tszSet = (v, sel) => {
-      const had = document.activeElement?.matches?.(sel);
-      setOpt("textPx", v === tszRange().def ? 0 : v);
-      if (had) $(sel, w.body)?.focus({ preventScroll: true });
-    };
-    // drag: resize live without rebuilding the window; release: save
-    // dragging only previews the value; the scale applies on release, so the slider doesn't move under the pointer
-    w.body.addEventListener("input", e => { if (e.target.matches(".tsz")) tszRead(w, +e.target.value); });
-    w.body.addEventListener("change", e => { if (e.target.matches(".tsz")) tszSet(+e.target.value, ".tsz"); });
-    w.body.addEventListener("click", e => { const t = e.target.closest("[data-tsz]"); if (t) tszSet(+t.dataset.tsz, `[data-tsz="${t.dataset.tsz}"]`); });
-    w.body.addEventListener("change", e => {
-      const el = e.target.closest("[data-opt]"); if (!el) return;
-      const k = el.dataset.opt;
-      if (el.type === "checkbox") {
-        if (k === "notify" && el.checked && "Notification" in window && Notification.permission === "default") Notification.requestPermission().then(() => renderWin(w));
-        setOpt(k, el.checked);
-      } else setOpt(k, el.value === "true" ? true : el.value === "false" ? false : el.value);
-    });
-    w.body.addEventListener("click", e => {
-      const sw = e.target.closest("button[data-opt]"); if (sw) { setOpt(sw.dataset.opt, sw.dataset.val); return; }
-      if (e.target.closest("[data-chime]")) chime();
-      // keep the saved-options migration flags (fontV2, sizeV5…), or the next page load would run those migrations again on the new choices
-      if (e.target.closest("[data-opt-reset]")) { S.opts = { ...OPT_DEFAULT, ...Object.fromEntries(Object.entries(S.opts).filter(([k]) => /V\d+$/.test(k))) }; setOpt("textSize", OPT_DEFAULT.textSize); }
-    });
-  }
-}
-
-/* ---------- usage: credits spent per day and model (whole org, from Runway) and per task (your jobs) ---------- */
-// the eight colors are CSS variables (--uc1..--uc8 in index.html), so a theme switch recolors the chart live
-const USAGE_COLORS = [1, 2, 3, 4, 5, 6, 7, 8].map(i => `var(--uc${i})`);
-const usageCache = {};
-async function usageLoad(days, force) {
-  const hit = usageCache[days];
-  if (hit && !force && Date.now() - hit.at < 300000) return hit.data;
-  const res = await fetch(`/api/usage?days=${days}`, { cache: "no-store" });
-  const out = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(out.error || `The server answered ${res.status}.`);
-  usageCache[days] = { at: Date.now(), data: out };
-  return out;
-}
-// totals per model and per day, with the top models kept and the rest grouped as "other"
-function usageSummary(u, top = 7) {
-  const byModel = {}, days = [];
-  const start = new Date(u.startDate + "T00:00:00Z"), end = new Date(u.beforeDate + "T00:00:00Z");
-  const perDay = Object.fromEntries((u.results || []).map(r => [r.date, r.usedCredits || []]));
-  for (let d = new Date(start); d < end; d.setUTCDate(d.getUTCDate() + 1)) {
-    const k = d.toISOString().slice(0, 10), items = perDay[k] || [];
-    items.forEach(i => { byModel[i.model] = (byModel[i.model] || 0) + i.amount; });
-    days.push({ date: k, items });
-  }
-  const ranked = Object.entries(byModel).sort((a, b) => b[1] - a[1]);
-  const keep = ranked.slice(0, top).map(([m]) => m), total = ranked.reduce((s, [, v]) => s + v, 0);
-  return { days, ranked, keep, total, color: m => USAGE_COLORS[keep.indexOf(m)] ?? USAGE_COLORS[7] };
-}
-const usageMD = date => date.slice(5).replace("-", "/"); // 2026-11-14 → 11/14, as on the chart's axis
-const usageLong = date => new Date(date + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-// the model filter: one model, or "other" for every model past the top seven
-const usageIn = (sum, f, m) => !f || (f === "other" ? !sum.keep.includes(m) : m === f);
-const usageName = f => (f === "other" ? "other models" : f);
-// stacked bars drawn at the box's real pixel size (W × H), so labels stay at the text size; one focusable column per day
-function usageChart(sum, { W, H, f, sel, at }) {
-  const root = getComputedStyle(document.documentElement), fs = parseFloat(root.getPropertyValue("--fs")) || 11;
-  const ctx = (usageChart.ctx ||= document.createElement("canvas").getContext("2d"));
-  ctx.font = `${fs}px ${root.getPropertyValue("--ui")}`;
-  const tw = s => Math.ceil(ctx.measureText(s).width) + 2;
-  const n = sum.days.length;
-  const totals = sum.days.map(d => d.items.reduce((s, i) => s + (usageIn(sum, f, i.model) ? i.amount : 0), 0)), max = Math.max(1, ...totals);
-  const nice = (() => { const p = Math.pow(10, Math.floor(Math.log10(max))); return Math.ceil(max / p) * p; })();
-  const ticks = [0, nice / 2, nice];
-  const padL = Math.max(...ticks.map(v => tw(fmt(v)))) + px(10), padR = px(4), padT = Math.ceil(fs * 0.6) + px(4), padB = Math.ceil(fs * 1.1) + px(8);
-  const base = H - padB, bw = (W - padL - padR) / n, barW = Math.max(1, Math.min(bw * 0.7, px(56)));
-  const Y = v => base - (v / nice) * (base - padT);
-  const order = f === "other" ? ["other"] : f ? [f] : [...sum.keep, "other"];
-  const fi = sum.days.findIndex(d => d.date === (at || sel)), focusAt = fi >= 0 ? fi : n - 1; // the one day in the tab order
-  let cols = "";
-  sum.days.forEach((d, i) => {
-    const groups = {}, x0 = padL + i * bw;
-    d.items.forEach(it => { if (!usageIn(sum, f, it.model)) return; const k = f && f !== "other" ? f : sum.keep.includes(it.model) ? it.model : "other"; groups[k] = (groups[k] || 0) + it.amount; });
-    let y = base, bars = "";
-    order.forEach(k => {
-      const v = groups[k]; if (!v) return;
-      const h = base - Y(v);
-      bars += `<rect x="${(x0 + (bw - barW) / 2).toFixed(1)}" y="${(y - h).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" style="fill:${sum.color(k)}"><title>${d.date} · ${esc(k)}: ${fmt(v)} credits</title></rect>`;
-      y -= h;
-    });
-    cols += `<g class="uday" role="button" tabindex="${i === focusAt ? 0 : -1}" data-date="${d.date}" aria-pressed="${d.date === sel}" aria-label="${usageLong(d.date)}: ${fmt(totals[i])} credits${f ? ` on ${esc(usageName(f))}` : ""}"><rect class="uhit" x="${(x0 + 0.5).toFixed(1)}" y="${padT - 0.5}" width="${Math.max(1, bw - 1).toFixed(1)}" height="${base - padT + 1}"/>${bars}</g>`;
-  });
-  const grid = ticks.map(v => { const y = Math.round(Y(v)) + 0.5; return `<line class="ugrid" x1="${padL}" x2="${W - padR}" y1="${y}" y2="${y}"/><text class="ulab" x="${padL - px(6)}" y="${y}" dy="0.35em" text-anchor="end">${fmt(v)}</text>`; }).join("");
-  // x labels: every k-th day counted back from the last, k wide enough for one label plus a gap; the last one is
-  // right-aligned so it stays inside, and a label that would touch the one to its right is left out
-  const gap = Math.max(px(8), fs * 0.6), need = (Math.max(...sum.days.map(d => tw(usageMD(d.date)))) + gap) / bw;
-  const every = [1, 2, 3, 7, 14, 28].find(k => k >= need) || Math.ceil(need / 7) * 7, yx = H - Math.ceil(fs * 0.3) - px(2);
-  let xl = "", next = Infinity;
-  for (let i = n - 1; i >= 0; i -= every) {
-    const t = usageMD(sum.days[i].date), w = tw(t), c = padL + (i + 0.5) * bw;
-    const r = Math.min(W - 1, Math.max(w, c + w / 2)), l = r - w;
-    if (r + gap > next) continue;
-    next = l;
-    xl = (i === n - 1 ? `<text class="ulab" x="${r.toFixed(1)}" y="${yx}" text-anchor="end">${t}</text>`
-      : `<text class="ulab" x="${((l + r) / 2).toFixed(1)}" y="${yx}" text-anchor="middle">${t}</text>`) + xl;
-  }
-  const sumTot = totals.reduce((a, b) => a + b, 0), pk = totals.indexOf(Math.max(...totals)), top = sum.ranked[0];
-  const label = f
-    ? `Credits spent per day on ${usageName(f)}, last ${n} days: ${fmt(sumTot)} in total, peak ${fmt(totals[pk])} on ${usageMD(sum.days[pk].date)}. Filtered to ${usageName(f)}; the full numbers are in the By model table. Select a day for its breakdown by model.`
-    : `Credits spent per day, last ${n} days: ${fmt(sumTot)} in total, peak ${fmt(totals[pk])} on ${usageMD(sum.days[pk].date)}, top model ${top[0]} (${Math.round((top[1] / sum.total) * 100)}%). The full numbers are in the By model table. Select a day for its breakdown by model.`;
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMin meet" role="group" aria-label="${esc(label)}"><g aria-hidden="true">${grid}</g><g>${cols}</g><g aria-hidden="true">${xl}</g></svg>`;
-}
-// redraw only the chart, at the box's current size (window resized, maximized, scaled)
-function usageDraw(w) {
-  const sum = w.usum, host = $(".uchart", w.body); if (!sum || !host) return;
-  const W = host.clientWidth, H = host.clientHeight; if (!W || !H) return; // minimized: draw when it's shown again
-  const a = document.activeElement, back = host.contains(a) ? a.dataset.date : null;
-  w.usize = `${W}x${H}x${S.scale}`;
-  host.innerHTML = usageChart(sum, { W, H, f: w.umodel, sel: w.uday, at: back });
-  if (back) $(`[data-date="${back}"]`, host)?.focus();
-}
-// apply the model filter and the inspected day: pressed states, the "Showing" line, the day's breakdown, the chart
-function usageView(w) {
-  const sum = w.usum, f = w.umodel; if (!sum) return;
-  $$("[data-um]", w.body).forEach(b => b.setAttribute("aria-pressed", b.dataset.um === f));
-  const fl = $(".ufilter", w.body), ins = $(".uinspect", w.body);
-  if (fl) fl.innerHTML = f ? `<span>Showing ${esc(usageName(f))} · ${fmt(sum.ranked.reduce((s, [m, v]) => s + (usageIn(sum, f, m) ? v : 0), 0))} credits</span><button class="raised btn-s" data-u="clear">Clear filter</button>` : "";
-  const d = w.uday && sum.days.find(x => x.date === w.uday);
-  if (ins) {
-    const tot = d ? d.items.reduce((s, i) => s + i.amount, 0) : 0;
-    ins.innerHTML = d ? `<div class="ubar"><span>${usageLong(d.date)} · ${fmt(tot)} credits</span><button class="raised btn-s" data-u="day">Close</button></div>
-        <div class="utable">${[...d.items].sort((a, b) => b.amount - a.amount).map(i => `<div><span><i style="background:${sum.color(i.model)}"></i>${esc(i.model)}</span><b>${fmt(i.amount)}</b><small>${tot ? Math.round((i.amount / tot) * 100) : 0}%</small></div>`).join("") || '<div class="muted">No credits spent on this day.</div>'}</div>` : "";
-  }
-  usageDraw(w);
-}
-function usageCSV(u) {
-  const rows = [["date", "model", "credits"]];
-  (u.results || []).forEach(r => (r.usedCredits || []).forEach(i => rows.push([r.date, i.model, i.amount])));
-  const blob = new Blob([rows.map(r => r.join(",")).join("\n") + "\n"], { type: "text/csv" });
-  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: `runway-usage_${u.startDate}_to_${u.beforeDate}.csv` });
-  document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-}
-// your own jobs from runs.json, grouped by task, for the same range
-function usageMine(days) {
-  const since = Date.now() - days * 86400000, by = {};
-  S.data.runs.filter(r => r.credits != null && createdMs(r) >= since).forEach(r => {
-    const k = r.task || (r.type === "image" ? "Text to image" : r.parent ? "Image to video" : "Text to video");
-    (by[k] ||= { credits: 0, jobs: 0 }); by[k].credits += r.credits; by[k].jobs++;
-  });
-  return Object.entries(by).sort((a, b) => b[1].credits - a[1].credits);
-}
-
-async function usageRender(w, force) {
-  w.days ||= 30;
-  if (!w.shell) {
-    w.shell = true;
-    w.body.innerHTML = `
-        <div class="toolbar"><div class="seg-tabs" role="group" aria-label="Range">${[7, 30, 90].map(d => `<button class="raised" data-days="${d}">${d} days</button>`).join("")}</div>
-          <span class="grow"></span><button class="raised btn-s" data-u="refresh">Refresh</button><button class="raised btn-s" data-u="csv"><svg class="ico" aria-hidden="true"><use href="#i-save"/></svg><span>Export CSV</span></button></div>
-        <div class="ubody" data-keep="usage"></div>
-        <div class="statusbar"><span class="sunken seg grow"></span></div>`;
-    w.body.addEventListener("click", e => {
-      const d = e.target.closest("[data-days]"); if (d) { w.days = +d.dataset.days; retitle(w); renderTasks(); usageRender(w); save(); return; }
-      // view filters only: a model (legend or By model row) and a day (its bar); no refetch, the CSV stays complete
-      const m = e.target.closest("[data-um]"); if (m) { w.umodel = w.umodel === m.dataset.um ? null : m.dataset.um; usageView(w); return; }
-      const g = e.target.closest(".uday"); if (g) { w.uday = w.uday === g.dataset.date ? null : g.dataset.date; usageView(w); return; }
-      const b = e.target.closest("[data-u]"); if (!b) return;
-      if (b.dataset.u === "refresh") usageRender(w, true);
-      if (b.dataset.u === "csv" && usageCache[w.days]) usageCSV(usageCache[w.days].data);
-      if (b.dataset.u === "clear") { const was = w.umodel; w.umodel = null; usageView(w); $$("[data-um]", w.body).find(x => x.dataset.um === was)?.focus(); }
-      if (b.dataset.u === "day") { const was = w.uday; w.uday = null; usageView(w); $(`.uday[data-date="${was}"]`, w.body)?.focus(); }
-    });
-    // the day columns: one tab stop, arrows and Home/End move between days, Enter or Space shows the day
-    w.body.addEventListener("keydown", e => {
-      const g = e.target.closest?.(".uday"); if (!g) return;
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); w.uday = w.uday === g.dataset.date ? null : g.dataset.date; usageView(w); return; }
-      const all = $$(".uday", w.body), i = all.indexOf(g), j = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: all.length - 1 }[e.key];
-      if (j == null) return;
-      e.preventDefault();
-      const t = all[clampN(j, 0, all.length - 1)]; g.tabIndex = -1; t.tabIndex = 0; t.focus();
-    });
-  }
-  $$("[data-days]", w.body).forEach(b => b.setAttribute("aria-pressed", +b.dataset.days === w.days));
-  const box = $(".ubody", w.body), seg = $(".statusbar .seg", w.body), days = w.days;
-  w.uro?.disconnect(); w.uro = null; // the chart below is about to be replaced
-  if (!usageCache[days] || force) {
-    if (box.querySelector(".ucols")) seg.textContent = `Loading ${days} days…`; // keep the current chart on screen until the new data arrives
-    else { box.innerHTML = `<div class="empty-list">Asking Runway for ${days} days of usage…</div>`; seg.textContent = "Loading"; }
-  }
-  let u;
-  try { u = await usageLoad(days, force); }
-  catch (err) { if (w.days === days) { box.innerHTML = `<div class="empty-list">${esc(err.message)}</div>`; seg.textContent = "Couldn't load usage"; } return; }
-  if (w.days !== days || !wins.has(w.id)) return;
-  const sum = usageSummary(u), mine = usageMine(days), mineTotal = mine.reduce((s, [, v]) => s + v.credits, 0);
-  // keep the model filter and the inspected day when the new range still has them
-  w.usum = sum;
-  if (w.umodel && !(w.umodel === "other" ? sum.ranked.length > sum.keep.length : sum.ranked.some(([m]) => m === w.umodel))) w.umodel = null;
-  if (w.uday && !sum.days.some(d => d.date === w.uday)) w.uday = null;
-  box.innerHTML = `
-      <fieldset class="group"><legend>Whole org · last ${days} days · ${fmt(sum.total)} credits</legend>
-        ${sum.total ? '<div class="ufilter ubar" aria-live="polite"></div><div class="uchart"></div>' : '<div class="empty-list">No credits spent in this range.</div>'}
-        ${sum.total ? `<div class="ulegend">${[...sum.keep, ...(sum.ranked.length > sum.keep.length ? ["other"] : [])].map(m => `<button data-um="${esc(m)}" aria-pressed="false"><i style="background:${sum.color(m)}"></i>${esc(m)}</button>`).join("")}</div><div class="uinspect" aria-live="polite"></div>` : ""}
-      </fieldset>
-      <div class="ucols">
-        <fieldset class="group"><legend>By model</legend>
-          <div class="utable">${sum.ranked.map(([m, v]) => `<button data-um="${esc(m)}" aria-pressed="false"><span><i style="background:${sum.color(m)}"></i>${esc(m)}</span><b>${fmt(v)}</b><small>${sum.total ? Math.round((v / sum.total) * 100) : 0}%</small></button>`).join("") || '<div class="muted">Nothing yet.</div>'}</div>
-        </fieldset>
-        <fieldset class="group"><legend>Your jobs by task · ${fmt(mineTotal)} credits</legend>
-          <div class="utable">${mine.map(([k, v]) => `<div><span>${esc(k)}</span><b>${fmt(v.credits)}</b><small>${v.jobs} job${v.jobs === 1 ? "" : "s"}</small></div>`).join("") || '<div class="muted">No finished jobs in this range.</div>'}</div>
-          <p class="muted unote">From runs.json: jobs made from this dashboard or logged by Claude. The org total above includes everyone using this Runway account.</p>
-        </fieldset>
-      </div>`;
-  usageView(w);
-  // redraw only the chart, without refetching, once the window stops resizing; let go when it's replaced or closed
-  const host = $(".uchart", box);
-  if (host) {
-    let t = 0;
-    const ro = w.uro = new ResizeObserver(() => {
-      clearTimeout(t);
-      if (!host.isConnected || !wins.has(w.id)) { ro.disconnect(); if (w.uro === ro) w.uro = null; return; }
-      t = setTimeout(() => { if (host.isConnected && `${host.clientWidth}x${host.clientHeight}x${S.scale}` !== w.usize) usageDraw(w); }, 120);
-    });
-    ro.observe(host);
-  }
-  seg.textContent = `${u.startDate} to ${new Date(new Date(u.beforeDate) - 86400000).toISOString().slice(0, 10)} (UTC) · fetched ${new Date(u.fetchedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-}
-
-/* ---------- Runway API key ---------- */
-function keyRender(w) {
-  const where = S.data.keySource === "file" ? "saved in .runway_key" : S.data.keySource === "env" ? "from the RUNWAYML_API_SECRET variable" : "";
-  const st = !S.loaded ? { cls: "", text: "Checking…" }
-    : !S.data.live ? { cls: "off", text: "No key. The dashboard can't sync jobs, check the balance or generate." }
-    : S.data.error ? { cls: "warn", text: `Key ending ${S.data.keyHint || "…"} ${where}. Runway answers: ${S.data.error}` }
-    : { cls: "on", text: `Connected. Key ending ${S.data.keyHint || "…"}, ${where}.` };
-  if (!w.shell) {
-    w.shell = true;
-    w.body.innerHTML = `
-        <form class="keyf" novalidate autocomplete="off">
-          <div class="kstat"><svg class="kico"><use href="#i-key"/></svg><div><b class="live kst"></b><div class="muted kbal"></div></div></div>
-          <fieldset class="group"><legend class="kleg"></legend>
-            <div class="krow"><input class="field kin" type="password" placeholder="key_…" aria-label="Runway API key" spellcheck="false" autocapitalize="off" autocomplete="off">
-              <button type="button" class="raised btn-s kshow" aria-pressed="false">${icoLabel("i-eye", "Show")}</button></div>
-            <div class="krow end"><button type="submit" class="raised btn-go b-default ksave">${icoLabel("i-save", "Check and save")}</button></div>
-          </fieldset>
-          <div class="gmsg kmsg" role="alert" hidden></div>
-          <p class="muted knote">Create a key at <a href="https://dev.runwayml.com/" target="_blank" rel="noopener">dev.runwayml.com</a> under API Keys. The dashboard checks it with Runway, then saves it to <code>.runway_key</code> in the Runway folder, readable only by your Mac account. It's never shown again here.</p>
-          <div class="krow end"><button type="button" class="raised btn-s b-danger krm" hidden>${icoLabel("i-remove", "Remove saved key")}</button></div>
-        </form>`;
-    const form = $(".keyf", w.body), inp = $(".kin", form), show = $(".kshow", form), rm = $(".krm", form), showL = $("span", show), rmL = $("span", rm);
-    show.addEventListener("click", () => { const on = inp.type === "password"; inp.type = on ? "text" : "password"; show.setAttribute("aria-pressed", on); showL.textContent = on ? "Hide" : "Show"; });
-    form.addEventListener("submit", async e => {
-      e.preventDefault();
-      const key = inp.value.trim();
-      if (!key) { keyMsg(w, "Paste a key first."); return; }
-      const btn = $(".ksave", form); btn.disabled = true; $("span", btn).textContent = "Checking…"; keyMsg(w, null);
-      const out = await keyPost({ key });
-      btn.disabled = false; $("span", btn).textContent = "Check and save";
-      if (out.error) { keyMsg(w, out.error); return; }
-      inp.value = ""; inp.type = "password"; showL.textContent = "Show"; show.setAttribute("aria-pressed", "false");
-      balloon({ title: "Key saved", text: out.balance != null ? `Runway accepted it. ${fmt(out.balance)} credits on this org.` : "Runway accepted it.", icon: "i-key", ms: 5000 });
-      poll();
-    });
-    let armed = 0;
-    rm.addEventListener("click", async () => {
-      if (Date.now() - armed > 3000) { armed = Date.now(); rmL.textContent = "Click again to remove"; setTimeout(() => { rmL.textContent = "Remove saved key"; }, 3000); return; }
-      const out = await keyPost({ remove: true });
-      if (out.error) { keyMsg(w, out.error); return; }
-      balloon({ title: "Key removed", text: ".runway_key was deleted.", icon: "i-key", ms: 4000 });
-      poll();
-    });
-  }
-  const kst = $(".kst", w.body);
-  kst.className = `live kst ${st.cls}`; kst.textContent = st.text;
-  $(".kbal", w.body).textContent = S.data.live && S.data.balance != null ? `${fmt(S.data.balance)} credits on this org` : "";
-  $(".kleg", w.body).textContent = S.data.live ? "Replace key" : "Add key";
-  $(".krm", w.body).hidden = S.data.keySource !== "file";
-}
-const keyPost = body => api("/api/key", body).catch(err => ({ error: err.message }));
-function keyMsg(w, text) { const m = $(".kmsg", w.body); if (m) { m.hidden = !text; m.textContent = text || ""; } }
 function compare(ids, src) {
   ids = [...new Set(ids)].filter(id => runOf(id));
   if (ids.length < 2) return null;
@@ -2981,162 +2256,6 @@ export async function toggleFullScreen() {
   } catch (err) { balloon({ title: "Couldn't go full screen", text: err.message, ms: 3000 }); }
 }
 
-/* ---------- spending guard: a daily credit limit for the whole org (Options → Spending) ----------
-   The server works out data.spent.today from balance_history.json: every drop in the org balance since local midnight,
-   so jobs from Claude, this app and other tools all count. Generate asks before a job that would go over the limit. */
-const spendLimit = () => { const n = Math.round(+S.opts.dailyLimit); return S.opts.dailyLimit != null && S.opts.dailyLimit !== "" && n >= 1 ? n : null; };
-// the server's spending fields from /api/state; repaint what shows them when they change
-function spendUpdate(d) {
-  const s = { today: typeof d.spentToday === "number" ? d.spentToday : null, source: d.spentSource || null, since: d.spentSince || null };
-  const same = S.data.spent && S.data.spent.today === s.today && S.data.spent.source === s.source;
-  S.data.spent = s;
-  if (!same) spendRefresh();
-}
-function spendRefresh() {
-  spendTray();
-  $$(".spent-today").forEach(el => { el.textContent = spendText(); });
-  wins.forEach(w => w.kind === "generate" && w.shell && S.CAT && curModel(w) && genRefresh(w));
-}
-function spendText() {
-  const s = S.data.spent?.today, lim = spendLimit();
-  if (s == null) return "Spent today: unknown until the server answers.";
-  return `Spent today: ${fmt(s)} credits${lim ? ` of ${fmt(lim)} (${Math.round(s / lim * 100)}%)` : ""}.`;
-}
-// tray: the balance turns amber at 80% of the limit and red at 100%
-function spendTray() {
-  const bal = $("#tray-bal"); if (!bal) return;
-  const s = S.data.spent?.today, lim = spendLimit(), r = lim && s != null ? s / lim : 0;
-  bal.classList.toggle("spend-near", r >= 0.8 && r < 1);
-  bal.classList.toggle("spend-over", r >= 1);
-  bal.title = lim && s != null ? `Spent today: ${fmt(s)} of ${fmt(lim)} credits. Open Dashboard` : "Credits left. Open Dashboard";
-}
-// this job's price: the server's quote, else the same estimate the hint shows (from your last job with this model)
-function spendQuote(w) {
-  const key = JSON.stringify(genBody(w)), pr = w.priceFor === key ? w.price : null;
-  if (pr?.credits != null) return { credits: pr.credits, exact: !!pr.exact };
-  const m = curModel(w), t = curTask(w);
-  const last = m && newestFirst().find(r => r.model === m.id && r.credits != null && r.costSource === "runway" && (!r.endpoint || r.endpoint === t.endpoint));
-  if (!last) return { credits: null, exact: false };
-  const d = +shownVal(m.fields.find(f => f.name === "duration") || {}, vals(w).duration), sec = secondsOf(last);
-  return { credits: d && sec ? Math.round(last.credits / sec * d) : last.credits, exact: false };
-}
-// a quiet note after the price in Generate's footer, only when this job takes today's spending to 80% of the limit or more
-function spendHint(w, hint, pr) {
-  const lim = spendLimit(), s = S.data.spent?.today; if (!lim || s == null) return;
-  const after = s + (pr?.credits ?? 0);
-  if (after < lim * 0.8) return;
-  hint.textContent += after > lim ? ` · over today's limit: ${fmt(after)} of ${fmt(lim)}` : ` · today ${fmt(after)} of ${fmt(lim)} limit`;
-  hint.title = hint.textContent;
-}
-// before Generate sends a job: resolves true to go ahead
-function spendCheck(w) {
-  const lim = spendLimit(), s = S.data.spent?.today;
-  if (!lim || s == null) return Promise.resolve(true);
-  const q = spendQuote(w), after = s + (q.credits ?? 0);
-  if (q.credits == null ? s < lim : after <= lim) return Promise.resolve(true);
-  const lead = q.credits == null
-    ? `Today's spending is already ${fmt(s)} of your ${fmt(lim)} credit limit, and this job's price is unknown.`
-    : `This job would take today's spending to ${q.exact ? "" : "about "}${fmt(after)} of your ${fmt(lim)} credit limit.`;
-  const job = q.credits == null ? "This job has no price quote, so it isn't counted here."
-    : q.exact ? `This job: ${fmt(q.credits)} credits.` : `This job: about ${fmt(q.credits)} credits. That's an estimate, the final cost can differ.`;
-  return spendDialog(lead, `Spent today: ${fmt(s)} credits, by the whole Runway org since midnight. ${job}`);
-}
-function spendDialog(lead, detail) {
-  return new Promise(resolve => {
-    $("#spendguard")?.remove();
-    const back = document.activeElement, d = document.createElement("div");
-    d.id = "spendguard"; d.className = "shutdown";
-    d.innerHTML = `
-        <div class="sd-win window front raised" role="alertdialog" aria-modal="true" aria-labelledby="sg-t" aria-describedby="sg-lead sg-detail">
-          <div class="titlebar"><span class="t"><svg class="ico ticon" aria-hidden="true"><use href="#i-coin"/></svg><span class="tt" id="sg-t">Daily credit limit</span></span></div>
-          <div class="sd-body">
-            <svg class="sd-ico" aria-hidden="true"><use href="#i-coin"/></svg>
-            <div class="sg-text"><p id="sg-lead">${esc(lead)}</p><p class="muted" id="sg-detail">${esc(detail)}</p></div>
-          </div>
-          <div class="sheet-foot"><span class="grow"></span><button class="raised btn-ok" data-sg="go">Generate anyway</button><button class="raised btn-ok b-default" data-sg="cancel">Cancel</button></div>
-        </div>`;
-    document.body.append(d);
-    const done = ok => { removeEventListener("keydown", onKey, true); d.remove(); back?.focus?.(); resolve(ok); };
-    // modal: it takes every key while open; Esc cancels, Tab stays on the two buttons, Enter presses the focused one
-    const onKey = e => {
-      e.stopPropagation();
-      if (e.key === "Escape") { e.preventDefault(); done(false); return; }
-      if (e.key === "Tab") { const f = $$("button", d), i = f.indexOf(document.activeElement); e.preventDefault(); f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus(); }
-    };
-    addEventListener("keydown", onKey, true);
-    d.addEventListener("click", e => { const b = e.target.closest("[data-sg]"); if (b) done(b.dataset.sg === "go"); });
-    $('[data-sg="cancel"]', d).focus();
-  });
-}
-// terminal: one line for balance and cost
-function spendTerm() {
-  const s = S.data.spent?.today, lim = spendLimit();
-  if (s == null) return `<b class="t-acc">today</b>: spending unknown`;
-  return `<b class="t-acc">today, whole org</b>: <span class="t-red">${fmt(s)}</span> credits spent${lim ? ` of a ${fmt(lim)} daily limit (${Math.round(s / lim * 100)}%)` : ", no daily limit (set one in Options, Spending)"}`;
-}
-function spendPanel() {
-  const lim = spendLimit(), src = S.data.spent?.source;
-  return `
-      <fieldset class="group"><legend>Daily credit limit</legend>
-        <div class="opt-limit"><label for="o-limit">Limit</label><input type="number" class="field" id="o-limit" data-limit min="1" step="1" inputmode="numeric" value="${lim ?? ""}" placeholder="No limit" aria-describedby="o-limit-h"><span>credits a day</span></div>
-        <p class="muted opt-limit-h" id="o-limit-h">Counts every credit the Runway org spends from midnight, local time, so jobs from Claude, this app and other tools all count. Top-ups don't lower it. Generate asks before a job that would go over the limit. Leave empty for no limit.</p>
-        <p class="spent-today" aria-live="polite">${esc(spendText())}</p>
-        ${src === "jobs" ? '<p class="muted opt-limit-h">No balance history for today yet, so this adds up today\'s jobs in runs.json instead.</p>' : ""}
-      </fieldset>`;
-}
-
-/* ---------- Shut down: restart, optionally forgetting the window layout or every setting ---------- */
-// set just before a reload, so nothing writes the forgotten state back
-function restart(mode) {
-  S.resetting = true;
-  clearTimeout(S.saveT);
-  try {
-    if (mode === "clean" || mode === "all") { localStorage.removeItem(KEY); localStorage.removeItem("runway-os-icons-v1"); }
-    if (mode === "all") localStorage.removeItem(OPT_KEY);
-  } catch {}
-  location.reload();
-}
-export function shutdownDialog() {
-  if ($("#shutdown")) return;
-  const back = document.activeElement;
-  const d = document.createElement("div");
-  d.id = "shutdown";
-  d.className = "shutdown";
-  d.innerHTML = `
-      <div class="sd-win window front raised" role="dialog" aria-modal="true" aria-labelledby="sd-t">
-        <div class="titlebar"><span class="t"><svg class="ico ticon" aria-hidden="true"><use href="#i-power"/></svg><span class="tt" id="sd-t">Shut down runway os</span></span></div>
-        <div class="sd-body">
-          <svg class="sd-ico" aria-hidden="true"><use href="#i-power"/></svg>
-          <fieldset class="sd-opts"><legend>What do you want to do?</legend>
-            <label class="opt-radio"><input type="radio" name="sd" value="restart" checked><span>Restart <span class="muted">Your windows and settings stay.</span></span></label>
-            <label class="opt-radio"><input type="radio" name="sd" value="clean"><span>Restart with a clean desktop <span class="muted">Forgets which windows were open, where, and the Generate form.</span></span></label>
-            <label class="opt-radio"><input type="radio" name="sd" value="all"><span>Restart and reset everything <span class="muted">Also resets Options: theme, scale, font and alerts.</span></span></label>
-            <p class="muted sd-note">Your jobs, files and API key aren't touched.${(n => n ? ` ${n} job${n === 1 ? " is" : "s are"} still rendering or queued: ${n === 1 ? "it keeps" : "they keep"} going on Runway, and Activity shows ${n === 1 ? "it" : "them"} again after the restart.` : "")(S.data.runs.filter(r => ACTIVE.has(r.status)).length)}</p>
-          </fieldset>
-        </div>
-        <div class="sheet-foot"><span class="grow"></span><button class="raised btn-ok b-default" data-sd="ok">OK</button><button class="raised btn-ok" data-sd="cancel">Cancel</button></div>
-      </div>`;
-  document.body.append(d);
-  const done = ok => {
-    removeEventListener("keydown", onKey, true);
-    if (ok) { restart($('input[name="sd"]:checked', d).value); return; }
-    d.remove(); back?.focus?.();
-  };
-  // the dialog is modal: it takes every key while open; Tab stays inside it
-  const onKey = e => {
-    e.stopPropagation();
-    if (e.key === "Escape") { e.preventDefault(); done(false); return; }
-    if (e.key === "Enter" && !e.target.closest('[data-sd="cancel"]')) { e.preventDefault(); done(true); return; }
-    if (e.key === "Tab") {
-      const f = $$("input:checked, button", d), i = f.indexOf(document.activeElement);
-      e.preventDefault(); f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();
-    }
-  };
-  addEventListener("keydown", onKey, true);
-  d.addEventListener("click", e => { const b = e.target.closest("[data-sd]"); if (b) done(b.dataset.sd === "ok"); });
-  $('input[name="sd"]:checked', d).focus();
-}
-
 /* ---------- right-click: an in-app menu everywhere; Shift + right-click keeps the browser's own menu ---------- */
 async function pasteInto(el) {
   try {
@@ -3271,7 +2390,7 @@ function schedulePoll() {
   const ms = document.hidden ? 30000 : S.data.runs.some(r => ACTIVE.has(r.status)) ? 2000 : 5000;
   S.pollT = setTimeout(() => poll().finally(schedulePoll), ms);
 }
-async function poll() {
+export async function poll() {
   try {
     const res = await fetch("/api/state", { cache: "no-store", headers: S.stateTag && S.loaded ? { "If-None-Match": S.stateTag } : {} });
     if (res.status === 304) {
@@ -3309,7 +2428,7 @@ async function poll() {
 
 // clock + relative times
 const clock = $("#clock");
-function tick() {
+export function tick() {
   const now = new Date();
   clock.textContent = now.toLocaleTimeString([], S.opts.clock24 ? { hour: "2-digit", minute: "2-digit", hour12: false } : { hour: "numeric", minute: "2-digit", hour12: true });
   clock.title = now.toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" });
@@ -3324,8 +2443,17 @@ const modelsLoaded = fetch("/api/models").then(r => { if (!r.ok) throw new Error
 
 // start: every module's listeners and saved state, in the order the single-file app had them
 windowsInit();
+keysInit();
+overviewInit();
+keyInit();
+optionsInit();
+usageInit();
+activityInit();
+viewerInit();
+propsInit();
 uiInit();
 taskbarInit();
+spendInit();
 iconsInit();
 addEventListener("dragstart", e => {
   const src = e.target.closest?.("[draggable][data-id]"); if (!src) return;
@@ -3335,23 +2463,14 @@ addEventListener("dragstart", e => {
   e.dataTransfer.effectAllowed = "copy";
   const img = src.querySelector("img"); if (img?.complete) e.dataTransfer.setDragImage(img, 16, 16);
 });
-RENDER.keys = keysRender;
-RENDER.overview = overviewRender;
 RENDER.jobs = jobsRender;
 RENDER.generate = w => genRender(w);
-RENDER.key = w => keyRender(w);
 RENDER.terminal = w => termRender(w);
-RENDER.options = w => optionsRender(w);
-RENDER.usage = w => usageRender(w);
-RENDER.activity = w => activityRender(w);
 RENDER.images = w => gallery(w, "image");
 RENDER.audio = w => gallery(w, "audio");
 RENDER.videos = w => gallery(w, "video");
 RENDER.tree = w => treeRender(w);
 RENDER.notes = w => notesRender(w);
-RENDER.viewer = viewerRender;
-RENDER.props = propsRender;
-setInterval(() => $$(".act [data-eta]").forEach(e => { e.textContent = etaText(+e.dataset.eta); }), 5000);
 try { S.notePref = { ...S.notePref, ...JSON.parse(localStorage.getItem(NOTE_PREF)) }; } catch {}
 addEventListener("pagehide", () => notesSt.dirty.forEach(ed => {
   if (ed.name && ed.text !== ed.saved) fetch("/api/notes", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: ed.name, text: ed.text }) }).catch(() => {});
@@ -3406,17 +2525,6 @@ addEventListener("keydown", ev => {
   const f = frontWin(); if (!f || f.kind !== "generate" || !f.shell || !menuEl.hidden || $("#notedlg")) return;
   ev.preventDefault(); promptSave(f);
 });
-S.opts = { ...OPT_DEFAULT };
-try {
-  const saved = JSON.parse(localStorage.getItem(OPT_KEY)) || {};
-  if (!saved.theme && saved.desk === "#0b2e2e") delete saved.desk; // the old default desktop color now comes from the theme
-  if (!saved.fontV2) { delete saved.font; delete saved.textPx; saved.fontV2 = true; } // readable smooth font became the default
-  if (!saved.fontV3) { delete saved.font; saved.fontV3 = true; } // IBM Plex Sans became the default
-  if (!saved.sizeV4) { delete saved.textPx; delete saved.textSize; saved.sizeV4 = true; } // bigger default text for the smooth fonts
-  if (!saved.sizeV5) { if (saved.font !== "pixel" && +saved.textPx < 13) delete saved.textPx; saved.sizeV5 = true; } // sizes under 13 px came from the pixel-font marks and are too small for the outline fonts
-  S.opts = { ...OPT_DEFAULT, ...saved };
-} catch {}
-reduced.addEventListener?.("change", applyOptions);
 RENDER.compare = cmpRender;
 
 // Alt+C compares the selection, Cmd+A selects everything in the list; Shift+arrows extend the selection (capture: before the plain arrow keys)
@@ -3472,14 +2580,6 @@ addEventListener("paste", ev => {
   const text = (ev.clipboardData?.getData("text") || "").trim(), r = text && runOf(text);
   if (r) { ev.preventDefault(); genDropRun(f, text); }
   else if (text) genMsg(f, "To use a job as an input, select it in Jobs, a gallery or the Job tree and press Cmd+C first.", true);
-});
-// Options → Spending: the limit field saves on change (Enter or leaving the field)
-document.addEventListener("change", e => {
-  const el = e.target.closest?.("[data-limit]"); if (!el) return;
-  const v = el.value.trim(), n = Math.round(+v), had = document.activeElement === el;
-  setOpt("dailyLimit", v === "" || !(n >= 1) ? null : n);
-  if (had) $("[data-limit]")?.focus({ preventScroll: true });
-  spendRefresh();
 });
 addEventListener("contextmenu", e => {
   if (e.defaultPrevented || e.shiftKey) return; // handled by a more specific menu, or Shift asks for the browser's own
@@ -3638,14 +2738,11 @@ ready.then(() => {
   const prev = frontWin(), aw = open("activity");
   if (prev && prev !== aw) { focus(prev); focusInto(prev); }
 });
-SIG.options = () => "";
 SIG.terminal = () => "";
-SIG.usage = () => "";
 SIG.notes = () => "";
 SIG.images = w => JSON.stringify(assetsOf("image").map(r => [r.taskId, r.asset, r.prompt]));
 SIG.videos = w => JSON.stringify(assetsOf("video").map(r => [r.taskId, r.asset, r.prompt]));
 SIG.audio = w => JSON.stringify(assetsOf("audio").map(r => [r.taskId, r.asset, r.prompt]));
-SIG.props = w => { const r = runOf(w.arg); return r ? [runSig(r), runSig(runOf(r.parent)), ...childrenOf(r.taskId).map(runSig)].join("|") : "-"; };
 document.addEventListener("visibilitychange", () => { if (!document.hidden) poll().finally(schedulePoll); });
 poll();
 applyOptions();

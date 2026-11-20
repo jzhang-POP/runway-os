@@ -4,7 +4,7 @@ import { api } from "./api.js";
 import { nameOf, typeIcon } from "./status.js";
 import { setTitle } from "../wm/taskbar.js";
 import { open } from "../wm/windows.js";
-import { chime } from "../main.js";
+import { chime } from "../apps/options.js";
 
 export const loadingOr = msg => `<div class="empty-list">${S.loaded ? msg : "Loading…"}</div>`;
 // a button under an empty list's message
