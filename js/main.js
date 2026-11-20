@@ -1,4 +1,43 @@
 // Runway Dashboard: a small Win95-style window manager over the live job log (/api/state).
+const S = {
+  data: { runs: [], balance: null, balanceAt: null, history: [] },
+  loaded: false,
+  runsSig: "",
+  stateSig: "",
+  conn: { cls: "", text: "Connecting…" },
+  sessionStart: null,
+  prevStatus: new Map(),
+  unseen: 0,
+  markReady: undefined,
+  zTop: 10,
+  seqTop: 0,
+  uid: 0,
+  scale: 1,
+  tabbing: false,
+  treeMemo: null,
+  CAT: null,
+  catFailed: false,
+  notePref: { wrap: true },
+  opts: undefined,
+  menuItems: [],
+  menuReturn: null,
+  kb: null,
+  layoutMap: null,
+  balloonT: 0,
+  balloonLeft: 0,
+  balloonAt: 0,
+  srSeq: 0,
+  favState: "",
+  resetting: false,
+  lastPointer: "mouse",
+  iconSlots: {},
+  iconDragged: false,
+  saveT: undefined,
+  bootDone: true,
+  stateTag: null,
+  lastConn: null,
+  pollT: 0,
+};
 /* ---------- helpers ---------- */
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -25,27 +64,23 @@ const absTime = ms => new Date(ms).toLocaleString([], { dateStyle: "medium", tim
 
 /* ---------- state ---------- */
 const desk = $("#desktop"), tasksEl = $("#tasks"), startBtn = $("#start"), startMenu = $("#startmenu"), menuEl = $("#ctxmenu");
-let data = { runs: [], balance: null, balanceAt: null, history: [] }, loaded = false, runsSig = "", stateSig = "";
-let conn = { cls: "", text: "Connecting…" }, sessionStart = null, prevStatus = new Map(), unseen = 0;
 const sleep = ms => new Promise(res => setTimeout(res, ms));
 const upTo = (p, ms) => Promise.race([p.then(() => true), sleep(ms).then(() => false)]); // false on timeout
 // resolves on the first successful /api/state poll
-let markReady;
-const ready = new Promise(res => { markReady = res; });
+const ready = new Promise(res => { S.markReady = res; });
 const wins = new Map();
-let zTop = 10, seqTop = 0, uid = 0;
 
 const D = () => ({ w: desk.clientWidth, h: desk.clientHeight });
 // a job can return several files (outputCount, numVariants): each extra file is its own item, id "taskId~2", "~3"…
 const filesOf = r => (r.assets?.length ? r.assets : r.asset ? [r.asset] : []);
 const fileItem = (r, i) => (i === 0 ? r : { ...r, taskId: `${r.taskId}~${i + 1}`, asset: filesOf(r)[i], _of: r.taskId, _n: i + 1 });
 const runOf = id => {
-  const [base, n] = String(id ?? "").split("~"), r = data.runs.find(x => x.taskId === base);
+  const [base, n] = String(id ?? "").split("~"), r = S.data.runs.find(x => x.taskId === base);
   return r && n ? (filesOf(r)[n - 1] ? fileItem(r, n - 1) : undefined) : r;
 };
-const newestFirst = () => [...data.runs].sort((a, b) => createdMs(b) - createdMs(a));
+const newestFirst = () => [...S.data.runs].sort((a, b) => createdMs(b) - createdMs(a));
 const assetsOf = type => newestFirst().filter(r => r.type === type && r.asset).flatMap(r => filesOf(r).map((_, i) => fileItem(r, i)));
-const childrenOf = id => data.runs.filter(r => r.parent === id);
+const childrenOf = id => S.data.runs.filter(r => r.parent === id);
 const createdMs = r => tOf(r.createdAt) || tOf(r.date) || 0;
 const thumbOf = r => (!r || !r.asset || r.type === "audio" ? null : `thumbs/${encodeURIComponent(r.asset)}.jpg`); // the server redirects to the original if it can't make one
 const typeIcon = t => (t === "video" ? "i-video" : t === "audio" ? "i-audio" : "i-picture");
@@ -65,7 +100,7 @@ function statusInfo(r) {
 }
 // median finished duration for the same model, used to estimate time left
 function typicalMs(model) {
-  const d = data.runs.filter(r => r.model === model && r.finishedAt && r.createdAt).map(r => tOf(r.finishedAt) - tOf(r.createdAt)).filter(x => x > 0).sort((a, b) => a - b);
+  const d = S.data.runs.filter(r => r.model === model && r.finishedAt && r.createdAt).map(r => tOf(r.finishedAt) - tOf(r.createdAt)).filter(x => x > 0).sort((a, b) => a - b);
   return d.length ? d[Math.floor(d.length / 2)] : null;
 }
 const relHTML = (iso, kind = "ago") => {
@@ -137,12 +172,11 @@ function spark(hist, W = 160, H = 34, grid = false) {
 
 /* ---------- window kinds ---------- */
 // every size below is at scale 1 (11 px text) and grows with the Scale option
-let scale = 1;
-const px = n => Math.round(n * scale);
+const px = n => Math.round(n * S.scale);
 const box = (d, w, h) => ({ wd: Math.min(px(w), d.w - 24), ht: Math.min(px(h), d.h - 24) });
 const centered = (d, w, h, dx = 0, third = false) => { const b = box(d, w, h); return { ...b, x: Math.max(0, Math.round((d.w - b.wd) / 2) + px(dx)), y: Math.max(0, Math.round((d.h - b.ht) / (third ? 3 : 2))) }; };
 const cascade = (cw, ch) => d => {
-  const n = seqTop % 8, b = box(d, cw, ch);
+  const n = S.seqTop % 8, b = box(d, cw, ch);
   // stay clear of the desktop icons when there's room
   return { ...b, x: Math.max(Math.min(px(104), d.w - b.wd), Math.round((d.w - b.wd) / 2) + px(n * 26 - 80)), y: Math.max(0, Math.round((d.h - b.ht) / 2) + px(n * 26 - 80)) };
 };
@@ -193,7 +227,7 @@ const KINDS = {
 
 /* ---------- window lifecycle ---------- */
 function make(kind, arg, g = {}) {
-  const id = arg ? `${kind}:${arg}` : kind, tid = "tt-" + ++uid;
+  const id = arg ? `${kind}:${arg}` : kind, tid = "tt-" + ++S.uid;
   const el = document.createElement("section");
   el.className = "window raised";
   el.dataset.id = id;
@@ -213,8 +247,8 @@ function make(kind, arg, g = {}) {
     filter: g.filter || "all", q: g.q || "", sort: g.sort || { key: "created", dir: -1 }, size: num(g.size, 132), sel: g.sel || null, tab: g.tab || "general", days: [7, 30, 90].includes(g.days) ? g.days : undefined, act: g.act, solo: !!g.solo, cmp: g.cmp || null,
     gen: { cat: "Video", ep: {}, model: {}, vals: {}, media: {}, adv: false, pending: null, ...(g.gen || {}) },
   };
-  w.seq = num(g.seq, ++seqTop); seqTop = Math.max(seqTop, w.seq);
-  w.z = ++zTop;
+  w.seq = num(g.seq, ++S.seqTop); S.seqTop = Math.max(S.seqTop, w.seq);
+  w.z = ++S.zTop;
   wins.set(id, w);
   desk.append(el);
   bind(w);
@@ -222,7 +256,7 @@ function make(kind, arg, g = {}) {
   // Tab moving focus into a window behind others brings that window to the front
   el.addEventListener("focusin", e => {
     if (w.body.contains(e.target)) w.lastFocus = e.target;
-    if (tabbing && !w.minimized && w !== frontWin()) { focus(w); save(); }
+    if (S.tabbing && !w.minimized && w !== frontWin()) { focus(w); save(); }
   });
   // a title bar press keeps focus where it is (for dragging): bring it in when it's in another window (not on touch, to keep the keyboard down)
   $(".titlebar", el).addEventListener("pointerdown", e => { if (e.pointerType !== "touch" && !e.target.closest(".ctl") && !el.contains(document.activeElement)) focusInto(w); });
@@ -258,7 +292,7 @@ function unsnap(w) {
 
 const frontWin = () => [...wins.values()].filter(w => !w.minimized).sort((a, b) => b.z - a.z)[0] || null;
 function focus(w) {
-  if (w.z !== zTop) { w.z = ++zTop; w.el.style.zIndex = w.z; }
+  if (w.z !== S.zTop) { w.z = ++S.zTop; w.el.style.zIndex = w.z; }
   refreshFront();
 }
 function refreshFront() {
@@ -279,9 +313,9 @@ function focusInto(w) {
 }
 // after a close or minimize, once the caller is done (it may raise another window): focus the front window, else none()
 const refocus = none => queueMicrotask(() => { const f = frontWin(); f ? focusInto(f) : none()?.focus(); });
-let tabbing = false; // true while a Tab keypress moves focus
-addEventListener("keydown", e => { tabbing = e.key === "Tab"; }, true);
-addEventListener("keyup", () => { tabbing = false; }, true);
+// true while a Tab keypress moves focus
+addEventListener("keydown", e => { S.tabbing = e.key === "Tab"; }, true);
+addEventListener("keyup", () => { S.tabbing = false; }, true);
 
 /* ---------- geometry ---------- */
 function fit(w) {
@@ -434,7 +468,7 @@ function renderWin(w) {
 }
 // Win95 property sheet: tabs, a raised panel, and a footer ending in OK
 // ARIA tablist with a roving tabindex: only the selected tab is in the Tab order; sheetKeys adds the arrow keys
-const sheetHTML = (tabs, cur, panel, foot = "") => { const sid = "sh" + ++uid; return `
+const sheetHTML = (tabs, cur, panel, foot = "") => { const sid = "sh" + ++S.uid; return `
     <div class="sheet">
       <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button class="tab" role="tab" data-tab="${k}" id="${sid}-${k}" aria-controls="${sid}-p" aria-selected="${k === cur}" tabindex="${k === cur ? 0 : -1}">${l}</button>`).join("")}</div>
       <div class="tabpanel raised" role="tabpanel" id="${sid}-p" aria-labelledby="${sid}-${cur}" data-keep="panel-${cur}">${panel}</div>
@@ -480,7 +514,7 @@ addEventListener("dragstart", e => {
   e.dataTransfer.effectAllowed = "copy";
   const img = src.querySelector("img"); if (img?.complete) e.dataTransfer.setDragImage(img, 16, 16);
 });
-const loadingOr = msg => `<div class="empty-list">${loaded ? msg : "Loading…"}</div>`;
+const loadingOr = msg => `<div class="empty-list">${S.loaded ? msg : "Loading…"}</div>`;
 // update an element to match new HTML, touching only what changed: no flashing, images don't reload, scroll and hover stay.
 // Elements marked data-live (e.g. a hover preview video) are left alone.
 function morph(el, html) {
@@ -507,7 +541,7 @@ function morphNode(a, b) {
 const emptyAct = html => `<div class="empty-act">${html}</div>`;
 const GEN_BTN = '<button class="raised btn-s b-default" data-open="generate"><svg class="ico" aria-hidden="true"><use href="#i-wand"/></svg><span>Open Generate</span></button>';
 // id of a row or tile, stable for the window's life, so the list can point aria-activedescendant at it
-const itemId = (w, id) => `it${w.oid ||= ++uid}-${String(id).replace(/[^\w-]/g, "_")}`;
+const itemId = (w, id) => `it${w.oid ||= ++S.uid}-${String(id).replace(/[^\w-]/g, "_")}`;
 // button content: a 16 px icon before the label (index.html, "button icons and tones"); label is trusted HTML
 const icoLabel = (icon, label) => `<svg class="ico" aria-hidden="true"><use href="#${icon}"/></svg><span>${label}</span>`;
 
@@ -522,7 +556,7 @@ const COLS = [
 ];
 function jobsFor(w) {
   const q = w.q.trim().toLowerCase(), col = COLS.find(c => c.key === w.sort.key) || COLS[5];
-  return data.runs
+  return S.data.runs
     .filter(r => (w.filter === "all" || r.type === w.filter) && (!q || [r.prompt, r.model, r.taskId, r.asset, r.settings].some(v => String(v || "").toLowerCase().includes(q))))
     .sort((a, b) => { const x = col.get(a), y = col.get(b); return (x < y ? -1 : x > y ? 1 : 0) * w.sort.dir || createdMs(b) - createdMs(a); });
 }
@@ -589,13 +623,13 @@ const RENDER = {
   },
   // "System Properties": a Win95 property sheet with General, Usage and Connection tabs
   overview(w) {
-    const runs = data.runs, running = runs.filter(r => r.status === "running"), queued = runs.filter(r => QUEUED.has(r.status));
-    const v = { balance: data.balance };
+    const runs = S.data.runs, running = runs.filter(r => r.status === "running"), queued = runs.filter(r => QUEUED.has(r.status));
+    const v = { balance: S.data.balance };
     const fl = "";
-    const delta = sessionStart != null && data.balance != null ? sessionStart.balance - data.balance : 0;
+    const delta = S.sessionStart != null && S.data.balance != null ? S.sessionStart.balance - S.data.balance : 0;
     const ps = running.map(r => r.progress).filter(p => p != null);
     const det = running.length && ps.length === running.length ? Math.round((ps.reduce((a, b) => a + b, 0) / ps.length) * 100) : null;
-    const checked = data.balanceAt ? new Date(data.balanceAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : null;
+    const checked = S.data.balanceAt ? new Date(S.data.balanceAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : null;
     const count = t => runs.filter(r => r.type === t && r.asset).length;
     const tab = w.tab || "general", T = [["general", "General"], ["usage", "Usage"], ["connection", "Connection"]];
     let panel = "";
@@ -606,13 +640,13 @@ const RENDER = {
             <dl class="sp-facts">
               <dt>System:</dt><dd>runway os<br><span class="muted">Runway API 2024-11-06</span></dd>
               <dt>Credits left:</dt><dd><div class="led sunken${fl}" role="img" aria-label="${v.balance == null ? "Balance unknown" : fmt(v.balance) + " credits left"}">${ledHTML(v.balance)}</div>
-                <span class="muted">${delta > 0 ? `<span class="down">▼ ${fmt(delta)}</span> since you opened this at ${esc(sessionStart.at)}` : checked ? `Checked at ${esc(checked)}` : "Waiting for Runway"}</span></dd>
+                <span class="muted">${delta > 0 ? `<span class="down">▼ ${fmt(delta)}</span> since you opened this at ${esc(S.sessionStart.at)}` : checked ? `Checked at ${esc(checked)}` : "Waiting for Runway"}</span></dd>
               <dt>Activity:</dt><dd>${running.length ? `Rendering ${running.length} job${running.length > 1 ? "s" : ""}${det != null ? ` · ${det}%` : "…"}` : queued.length ? `${queued.length} job${queued.length > 1 ? "s" : ""} queued…` : "Idle. No jobs rendering."}
                 <div class="prog sunken${running.length + queued.length && det == null ? " busy" : ""}"><i style="${det != null ? `width:${det}%;opacity:1` : ""}"></i></div></dd>
             </dl>
           </div>`;
     } else if (tab === "usage") {
-      const sp = spark(data.history, 480, 120, true);
+      const sp = spark(S.data.history, 480, 120, true);
       const row = (label, val, open) => `<button class="sp-row" data-open="${open}"><span>${label}</span><b>${val}</b></button>`;
       panel = `
           <fieldset class="group"><legend>Your jobs</legend>
@@ -630,12 +664,12 @@ const RENDER = {
             <div class="muted">${sp.spent != null ? `Your org spent ${fmt(sp.spent)} credits in the last 24 h.` : ""}</div>
           </fieldset>`;
     } else {
-      const where = data.keySource === "file" ? "saved in .runway_key" : data.keySource === "env" ? "from RUNWAYML_API_SECRET" : "none";
+      const where = S.data.keySource === "file" ? "saved in .runway_key" : S.data.keySource === "env" ? "from RUNWAYML_API_SECRET" : "none";
       panel = `
           <fieldset class="group"><legend>Runway API</legend>
             <dl class="sp-facts tight">
-              <dt>Status:</dt><dd><span class="live ${conn.cls}">${esc(conn.text)}</span></dd>
-              <dt>API key:</dt><dd>${data.live ? `Ending in ${esc(data.keyHint || "…")} <span class="muted">(${where})</span>` : "Not set"}</dd>
+              <dt>Status:</dt><dd><span class="live ${S.conn.cls}">${esc(S.conn.text)}</span></dd>
+              <dt>API key:</dt><dd>${S.data.live ? `Ending in ${esc(S.data.keyHint || "…")} <span class="muted">(${where})</span>` : "Not set"}</dd>
               <dt>Balance:</dt><dd>${checked ? `Checked at ${esc(checked)}` : "Not checked yet"}</dd>
               <dt>Sync:</dt><dd>Jobs every 8 s, balance every 20 s</dd>
               <dt>Server:</dt><dd>${esc(location.host)}</dd>
@@ -669,7 +703,7 @@ const RENDER = {
         const f = $(".field", w.body); f.value = w.q = ""; RENDER.jobs(w); save(); f.focus();
       });
     }
-    const list = jobsFor(w), types = ["all", ...new Set(data.runs.map(r => r.type))];
+    const list = jobsFor(w), types = ["all", ...new Set(S.data.runs.map(r => r.type))];
     $(".seg-tabs", w.body).innerHTML = types.map(t => `<button class="raised" data-filter="${esc(t)}" aria-pressed="${t === w.filter}">${t === "all" ? "All" : esc(plural(t))}</button>`).join("");
     $$(".th [data-sort]", w.body).forEach(b => { b.parentElement.setAttribute("aria-sort", b.dataset.sort === w.sort.key ? (w.sort.dir > 0 ? "ascending" : "descending") : "none"); });
     morph($(".rows", w.body), list.length ? list.map(r => `
@@ -841,20 +875,19 @@ const kindOfFile = f => (/\.(mp4|mov|webm|m4v)$/i.test(f) ? "video" : /\.(mp3|wa
 // sizes at scale 1: node width, node height, gaps between columns and levels, canvas padding, branch minimum width,
 // a line passing a level (its column), first line below a level, space between stacked lines and between stacked line labels
 const TR = { nw: 96, nh: 110, hg: 18, vg: 52, pad: 18, min: 220, dw: 12, t0: 14, step: 8, lab: 22 };
-let treeMemo = null;
 // the graph and its layout depend only on links and dates (and the UI scale): built once per change, not on every poll
 function treeGraph() {
-  const sig = scale + "\n" + data.runs.map(r => `${r.taskId}\t${createdMs(r)}\t${r.inputs?.length ? JSON.stringify(r.inputs) : r.parent || ""}`).join("\n");
-  if (treeMemo?.sig === sig) return treeMemo;
-  const by = new Map(data.runs.map(r => [r.taskId, r])), nodes = new Map(), pairs = new Map();
+  const sig = S.scale + "\n" + S.data.runs.map(r => `${r.taskId}\t${createdMs(r)}\t${r.inputs?.length ? JSON.stringify(r.inputs) : r.parent || ""}`).join("\n");
+  if (S.treeMemo?.sig === sig) return S.treeMemo;
+  const by = new Map(S.data.runs.map(r => [r.taskId, r])), nodes = new Map(), pairs = new Map();
   const node = (key, kind, id, t) => {
     let n = nodes.get(key);
     if (!n) nodes.set(key, (n = { key, kind, id, t, ins: [], outs: [] }));
     else if (t < n.t) n.t = t; // an uploaded file or missing job sorts by its first use
     return n;
   };
-  data.runs.forEach(r => node(r.taskId, "run", r.taskId, createdMs(r)));
-  data.runs.forEach(r => {
+  S.data.runs.forEach(r => node(r.taskId, "run", r.taskId, createdMs(r)));
+  S.data.runs.forEach(r => {
     const srcs = srcsOf(r), main = srcs.findIndex(i => !SIDE_FIELD.test(i.field || "")), t = createdMs(r);
     let frames = 0;
     srcs.forEach((i, k) => {
@@ -887,8 +920,8 @@ function treeGraph() {
     groups.push(g);
   });
   const branches = groups.map(g => treeLayout(g, nodes)).sort((a, b) => b.last - a.last);
-  const solo = data.runs.filter(r => !comp.has(r.taskId)).sort((a, b) => createdMs(b) - createdMs(a)).map(r => r.taskId);
-  return (treeMemo = { sig, branches, solo });
+  const solo = S.data.runs.filter(r => !comp.has(r.taskId)).sort((a, b) => createdMs(b) - createdMs(a)).map(r => r.taskId);
+  return (S.treeMemo = { sig, branches, solo });
 }
 // one branch, Sugiyama style: drop cycles, layer, add a waypoint where a line passes a level, order the levels, place, route
 function treeLayout(g, nodes) {
@@ -1021,7 +1054,7 @@ function treeNodeHTML(w, n, style = "", lvl = 1) {
   const r = n.run, key = r ? r.taskId : n.key, sel = key === w.sel ? " sel" : "";
   const head = cls => `<div class="tnode ${cls}${sel}" role="treeitem" aria-level="${lvl}" id="${itemId(w, key)}" data-id="${esc(key)}" aria-selected="${!!sel}" style="${style}"`;
   if (n.kind === "upload") {
-    const t = kindOfFile(n.id), have = (data.inputs || []).some(i => i.file === n.id);
+    const t = kindOfFile(n.id), have = (S.data.inputs || []).some(i => i.file === n.id);
     const src = !have ? null : t === "image" ? `inputs/${encodeURIComponent(n.id)}` : t === "video" ? `thumbs/${encodeURIComponent(n.id)}.jpg` : null;
     return `
       ${head("t-upload")} aria-label="${esc(`${n.id}, uploaded${have ? "" : ", no longer in inputs"}`)}" title="${esc(`inputs/${n.id}\n${have ? "Uploaded" : "Uploaded, no longer in the inputs folder"}`)}">
@@ -1078,7 +1111,7 @@ function treeRender(w) {
         <div class="statusbar"><span class="sunken seg grow"></span><span class="sunken seg"></span><span class="sunken seg">Double-click or Enter to open</span></div>`;
     $(".tsolo", w.body).addEventListener("change", e => { w.solo = e.target.checked; renderWin(w); save(); });
   }
-  const { branches, solo: soloIds } = treeGraph(), by = new Map(data.runs.map(r => [r.taskId, r])), wrap = $(".tree-wrap", w.body);
+  const { branches, solo: soloIds } = treeGraph(), by = new Map(S.data.runs.map(r => [r.taskId, r])), wrap = $(".tree-wrap", w.body);
   const solo = soloIds.map(id => by.get(id)), totals = branches.map(b => b.jobs.reduce((s, id) => s + (costOf(by.get(id)) || 0), 0));
   $(".tsolo", w.body).checked = !!w.solo;
   $(".toolbar .check span", w.body).textContent = `Show jobs without links (${solo.length})`;
@@ -1163,7 +1196,6 @@ function step(w, delta) {
 }
 
 /* ---------- generate: every Runway task and model, as forms built from Runway's API spec ---------- */
-let CAT = null, catFailed = false;
 const aspectCache = new Map();
 const COMMON = [[1, 1], [16, 9], [9, 16], [4, 3], [3, 4], [3, 2], [2, 3], [5, 4], [4, 5], [21, 9], [9, 21], [7, 4], [4, 7], [12, 5], [5, 12], [7, 3], [3, 7], [2, 1], [1, 2]];
 const dims = ratio => String(ratio).split(":").map(Number);
@@ -1184,8 +1216,8 @@ const closestRatio = (list, aspect) => list.filter(isWH).reduce((best, x) => { c
 const secondsOf = r => r.duration ?? (+(String(r.settings || "").match(/(\d+)\s*s\b/)?.[1] || 0) || null);
 const refKey = ref => (ref.run ? "r:" + ref.run : "i:" + ref.input);
 
-const cats = () => [...new Set((CAT?.tasks || []).map(t => t.category))];
-const tasksOf = cat => (CAT?.tasks || []).filter(t => t.category === cat);
+const cats = () => [...new Set((S.CAT?.tasks || []).map(t => t.category))];
+const tasksOf = cat => (S.CAT?.tasks || []).filter(t => t.category === cat);
 const curTask = w => { const ts = tasksOf(w.gen.cat); return ts.find(t => t.endpoint === w.gen.ep[w.gen.cat]) || ts[0]; };
 const curModel = w => { const t = curTask(w); if (!t) return null; const ms = t.models; return ms.find(m => m.id === w.gen.model[t.endpoint]) || ms[0]; };
 // Additional parameters: free JSON for API fields the form doesn't cover
@@ -1206,7 +1238,7 @@ function library(accept) {
     const t = r.asset && (/\.(png|jpe?g|webp|gif|svg)$/i.test(r.asset) ? "image" : /\.(mp4|mov|webm|m4v)$/i.test(r.asset) ? "video" : /\.(mp3|wav|flac|ogg|m4a|aac|opus)$/i.test(r.asset) ? "audio" : r.type);
     if (r.asset && accept.includes(t)) out.push({ ref: { run: r.taskId }, name: r.asset, type: t, thumb: thumbOf(r), title: r.prompt });
   });
-  (data.inputs || []).forEach(i => {
+  (S.data.inputs || []).forEach(i => {
     if (accept.includes(i.type)) out.push({ ref: { input: i.file }, name: i.file, type: i.type, title: `${i.file} (uploaded)`,
       thumb: i.type !== "audio" ? `thumbs/${encodeURIComponent(i.file)}.jpg` : null });
   });
@@ -1217,7 +1249,7 @@ const shownVal = (f, v) => (v !== undefined ? v : f.default ?? (f.kind === "sele
 // why Generate can't run yet, or null
 function genBlock(w) {
   const m = curModel(w); if (!m) return "Loading models…";
-  if (loaded && !data.live) return "Add your Runway API key to generate";
+  if (S.loaded && !S.data.live) return "Add your Runway API key to generate";
   const ex = genExtra(w);
   if (ex.err) return `Additional parameters ${ex.err}`;
   const need = (m.needs || []).filter(k => !(k in ex.obj));
@@ -1250,10 +1282,10 @@ function genCost(w) {
 }
 
 function genRender(w) {
-  if (!CAT) { w.shell = false; w.body.innerHTML = `<div class="empty-list">${catFailed ? "Couldn't load Runway's model list. Check the connection, then reopen this window." : "Loading models…"}</div>`; return; }
+  if (!S.CAT) { w.shell = false; w.body.innerHTML = `<div class="empty-list">${S.catFailed ? "Couldn't load Runway's model list. Check the connection, then reopen this window." : "Loading models…"}</div>`; return; }
   if (!w.shell) {
     w.shell = true;
-    const id = "g" + uid;
+    const id = "g" + S.uid;
     w.body.innerHTML = `
         <form class="gen" novalidate autocomplete="off">
           <div class="toolbar"><div class="seg-tabs" role="group" aria-label="Category"></div></div>
@@ -1356,7 +1388,7 @@ function genSwitch(w, first) {
 }
 
 function genFieldHTML(w, f) {
-  const v = shownVal(f, vals(w)[f.name]), id = `gf-${uid}-${f.name}`, tip = f.desc ? ` title="${esc(f.desc)}"` : "";
+  const v = shownVal(f, vals(w)[f.name]), id = `gf-${S.uid}-${f.name}`, tip = f.desc ? ` title="${esc(f.desc)}"` : "";
   const lab = `<label for="${id}"${tip}>${esc(f.label)}</label>`, hd = helpAttr(f), help = helpHTML(f);
   if (f.kind === "select") {
     const opts = (f.required || f.default != null ? [] : [`<option value="">Default</option>`])
@@ -1378,7 +1410,7 @@ function genHint(f) {
   const bare = x => String(x).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().replace(/^(the|a|an) /, "");
   return bare(s) === bare(f.label || "") ? "" : s; // nothing the label doesn't already say
 }
-const helpId = f => `gf-${uid}-${f.name}-h`;
+const helpId = f => `gf-${S.uid}-${f.name}-h`;
 const helpAttr = f => (genHint(f) ? ` aria-describedby="${helpId(f)}"` : "");
 const helpHTML = f => { const h = genHint(f); return h ? `<div class="ghelp" id="${helpId(f)}">${esc(h)}</div>` : ""; };
 function genFields(w) {
@@ -1518,7 +1550,7 @@ function genRefresh(w, fromPrice) {
   // Only sending uses real disabled.
   btn.disabled = !!w.busy;
   why ? btn.setAttribute("aria-disabled", "true") : btn.removeAttribute("aria-disabled");
-  $(".gkey", f).hidden = !loaded || data.live;
+  $(".gkey", f).hidden = !S.loaded || S.data.live;
 }
 function genMsg(w, text, neutral) {
   const m = $(".gmsg", w.body); if (!m) return;
@@ -1584,8 +1616,8 @@ const etaText = end => (end > Date.now() ? `~${dur(end - Date.now())} left` : "l
 // every queued or rendering job, then finished ones from the last 24 h that weren't cleared, newest first
 function activityList(w) {
   const since = Math.max(Date.now() - 86400000, w.act?.clearedAt || 0), hide = new Set(w.act?.hide || []);
-  const ids = new Set(data.runs.map(r => r.taskId));
-  const rows = [...data.runs, ...Object.values(fresh).filter(r => !ids.has(r.taskId))];
+  const ids = new Set(S.data.runs.map(r => r.taskId));
+  const rows = [...S.data.runs, ...Object.values(fresh).filter(r => !ids.has(r.taskId))];
   return rows.filter(r => !hide.has(r.taskId) && (ACTIVE.has(r.status) || createdMs(r) >= since))
     .sort((a, b) => (ACTIVE.has(b.status) - ACTIVE.has(a.status)) || createdMs(b) - createdMs(a)).slice(0, 20);
 }
@@ -1634,7 +1666,7 @@ function activityRender(w) {
     box.dataset.sig = sig;
     const a = document.activeElement, had = box.contains(a) ? a.dataset : null;
     const running = list.filter(r => ACTIVE.has(r.status)).length;
-    morph(box, !list.length ? `<div class="empty-list">${loaded ? `Nothing in progress. Jobs you send show up here while they render.${emptyAct(GEN_BTN)}` : "Loading…"}</div>` : `
+    morph(box, !list.length ? `<div class="empty-list">${S.loaded ? `Nothing in progress. Jobs you send show up here while they render.${emptyAct(GEN_BTN)}` : "Loading…"}</div>` : `
         <div class="gs-head"><span>${running ? `${running} in progress` : "Nothing in progress"}</span>${list.some(r => !ACTIVE.has(r.status)) ? '<button type="button" class="raised btn-s" data-gs="clear">Clear finished</button>' : ""}</div>
         <ul class="gs-list sunken">${list.map(r => genSentItem(w, r)).join("")}</ul>`);
     $(".statusbar .seg", w.body).textContent = `${list.length} job${list.length === 1 ? "" : "s"} · ${running} rendering or queued`;
@@ -1672,12 +1704,12 @@ function genFrom(r, mode, src) {
     || r.endpoint || (r.type === "image" ? "text_to_image" : r.type === "audio" ? "text_to_speech" : r.parent ? "image_to_video" : "text_to_video");
   g.pending = { target, mode, run: r.taskId };
   save();
-  if (CAT && w.shell) genApplyPending(w);
+  if (S.CAT && w.shell) genApplyPending(w);
 }
 function genApplyPending(w) {
-  const g = w.gen, pd = g.pending; if (!pd || !CAT) return;
+  const g = w.gen, pd = g.pending; if (!pd || !S.CAT) return;
   g.pending = null;
-  const r = runOf(pd.run), t = CAT.tasks.find(x => x.endpoint === pd.target); if (!t) return;
+  const r = runOf(pd.run), t = S.CAT.tasks.find(x => x.endpoint === pd.target); if (!t) return;
   g.cat = t.category; g.ep[t.category] = t.endpoint;
   if (pd.mode === "again" && r) {
     if (t.models.some(m => m.id === r.model)) g.model[t.endpoint] = r.model;
@@ -1738,19 +1770,19 @@ const TERM_HELP = [
 function termEntries(dir) {
   if (!dir) return Object.keys(DIRS).map(d => ({ name: d + "/", dir: d }));
   if (dir === "jobs") return newestFirst().map(r => ({ name: r.taskId.slice(0, 8), run: r }));
-  if (dir === "inputs") return (data.inputs || []).map(i => ({ name: i.file, input: i }));
+  if (dir === "inputs") return (S.data.inputs || []).map(i => ({ name: i.file, input: i }));
   if (dir === "notes") { noteListStale(); return (notesSt.list || []).map(n => ({ name: n.name, note: n })); }
   return assetsOf(DIRS[dir]).map(r => ({ name: r.asset, run: r }));
 }
 function termFind(w, arg) {
   const a = String(arg || "").replace(/^\.\//, "").replace(/^\/?(images|videos|audio|jobs|inputs|notes)\//i, "").toLowerCase(); if (!a) return null;
-  return data.runs.find(r => (r.asset || "").toLowerCase() === a || r.taskId.toLowerCase().startsWith(a))
+  return S.data.runs.find(r => (r.asset || "").toLowerCase() === a || r.taskId.toLowerCase().startsWith(a))
     || termEntries(w.term.cwd).map(e => e.run).filter(Boolean).find(r => (r.asset || "").toLowerCase().startsWith(a)) || null;
 }
 
 function neofetch() {
-  const runs = data.runs, active = runs.filter(r => ACTIVE.has(r.status)).length;
-  const up = Math.round((Date.now() - bootAt) / 60000), sp = spark(data.history);
+  const runs = S.data.runs, active = runs.filter(r => ACTIVE.has(r.status)).length;
+  const up = Math.round((Date.now() - bootAt) / 60000), sp = spark(S.data.history);
   const count = t => runs.filter(r => r.type === t && r.asset).length;
   const info = [
     `<b class="t-acc">you</b>@<b class="t-acc">runway-os</b>`,
@@ -1758,8 +1790,8 @@ function neofetch() {
     `<b class="t-acc">OS</b>: runway os (Win95 edition)`,
     `<b class="t-acc">Host</b>: ${esc(location.host)}`,
     `<b class="t-acc">Uptime</b>: ${up < 60 ? `${up} min` : `${Math.floor(up / 60)} h ${up % 60} min`}`,
-    `<b class="t-acc">API</b>: ${data.live ? `Runway 2024-11-06, key ending ${esc(data.keyHint || "…")}` : "no key"}`,
-    `<b class="t-acc">Credits</b>: <span class="t-red">${data.balance == null ? "?" : fmt(data.balance)}</span>`,
+    `<b class="t-acc">API</b>: ${S.data.live ? `Runway 2024-11-06, key ending ${esc(S.data.keyHint || "…")}` : "no key"}`,
+    `<b class="t-acc">Credits</b>: <span class="t-red">${S.data.balance == null ? "?" : fmt(S.data.balance)}</span>`,
     `<b class="t-acc">Org, 24 h</b>: ${sp.spent != null ? `${fmt(sp.spent)} credits spent` : "collecting"}`,
     `<b class="t-acc">Jobs</b>: ${runs.length} (${fmt(runs.reduce((s, r) => s + (r.credits || 0), 0))} credits)`,
     `<b class="t-acc">Files</b>: ${count("image")} images, ${count("video")} videos, ${count("audio")} audio`,
@@ -1873,7 +1905,7 @@ function termRun(w, raw) {
       break;
     }
     case "ps": case "top": {
-      const act = data.runs.filter(r => ACTIVE.has(r.status));
+      const act = S.data.runs.filter(r => ACTIVE.has(r.status));
       if (!act.length) { say("nothing rendering", "t-dim"); break; }
       say(act.map(r => { const p = r.progress != null ? Math.round(r.progress * 100) : null; return `${fileLink({ ...r, asset: null })}  ${esc(r.model.padEnd(18))} ${p != null ? "[" + "#".repeat(Math.round(p / 5)).padEnd(20, ".") + `] ${p}%` : statusInfo(r).label}`; }).join("\n"));
       break;
@@ -1894,10 +1926,10 @@ function termRun(w, raw) {
       }).catch(err => { t.lines.push(`<span class="t-err">cost: ${esc(err.message)}</span>`); termPaint(w); });
       break;
     }
-    case "balance": case "credits": say(data.balance == null ? "balance unknown" : `<span class="t-red">${fmt(data.balance)}</span> credits left`); say(spendTerm()); break;
+    case "balance": case "credits": say(S.data.balance == null ? "balance unknown" : `<span class="t-red">${fmt(S.data.balance)}</span> credits left`); say(spendTerm()); break;
     case "gen": case "generate": {
       const gw = open("generate", null, w.el);
-      if (arg && CAT && gw.shell) { vals(gw).promptText = arg; genFields(gw); genRefresh(gw); save(); }
+      if (arg && S.CAT && gw.shell) { vals(gw).promptText = arg; genFields(gw); genRefresh(gw); save(); }
       say("opened Generate", "t-dim"); break;
     }
     case "finder": case "explorer": fileAction("reveal", "runs.json"); say("showing the Runway folder in Finder", "t-dim"); break;
@@ -1948,7 +1980,7 @@ async function termWait(w) {
   if (wins.get(w.id) !== w) return;
   if (!ok) t.lines.push(`<span class="t-err">Runway API not reachable — balance unavailable</span>`, "");
   termWelcome(t); line.hidden = false; termPaint(w);
-  if (frontWin() === w && bootDone) $(".t-in", w.body).focus();
+  if (frontWin() === w && S.bootDone) $(".t-in", w.body).focus();
 }
 
 function termRender(w) {
@@ -1958,7 +1990,7 @@ function termRender(w) {
   w.body.innerHTML = `<div class="term" data-keep="term"><pre class="t-out"></pre><label class="t-line"><span class="t-prompt t-cur"></span><input class="t-in" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Command"></label></div>`;
   const inp = $(".t-in", w.body), t = w.term;
   if (!t.lines.length) {
-    if (loaded) termWelcome(t);
+    if (S.loaded) termWelcome(t);
     else termWait(w);
   }
   termPaint(w);
@@ -2015,8 +2047,7 @@ const NOTE_DRAFT = "\u0000link"; // w.sel while the unsaved note from a link is 
 const NOTE_PREF = "runway-os-notes-v1";
 const NOTE_LINK_WARN = 8000;
 const notesSt = { list: null, err: "", at: 0, draft: null, dirty: new Set() };
-let notePref = { wrap: true };
-try { notePref = { ...notePref, ...JSON.parse(localStorage.getItem(NOTE_PREF)) }; } catch {}
+try { S.notePref = { ...S.notePref, ...JSON.parse(localStorage.getItem(NOTE_PREF)) }; } catch {}
 const langOfName = n => (NOTE_LANGS.find(l => l[2] === (/\.([^.]+)$/.exec(n || "")?.[1] || "").toLowerCase()) || NOTE_LANGS[0])[0];
 const extOf = lang => (NOTE_LANGS.find(l => l[0] === lang) || NOTE_LANGS[0])[2];
 // a typed name keeps its own known extension, else gets the current language's
@@ -2244,14 +2275,14 @@ function notesPaint(w) {
   const del = $('[data-nt="delete"] span', tb), dl = isDraft ? "Discard" : "Delete";
   if (del.textContent !== dl) del.textContent = dl;
   if (has) $('[data-nt="lang"]', tb).value = ed.lang;
-  $('[data-nt="wrap"]', tb).checked = !!notePref.wrap;
+  $('[data-nt="wrap"]', tb).checked = !!S.notePref.wrap;
   noteStatus(w);
   if ($(".tt", w.el).textContent !== KINDS.notes.title(w)) { retitle(w); renderTasks(); }
 }
 function noteWrap(w) {
   const ta = $(".nt-ta", w.body); if (!ta) return;
-  $(".nt-scroll", w.body).classList.toggle("wrap", !!notePref.wrap);
-  ta.wrap = notePref.wrap ? "soft" : "off";
+  $(".nt-scroll", w.body).classList.toggle("wrap", !!S.notePref.wrap);
+  ta.wrap = S.notePref.wrap ? "soft" : "off";
 }
 
 /* editing: replace a range through execCommand so Cmd+Z undoes it (setRangeText as a fallback) */
@@ -2435,8 +2466,8 @@ function notesRender(w) {
   w.body.addEventListener("change", e => {
     if (e.target.matches('[data-nt="lang"]')) noteLang(w, e.target.value);
     if (e.target.matches('[data-nt="wrap"]')) {
-      notePref.wrap = e.target.checked;
-      try { localStorage.setItem(NOTE_PREF, JSON.stringify(notePref)); } catch {}
+      S.notePref.wrap = e.target.checked;
+      try { localStorage.setItem(NOTE_PREF, JSON.stringify(S.notePref)); } catch {}
       notesEach(noteWrap);
     }
   });
@@ -2476,7 +2507,7 @@ function notesRender(w) {
     if (w.ed || w.ntSeq || wins.get(w.id) !== w) return;
     const names = (notesSt.list || []).map(n => n.name);
     const pick = (w.sel === NOTE_DRAFT && notesSt.draft) || names.includes(w.sel) ? w.sel : notesSt.draft ? NOTE_DRAFT : names[0];
-    if (pick) noteShow(w, pick, frontWin() === w && bootDone);
+    if (pick) noteShow(w, pick, frontWin() === w && S.bootDone);
   });
 }
 // terminal links to notes (ls notes, tree)
@@ -2488,7 +2519,7 @@ async function noteFromHash(hash) {
   if (!enc) return;
   let text = null;
   try { text = await noteDecode(enc); } catch {}
-  while (!bootDone) await sleep(100);
+  while (!S.bootDone) await sleep(100);
   if (text == null) balloon({ title: "Couldn't open the note link", text: "The link is cut off or damaged. Ask for the whole link again.", icon: "i-notes", ms: 6000 });
   else {
     await notesFlush();
@@ -2548,7 +2579,7 @@ function genTakeText(w, text, how = {}) {
   const ta = w.shell && genPromptTa(w);
   if (!ta) {
     w.promptWait = { text, ...how };
-    if (CAT) genMsg(w, `${curTask(w)?.label || "This task"} has no prompt. The text goes in when you pick a task that has one.`, true);
+    if (S.CAT) genMsg(w, `${curTask(w)?.label || "This task"} has no prompt. The text goes in when you pick a task that has one.`, true);
     return;
   }
   w.promptWait = null; genMsg(w, null);
@@ -2706,7 +2737,7 @@ addEventListener("keydown", ev => {
 /* ---------- options: accessibility and preferences, saved in this browser ---------- */
 const OPT_KEY = "runway-os-options-v1";
 const OPT_DEFAULT = { textPx: 0, textSize: "medium", font: "plex", contrast: false, motion: "system", theme: "dark", desk: "", boot: true, clock24: false, termScheme: "dos", balloons: true, sound: false, notify: false };
-let opts = { ...OPT_DEFAULT };
+S.opts = { ...OPT_DEFAULT };
 try {
   const saved = JSON.parse(localStorage.getItem(OPT_KEY)) || {};
   if (!saved.theme && saved.desk === "#0b2e2e") delete saved.desk; // the old default desktop color now comes from the theme
@@ -2714,13 +2745,13 @@ try {
   if (!saved.fontV3) { delete saved.font; saved.fontV3 = true; } // IBM Plex Sans became the default
   if (!saved.sizeV4) { delete saved.textPx; delete saved.textSize; saved.sizeV4 = true; } // bigger default text for the smooth fonts
   if (!saved.sizeV5) { if (saved.font !== "pixel" && +saved.textPx < 13) delete saved.textPx; saved.sizeV5 = true; } // sizes under 13 px came from the pixel-font marks and are too small for the outline fonts
-  opts = { ...OPT_DEFAULT, ...saved };
+  S.opts = { ...OPT_DEFAULT, ...saved };
 } catch {}
 // color schemes, like Win95's Display Properties → Appearance; the tokens live in index.html (html[data-theme])
 const THEMES = [["dark", "Dark"], ["classic", "Classic"], ["storm", "Storm"], ["eggplant", "Eggplant"], ["marine", "Marine"], ["pumpkin", "Pumpkin"]];
 const DESKS = [["#0b2e2e", "Teal night"], ["#008080", "Classic teal"], ["#000000", "Black"], ["#10204a", "Navy"], ["#3a1f3d", "Plum"], ["#2b2b2b", "Graphite"]];
 const TERMS = [["dos", "DOS gray"], ["green", "Green phosphor"], ["amber", "Amber"], ["blue", "Blue screen"]];
-const calm = () => opts.motion === "reduce" || (opts.motion === "system" && reduced.matches);
+const calm = () => S.opts.motion === "reduce" || (S.opts.motion === "system" && reduced.matches);
 
 // text sizes that land on whole screen pixels for the pixel font (11 px design size)
 function textSizes() {
@@ -2731,41 +2762,41 @@ function textSizes() {
 // The outline fonts start at 12 px; the pixel font keeps its sharp sizes, whole multiples of 11 screen pixels.
 function tszRange() {
   const hi = textSizes().dpr >= 2;
-  if (opts.font === "pixel") { const def = hi ? 16.5 : 11; return { min: 10, max: 24, def, marks: hi ? [[11, "Small"], [def, "Medium"], [22, "Large"]] : [[def, "Medium"], [22, "Large"]] }; }
+  if (S.opts.font === "pixel") { const def = hi ? 16.5 : 11; return { min: 10, max: 24, def, marks: hi ? [[11, "Small"], [def, "Medium"], [22, "Large"]] : [[def, "Medium"], [22, "Large"]] }; }
   const def = hi ? 16 : 14;
   return { min: 12, max: 24, def, marks: [[13, "Small"], [def, "Medium"], [18, "Large"], [22, "Larger"]] };
 }
 function applyOptions() {
-  const root = document.documentElement, ts = textSizes(), pixel = opts.font === "pixel";
+  const root = document.documentElement, ts = textSizes(), pixel = S.opts.font === "pixel";
   // on a 1x screen the "medium" pixel size is 22 px, which is too big: keep 11 px unless Large is picked
-  let fs = +opts.textPx || 0;
+  let fs = +S.opts.textPx || 0;
   if (!fs) {
-    fs = ts[opts.textSize] ?? ts.medium;
-    if (ts.dpr < 2 && opts.textSize === "medium") fs = pixel ? 11 : 13;
-    if (!pixel) fs = (ts.dpr >= 2 ? { small: 14, medium: 16, large: 19 } : { small: 12, medium: 14, large: 17 })[opts.textSize] || (ts.dpr >= 2 ? 16 : 14);
+    fs = ts[S.opts.textSize] ?? ts.medium;
+    if (ts.dpr < 2 && S.opts.textSize === "medium") fs = pixel ? 11 : 13;
+    if (!pixel) fs = (ts.dpr >= 2 ? { small: 14, medium: 16, large: 19 } : { small: 12, medium: 14, large: 17 })[S.opts.textSize] || (ts.dpr >= 2 ? 16 : 14);
   }
   // one factor sizes the whole interface: text, bars, buttons, icons, spacing and window geometry
-  const was = scale;
-  scale = fs / 11;
-  root.style.setProperty("--scale", String(scale));
+  const was = S.scale;
+  S.scale = fs / 11;
+  root.style.setProperty("--scale", String(S.scale));
   root.style.setProperty("--fs", fs + "px");
   root.style.setProperty("--fs2", (pixel ? fs * 2 : Math.round(fs * 1.7)) + "px");
   root.style.setProperty("--fsL", (pixel ? Math.max(22, fs) : Math.round(fs * 1.35)) + "px");
-  if (opts.contrast) root.style.setProperty("--desk", "#000000");
-  else if (opts.desk) root.style.setProperty("--desk", opts.desk);
+  if (S.opts.contrast) root.style.setProperty("--desk", "#000000");
+  else if (S.opts.desk) root.style.setProperty("--desk", S.opts.desk);
   else root.style.removeProperty("--desk"); // the theme's own desktop color
-  root.dataset.theme = THEMES.some(([k]) => k === opts.theme) ? opts.theme : "dark";
+  root.dataset.theme = THEMES.some(([k]) => k === S.opts.theme) ? S.opts.theme : "dark";
   root.classList.toggle("smooth", !pixel);
-  root.classList.toggle("hyper", opts.font === "hyper");
-  root.classList.toggle("plex", opts.font === "plex");
-  root.classList.toggle("dot", opts.font === "dot");
-  root.classList.toggle("contrast", !!opts.contrast);
+  root.classList.toggle("hyper", S.opts.font === "hyper");
+  root.classList.toggle("plex", S.opts.font === "plex");
+  root.classList.toggle("dot", S.opts.font === "dot");
+  root.classList.toggle("contrast", !!S.opts.contrast);
   root.classList.toggle("calm", calm());
-  if (typeof iconSlots !== "undefined") requestAnimationFrame(() => layoutIcons()); // icon sizes follow Scale
-  root.dataset.term = opts.termScheme;
+  if (typeof S.iconSlots !== "undefined") requestAnimationFrame(() => layoutIcons()); // icon sizes follow Scale
+  root.dataset.term = S.opts.termScheme;
   // scale open windows along with the interface, then keep them on screen
-  if (was !== scale) wins.forEach(w => {
-    const k = scale / was, sc = g => g && Object.assign(g, { x: Math.round(g.x * k), y: Math.round(g.y * k), wd: Math.round(g.wd * k), ht: Math.round(g.ht * k) });
+  if (was !== S.scale) wins.forEach(w => {
+    const k = S.scale / was, sc = g => g && Object.assign(g, { x: Math.round(g.x * k), y: Math.round(g.y * k), wd: Math.round(g.wd * k), ht: Math.round(g.ht * k) });
     sc(w); sc(w.pre); if (w.minW) w.minW = Math.round(w.minW * k);
     fit(w); place(w);
     if (w.kind === "tree") renderWin(w); // the tree is laid out in pixels
@@ -2774,9 +2805,9 @@ function applyOptions() {
 }
 function setOpt(k, v) {
   // the pixel font and the outline fonts have different default sizes, so a chosen size doesn't carry over between them
-  if (k === "font" && (v === "pixel") !== (opts.font === "pixel")) opts.textPx = 0;
-  opts[k] = v;
-  if (!resetting) try { localStorage.setItem(OPT_KEY, JSON.stringify(opts)); } catch {}
+  if (k === "font" && (v === "pixel") !== (S.opts.font === "pixel")) S.opts.textPx = 0;
+  S.opts[k] = v;
+  if (!S.resetting) try { localStorage.setItem(OPT_KEY, JSON.stringify(S.opts)); } catch {}
   applyOptions();
   // re-render keeps each panel's scroll (data-keep); give focus back to the control that was used
   const a = document.activeElement, sel = a?.dataset?.opt ? `[data-opt="${a.dataset.opt}"]${a.value && a.type === "radio" ? `[value="${CSS.escape(a.value)}"]` : ""}${a.dataset.val ? `[data-val="${CSS.escape(a.dataset.val)}"]` : ""}` : null;
@@ -2818,15 +2849,15 @@ function tszRead(w, preview) {
   const fs = preview ?? applied, dpr = Math.max(1, Math.round(devicePixelRatio || 1));
   const sharp = Math.abs((fs * dpr) / 11 - Math.round((fs * dpr) / 11)) < 1e-6;
   const sl = $(".tsz", w.body), min = sl ? +sl.min : 10, max = sl ? +sl.max : 24, pct = Math.round((fs / 11) * 100);
-  el.textContent = `${fs} px text · ${pct}% · ${opts.font !== "pixel" ? "smooth font, any size works" : sharp ? "sharp with the pixel font" : `slightly soft with the pixel font. Sharp sizes here: ${[1, 2, 3, 4].map(n => (11 * n) / dpr).filter(x => x >= min && x <= max).join(", ")} px`}${preview != null && preview !== applied ? " · release to apply" : ""}`;
+  el.textContent = `${fs} px text · ${pct}% · ${S.opts.font !== "pixel" ? "smooth font, any size works" : sharp ? "sharp with the pixel font" : `slightly soft with the pixel font. Sharp sizes here: ${[1, 2, 3, 4].map(n => (11 * n) / dpr).filter(x => x >= min && x <= max).join(", ")} px`}${preview != null && preview !== applied ? " · release to apply" : ""}`;
   sl?.setAttribute("aria-valuetext", `${fs} px text, ${pct}%`);
   $$("[data-tsz]", w.body).forEach(b => b.setAttribute("aria-pressed", +b.dataset.tsz === fs));
 }
 function optionsRender(w) {
   const tab = w.tab && w.tab !== "general" ? w.tab : "access", T = [["access", "Accessibility"], ["look", "Appearance"], ["alerts", "Alerts"], ["spend", "Spending"]];
-  const ts = textSizes(), pixel = opts.font === "pixel";
-  const radio = (k, v, label, hint) => `<label class="opt-radio"><input type="radio" name="o-${k}" data-opt="${k}" value="${esc(v)}" ${String(opts[k]) === String(v) ? "checked" : ""}><span>${label}${hint ? ` <span class="muted">${hint}</span>` : ""}</span></label>`;
-  const check = (k, label, hint) => `<label class="check opt-check"><input type="checkbox" data-opt="${k}" ${opts[k] ? "checked" : ""}><span>${label}${hint ? `<br><span class="muted">${hint}</span>` : ""}</span></label>`;
+  const ts = textSizes(), pixel = S.opts.font === "pixel";
+  const radio = (k, v, label, hint) => `<label class="opt-radio"><input type="radio" name="o-${k}" data-opt="${k}" value="${esc(v)}" ${String(S.opts[k]) === String(v) ? "checked" : ""}><span>${label}${hint ? ` <span class="muted">${hint}</span>` : ""}</span></label>`;
+  const check = (k, label, hint) => `<label class="check opt-check"><input type="checkbox" data-opt="${k}" ${S.opts[k] ? "checked" : ""}><span>${label}${hint ? `<br><span class="muted">${hint}</span>` : ""}</span></label>`;
   const cur = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--fs")) || 11;
   // marks sit under the slider's thumb positions; two marks too close to center both labels share the gap between them
   const R = tszRange(), at = v => (v - R.min) / (R.max - R.min), near = (a, b) => !!b && Math.abs(at(a[0]) - at(b[0])) < 0.15;
@@ -2859,10 +2890,10 @@ function optionsRender(w) {
       </fieldset>`;
   else if (tab === "look") panel = `
       <fieldset class="group"><legend>Theme</legend>
-        <div class="swatches">${THEMES.map(([k, n]) => `<button class="swatch${opts.theme === k ? " on" : ""}" data-opt="theme" data-val="${k}" aria-pressed="${opts.theme === k}"><span class="tprev" data-theme="${k}" aria-hidden="true"><span class="tp-win raised"><span class="tp-title"></span><span class="tp-btn raised"></span></span></span><span>${n}</span></button>`).join("")}</div>
+        <div class="swatches">${THEMES.map(([k, n]) => `<button class="swatch${S.opts.theme === k ? " on" : ""}" data-opt="theme" data-val="${k}" aria-pressed="${S.opts.theme === k}"><span class="tprev" data-theme="${k}" aria-hidden="true"><span class="tp-win raised"><span class="tp-title"></span><span class="tp-btn raised"></span></span></span><span>${n}</span></button>`).join("")}</div>
       </fieldset>
       <fieldset class="group"><legend>Desktop color</legend>
-        <div class="swatches"><button class="swatch${!opts.desk ? " on" : ""}" data-opt="desk" data-val="" aria-pressed="${!opts.desk}"><i class="tdesk"></i><span>Theme default</span></button>${DESKS.map(([c, n]) => `<button class="swatch${opts.desk === c ? " on" : ""}" data-opt="desk" data-val="${c}" title="${n}" aria-label="${n}" aria-pressed="${opts.desk === c}"><i style="background:${c}"></i><span>${n}</span></button>`).join("")}</div>
+        <div class="swatches"><button class="swatch${!S.opts.desk ? " on" : ""}" data-opt="desk" data-val="" aria-pressed="${!S.opts.desk}"><i class="tdesk"></i><span>Theme default</span></button>${DESKS.map(([c, n]) => `<button class="swatch${S.opts.desk === c ? " on" : ""}" data-opt="desk" data-val="${c}" title="${n}" aria-label="${n}" aria-pressed="${S.opts.desk === c}"><i style="background:${c}"></i><span>${n}</span></button>`).join("")}</div>
       </fieldset>
       <fieldset class="group"><legend>Startup</legend>
         ${check("boot", "Show boot screen when the page loads")}
@@ -2880,7 +2911,7 @@ function optionsRender(w) {
         ${check("balloons", "Show a balloon above the clock")}
         ${check("sound", "Play a chime")} <button class="raised btn-s opt-test" data-chime>Play</button>
         ${check("notify", "macOS notification while this tab is in the background", "Your browser asks for permission the first time.")}
-        ${opts.notify && "Notification" in window && Notification.permission === "denied" ? '<div class="gmsg">The browser blocks notifications for this page. Allow them in the browser\'s site settings.</div>' : ""}
+        ${S.opts.notify && "Notification" in window && Notification.permission === "denied" ? '<div class="gmsg">The browser blocks notifications for this page. Allow them in the browser\'s site settings.</div>' : ""}
       </fieldset>`;
   w.body.innerHTML = sheetHTML(T, tab, panel, '<button class="raised btn-s" data-opt-reset>Restore defaults</button><span class="grow"></span>');
   sheetKeys(w);
@@ -2910,7 +2941,7 @@ function optionsRender(w) {
       const sw = e.target.closest("button[data-opt]"); if (sw) { setOpt(sw.dataset.opt, sw.dataset.val); return; }
       if (e.target.closest("[data-chime]")) chime();
       // keep the saved-options migration flags (fontV2, sizeV5…), or the next page load would run those migrations again on the new choices
-      if (e.target.closest("[data-opt-reset]")) { opts = { ...OPT_DEFAULT, ...Object.fromEntries(Object.entries(opts).filter(([k]) => /V\d+$/.test(k))) }; setOpt("textSize", OPT_DEFAULT.textSize); }
+      if (e.target.closest("[data-opt-reset]")) { S.opts = { ...OPT_DEFAULT, ...Object.fromEntries(Object.entries(S.opts).filter(([k]) => /V\d+$/.test(k))) }; setOpt("textSize", OPT_DEFAULT.textSize); }
     });
   }
 }
@@ -3000,7 +3031,7 @@ function usageDraw(w) {
   const sum = w.usum, host = $(".uchart", w.body); if (!sum || !host) return;
   const W = host.clientWidth, H = host.clientHeight; if (!W || !H) return; // minimized: draw when it's shown again
   const a = document.activeElement, back = host.contains(a) ? a.dataset.date : null;
-  w.usize = `${W}x${H}x${scale}`;
+  w.usize = `${W}x${H}x${S.scale}`;
   host.innerHTML = usageChart(sum, { W, H, f: w.umodel, sel: w.uday, at: back });
   if (back) $(`[data-date="${back}"]`, host)?.focus();
 }
@@ -3028,7 +3059,7 @@ function usageCSV(u) {
 // your own jobs from runs.json, grouped by task, for the same range
 function usageMine(days) {
   const since = Date.now() - days * 86400000, by = {};
-  data.runs.filter(r => r.credits != null && createdMs(r) >= since).forEach(r => {
+  S.data.runs.filter(r => r.credits != null && createdMs(r) >= since).forEach(r => {
     const k = r.task || (r.type === "image" ? "Text to image" : r.parent ? "Image to video" : "Text to video");
     (by[k] ||= { credits: 0, jobs: 0 }); by[k].credits += r.credits; by[k].jobs++;
   });
@@ -3103,7 +3134,7 @@ async function usageRender(w, force) {
     const ro = w.uro = new ResizeObserver(() => {
       clearTimeout(t);
       if (!host.isConnected || !wins.has(w.id)) { ro.disconnect(); if (w.uro === ro) w.uro = null; return; }
-      t = setTimeout(() => { if (host.isConnected && `${host.clientWidth}x${host.clientHeight}x${scale}` !== w.usize) usageDraw(w); }, 120);
+      t = setTimeout(() => { if (host.isConnected && `${host.clientWidth}x${host.clientHeight}x${S.scale}` !== w.usize) usageDraw(w); }, 120);
     });
     ro.observe(host);
   }
@@ -3112,11 +3143,11 @@ async function usageRender(w, force) {
 
 /* ---------- Runway API key ---------- */
 function keyRender(w) {
-  const where = data.keySource === "file" ? "saved in .runway_key" : data.keySource === "env" ? "from the RUNWAYML_API_SECRET variable" : "";
-  const st = !loaded ? { cls: "", text: "Checking…" }
-    : !data.live ? { cls: "off", text: "No key. The dashboard can't sync jobs, check the balance or generate." }
-    : data.error ? { cls: "warn", text: `Key ending ${data.keyHint || "…"} ${where}. Runway answers: ${data.error}` }
-    : { cls: "on", text: `Connected. Key ending ${data.keyHint || "…"}, ${where}.` };
+  const where = S.data.keySource === "file" ? "saved in .runway_key" : S.data.keySource === "env" ? "from the RUNWAYML_API_SECRET variable" : "";
+  const st = !S.loaded ? { cls: "", text: "Checking…" }
+    : !S.data.live ? { cls: "off", text: "No key. The dashboard can't sync jobs, check the balance or generate." }
+    : S.data.error ? { cls: "warn", text: `Key ending ${S.data.keyHint || "…"} ${where}. Runway answers: ${S.data.error}` }
+    : { cls: "on", text: `Connected. Key ending ${S.data.keyHint || "…"}, ${where}.` };
   if (!w.shell) {
     w.shell = true;
     w.body.innerHTML = `
@@ -3156,9 +3187,9 @@ function keyRender(w) {
   }
   const kst = $(".kst", w.body);
   kst.className = `live kst ${st.cls}`; kst.textContent = st.text;
-  $(".kbal", w.body).textContent = data.live && data.balance != null ? `${fmt(data.balance)} credits on this org` : "";
-  $(".kleg", w.body).textContent = data.live ? "Replace key" : "Add key";
-  $(".krm", w.body).hidden = data.keySource !== "file";
+  $(".kbal", w.body).textContent = S.data.live && S.data.balance != null ? `${fmt(S.data.balance)} credits on this org` : "";
+  $(".kleg", w.body).textContent = S.data.live ? "Replace key" : "Add key";
+  $(".krm", w.body).hidden = S.data.keySource !== "file";
 }
 const keyPost = body => api("/api/key", body).catch(err => ({ error: err.message }));
 function keyMsg(w, text) { const m = $(".kmsg", w.body); if (m) { m.hidden = !text; m.textContent = text || ""; } }
@@ -3274,7 +3305,7 @@ function cmpMenu(r, src) {
   const w = src && winOf(src), ids = w && MULTI.has(w.kind) && isSel(w, r.taskId) ? selIds(w) : [];
   const base = cmpBase(r.taskId), job = runOf(base), files = job ? filesOf(job) : [];
   const parent = r.parent ? runOf(r.parent) : null;
-  const sibs = r.parent ? data.runs.filter(x => x.parent && cmpBase(x.parent) === cmpBase(r.parent) && x.asset).sort((a, b) => createdMs(a) - createdMs(b)) : [];
+  const sibs = r.parent ? S.data.runs.filter(x => x.parent && cmpBase(x.parent) === cmpBase(r.parent) && x.asset).sort((a, b) => createdMs(a) - createdMs(b)) : [];
   return [
     ids.length > 1 && { label: `Compare (${ids.length})`, icon: "i-compare", hint: "Alt+C", act: () => compare(ids, src) },
     files.length > 1 && { label: `Compare outputs (${files.length})`, icon: "i-compare", act: () => compare(files.map((_, i) => (i ? `${base}~${i + 1}` : base)), src) },
@@ -3566,7 +3597,7 @@ function cmpBind(w) {
 
 // Alt+C compares the selection, Cmd+A selects everything in the list; Shift+arrows extend the selection (capture: before the plain arrow keys)
 addEventListener("keydown", ev => {
-  if (kb || !menuEl.hidden || !startMenu.hidden) return;
+  if (S.kb || !menuEl.hidden || !startMenu.hidden) return;
   const f = frontWin(), t = ev.target instanceof Element ? ev.target : document.body;
   if (!f || !MULTI.has(f.kind) || t.closest("input, textarea, select, [contenteditable], .dicon")) return;
   const cmd = MAC ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey && !ev.metaKey, L = letterOf(ev);
@@ -3585,11 +3616,10 @@ desk.addEventListener("click", e => {
 });
 
 /* ---------- context menus ---------- */
-let menuItems = [], menuReturn = null;
 function showMenu(x, y, items) {
-  menuItems = items.filter(Boolean);
-  menuReturn = document.activeElement;
-  menuEl.innerHTML = menuItems.map((it, i) => it.sep ? '<hr class="etch">'
+  S.menuItems = items.filter(Boolean);
+  S.menuReturn = document.activeElement;
+  menuEl.innerHTML = S.menuItems.map((it, i) => it.sep ? '<hr class="etch">'
     : `<button role="menuitem" data-i="${i}" class="${it.bold ? "bold" : ""}" ${it.disabled ? "disabled" : ""}>${it.icon ? `<svg class="mico" aria-hidden="true"><use href="#${it.icon}"/></svg>` : ""}<span>${esc(it.label)}</span>${it.sub ? `<small class="msub">${esc(it.sub)}</small>` : ""}${it.hint ? `<kbd>${esc(it.hint)}</kbd>` : ""}</button>`).join("");
   menuEl.hidden = false;
   const r = menuEl.getBoundingClientRect();
@@ -3597,10 +3627,10 @@ function showMenu(x, y, items) {
   menuEl.style.top = clampN(y, 0, innerHeight - r.height) + "px";
   $("button:not(:disabled)", menuEl)?.focus();
 }
-const hideMenu = () => { if (!menuEl.hidden) { menuEl.hidden = true; menuReturn?.focus?.(); } };
+const hideMenu = () => { if (!menuEl.hidden) { menuEl.hidden = true; S.menuReturn?.focus?.(); } };
 menuEl.addEventListener("click", e => {
   const b = e.target.closest("button[data-i]"); if (!b) return;
-  const it = menuItems[+b.dataset.i]; hideMenu(); it.act();
+  const it = S.menuItems[+b.dataset.i]; hideMenu(); it.act();
 });
 menuEl.addEventListener("contextmenu", e => e.preventDefault());
 const menuKeys = (root, e) => {
@@ -3644,21 +3674,20 @@ function windowMenu(w, x, y) {
   ]);
 }
 // keyboard Move and Size, as in Win95: arrow keys move or size the window (Shift: 1 px), Enter or a click keeps it, Esc puts it back
-let kb = null;
 const KB_HINT = "Enter to finish, Esc to cancel.";
 function kbStart(w, mode) {
   kbEnd(true);
   if (w.max || w.minimized || wins.get(w.id) !== w) return;
-  kb = { w, mode, start: { x: w.x, y: w.y, wd: w.wd, ht: w.ht, snapped: w.snapped, pre: w.pre } };
+  S.kb = { w, mode, start: { x: w.x, y: w.y, wd: w.wd, ht: w.ht, snapped: w.snapped, pre: w.pre } };
   focus(w);
   if (!w.el.contains(document.activeElement)) focusInto(w);
   w.el.classList.add("kbmode");
   balloon(mode === "move" ? { title: "Move window", text: `Arrow keys move it. ${KB_HINT}`, ms: 6000 } : { title: "Size window", text: `Arrow keys change its width and height. ${KB_HINT}`, ms: 6000 });
 }
 function kbEnd(keep) {
-  if (!kb) return;
-  const { w, start } = kb;
-  kb = null;
+  if (!S.kb) return;
+  const { w, start } = S.kb;
+  S.kb = null;
   w.el.classList.remove("kbmode");
   if (!keep) Object.assign(w, start);
   if (wins.get(w.id) === w) { fit(w); place(w); }
@@ -3667,8 +3696,8 @@ function kbEnd(keep) {
 }
 // capture phase: runs before the terminal, list and gallery keys, and swallows the keys it uses
 addEventListener("keydown", e => {
-  if (!kb || ["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
-  const { w, mode } = kb, dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+  if (!S.kb || ["Shift", "Control", "Alt", "Meta"].includes(e.key)) return;
+  const { w, mode } = S.kb, dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
   if (wins.get(w.id) !== w || w.minimized || w.max || (!dir && e.key !== "Enter" && e.key !== "Escape")) { kbEnd(true); return; } // any other key keeps the change and does its usual job
   e.preventDefault(); e.stopPropagation();
   if (!dir) { kbEnd(e.key === "Enter"); return; }
@@ -3717,11 +3746,10 @@ function resetLayout() {
 }
 
 const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
-let layoutMap = null;
-navigator.keyboard?.getLayoutMap?.().then(m => { layoutMap = m; }).catch(() => {});
+navigator.keyboard?.getLayoutMap?.().then(m => { S.layoutMap = m; }).catch(() => {});
 // the letter printed on the key, whatever the layout (Option on a Mac changes e.key, so go through the code)
-const letterOf = ev => String(layoutMap?.get(ev.code) || (ev.code?.startsWith("Key") ? ev.code.slice(3) : ev.key) || "").toLowerCase();
-const codesFor = letters => { const out = []; layoutMap?.forEach((k, code) => { if (letters.includes(k)) out.push(code); }); return out.length ? out : letters.map(l => "Key" + l.toUpperCase()); };
+const letterOf = ev => String(S.layoutMap?.get(ev.code) || (ev.code?.startsWith("Key") ? ev.code.slice(3) : ev.key) || "").toLowerCase();
+const codesFor = letters => { const out = []; S.layoutMap?.forEach((k, code) => { if (letters.includes(k)) out.push(code); }); return out.length ? out : letters.map(l => "Key" + l.toUpperCase()); };
 async function toggleFullScreen() {
   try {
     if (document.fullscreenElement) { navigator.keyboard?.unlock?.(); await document.exitFullscreen(); return; }
@@ -3769,11 +3797,10 @@ async function fileAction(action, name) {
   }
 }
 // the balloon stays at least 5 s; hovering it or focusing inside it pauses the countdown, leaving resumes what was left
-let balloonT = 0, balloonLeft = 0, balloonAt = 0, srSeq = 0;
 const balloonEl = $("#balloon"), srStatus = $("#sr-status");
-function balloonRun() { clearTimeout(balloonT); balloonAt = Date.now(); balloonT = setTimeout(() => { balloonT = 0; balloonEl.hidden = true; }, balloonLeft); }
-function balloonPause() { if (!balloonT) return; clearTimeout(balloonT); balloonT = 0; balloonLeft = Math.max(0, balloonLeft - (Date.now() - balloonAt)); }
-const balloonResume = () => { if (!balloonEl.hidden && !balloonT) balloonRun(); };
+function balloonRun() { clearTimeout(S.balloonT); S.balloonAt = Date.now(); S.balloonT = setTimeout(() => { S.balloonT = 0; balloonEl.hidden = true; }, S.balloonLeft); }
+function balloonPause() { if (!S.balloonT) return; clearTimeout(S.balloonT); S.balloonT = 0; S.balloonLeft = Math.max(0, S.balloonLeft - (Date.now() - S.balloonAt)); }
+const balloonResume = () => { if (!balloonEl.hidden && !S.balloonT) balloonRun(); };
 balloonEl.addEventListener("pointerenter", balloonPause);
 balloonEl.addEventListener("pointerleave", () => { if (!balloonEl.contains(document.activeElement)) balloonResume(); });
 balloonEl.addEventListener("focusin", balloonPause);
@@ -3785,22 +3812,22 @@ function balloon({ title, text, icon = "i-doc", ms = 8000, onOpen }) {
   b.classList.toggle("clickable", !!onOpen);
   b.onclick = e => { b.hidden = true; if (!e.target.closest(".bx") && onOpen) onOpen(); };
   // screen readers get it from the always-present live region: empty it, then fill it a frame later so a repeat is announced again
-  const n = ++srSeq;
+  const n = ++S.srSeq;
   srStatus.textContent = "";
-  requestAnimationFrame(() => requestAnimationFrame(() => { if (n === srSeq) srStatus.textContent = `${title}. ${text}`; }));
-  clearTimeout(balloonT); balloonT = 0;
-  balloonLeft = Math.max(5000, ms);
+  requestAnimationFrame(() => requestAnimationFrame(() => { if (n === S.srSeq) srStatus.textContent = `${title}. ${text}`; }));
+  clearTimeout(S.balloonT); S.balloonT = 0;
+  S.balloonLeft = Math.max(5000, ms);
   if (!b.matches(":hover") && !b.contains(document.activeElement)) balloonRun();
 }
 function announce(r) {
   const ok = r.status === "succeeded";
-  if (opts.sound) chime(ok);
-  if (opts.notify && document.hidden && "Notification" in window && Notification.permission === "granted") {
+  if (S.opts.sound) chime(ok);
+  if (S.opts.notify && document.hidden && "Notification" in window && Notification.permission === "granted") {
     try { const n = new Notification(ok ? `${cap(r.type)} finished` : `Job ${r.status}`, { body: ok ? `${r.asset || r.taskId}${r.credits != null ? ` · ${fmt(r.credits)} credits` : ""}` : (r.failure || r.taskId), tag: r.taskId });
       n.onclick = () => { window.focus(); open(ok && r.asset ? "viewer" : "props", r.taskId); n.close(); }; } catch {}
   }
-  if (document.hidden) { unseen++; setTitle(); }
-  if (!opts.balloons) return;
+  if (document.hidden) { S.unseen++; setTitle(); }
+  if (!S.opts.balloons) return;
   balloon({
     title: ok ? `${cap(r.type)} finished` : `Job ${r.status}`,
     text: ok ? `${r.asset || r.taskId}${r.credits != null ? ` · ${fmt(r.credits)} credits` : ""}` : (r.failure || r.taskId),
@@ -3808,7 +3835,7 @@ function announce(r) {
     onOpen: () => open(ok && r.asset ? "viewer" : "props", r.taskId, $("#tray-run")),
   });
 }
-document.addEventListener("visibilitychange", () => { if (!document.hidden) { unseen = 0; setTitle(); } });
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { S.unseen = 0; setTitle(); } });
 
 /* ---------- tab title + favicon: live status, readable from another tab ---------- */
 // the runway os logo: a bold pixel "R" on a beveled Win95-blue tile (16x16 grid)
@@ -3819,12 +3846,11 @@ function logoSVG(fg) {
     + `<rect width="16" height="16" fill="#08090b"/><rect width="15" height="15" fill="#c9cbd3"/><rect x="1" y="1" width="14" height="14" fill="url(#g)"/>${px(1, 1, "#000000")}${px(0, 0, fg)}</svg>`;
 }
 const FAV = { idle: logoSVG("#ffffff"), busy: logoSVG("#ffc94a") };
-let favState = "";
 function setTitle() {
-  const active = data.runs.filter(r => ACTIVE.has(r.status)).length;
+  const active = S.data.runs.filter(r => ACTIVE.has(r.status)).length;
   document.title = "[POP] Runway OS";
   const want = active ? "busy" : "idle";
-  if (want !== favState) { favState = want; $("#favicon").href = "data:image/svg+xml," + encodeURIComponent(FAV[want]); }
+  if (want !== S.favState) { S.favState = want; $("#favicon").href = "data:image/svg+xml," + encodeURIComponent(FAV[want]); }
 }
 
 /* ---------- taskbar, tray, start menu ---------- */
@@ -3852,11 +3878,11 @@ $(".taskbar").addEventListener("contextmenu", e => {
 
 function renderTray() {
   setTitle();
-  const active = data.runs.filter(r => ACTIVE.has(r.status)).length, run = $("#tray-run"), bal = $("#tray-bal");
+  const active = S.data.runs.filter(r => ACTIVE.has(r.status)).length, run = $("#tray-run"), bal = $("#tray-bal");
   run.hidden = !active;
   $("span", run).textContent = active;
   run.title = `${active} job${active === 1 ? "" : "s"} rendering or queued. Open Jobs`;
-  $("span", bal).textContent = data.balance == null ? "—" : fmt(data.balance);
+  $("span", bal).textContent = S.data.balance == null ? "—" : fmt(S.data.balance);
 }
 $("#tray-run").addEventListener("click", e => open("activity", null, e.currentTarget));
 $("#tray-bal").addEventListener("click", e => open("overview", null, e.currentTarget));
@@ -3881,28 +3907,28 @@ startMenu.addEventListener("click", e => {
 /* ---------- spending guard: a daily credit limit for the whole org (Options → Spending) ----------
    The server works out data.spent.today from balance_history.json: every drop in the org balance since local midnight,
    so jobs from Claude, this app and other tools all count. Generate asks before a job that would go over the limit. */
-const spendLimit = () => { const n = Math.round(+opts.dailyLimit); return opts.dailyLimit != null && opts.dailyLimit !== "" && n >= 1 ? n : null; };
+const spendLimit = () => { const n = Math.round(+S.opts.dailyLimit); return S.opts.dailyLimit != null && S.opts.dailyLimit !== "" && n >= 1 ? n : null; };
 // the server's spending fields from /api/state; repaint what shows them when they change
 function spendUpdate(d) {
   const s = { today: typeof d.spentToday === "number" ? d.spentToday : null, source: d.spentSource || null, since: d.spentSince || null };
-  const same = data.spent && data.spent.today === s.today && data.spent.source === s.source;
-  data.spent = s;
+  const same = S.data.spent && S.data.spent.today === s.today && S.data.spent.source === s.source;
+  S.data.spent = s;
   if (!same) spendRefresh();
 }
 function spendRefresh() {
   spendTray();
   $$(".spent-today").forEach(el => { el.textContent = spendText(); });
-  wins.forEach(w => w.kind === "generate" && w.shell && CAT && curModel(w) && genRefresh(w));
+  wins.forEach(w => w.kind === "generate" && w.shell && S.CAT && curModel(w) && genRefresh(w));
 }
 function spendText() {
-  const s = data.spent?.today, lim = spendLimit();
+  const s = S.data.spent?.today, lim = spendLimit();
   if (s == null) return "Spent today: unknown until the server answers.";
   return `Spent today: ${fmt(s)} credits${lim ? ` of ${fmt(lim)} (${Math.round(s / lim * 100)}%)` : ""}.`;
 }
 // tray: the balance turns amber at 80% of the limit and red at 100%
 function spendTray() {
   const bal = $("#tray-bal"); if (!bal) return;
-  const s = data.spent?.today, lim = spendLimit(), r = lim && s != null ? s / lim : 0;
+  const s = S.data.spent?.today, lim = spendLimit(), r = lim && s != null ? s / lim : 0;
   bal.classList.toggle("spend-near", r >= 0.8 && r < 1);
   bal.classList.toggle("spend-over", r >= 1);
   bal.title = lim && s != null ? `Spent today: ${fmt(s)} of ${fmt(lim)} credits. Open Dashboard` : "Credits left. Open Dashboard";
@@ -3919,7 +3945,7 @@ function spendQuote(w) {
 }
 // a quiet note after the price in Generate's footer, only when this job takes today's spending to 80% of the limit or more
 function spendHint(w, hint, pr) {
-  const lim = spendLimit(), s = data.spent?.today; if (!lim || s == null) return;
+  const lim = spendLimit(), s = S.data.spent?.today; if (!lim || s == null) return;
   const after = s + (pr?.credits ?? 0);
   if (after < lim * 0.8) return;
   hint.textContent += after > lim ? ` · over today's limit: ${fmt(after)} of ${fmt(lim)}` : ` · today ${fmt(after)} of ${fmt(lim)} limit`;
@@ -3927,7 +3953,7 @@ function spendHint(w, hint, pr) {
 }
 // before Generate sends a job: resolves true to go ahead
 function spendCheck(w) {
-  const lim = spendLimit(), s = data.spent?.today;
+  const lim = spendLimit(), s = S.data.spent?.today;
   if (!lim || s == null) return Promise.resolve(true);
   const q = spendQuote(w), after = s + (q.credits ?? 0);
   if (q.credits == null ? s < lim : after <= lim) return Promise.resolve(true);
@@ -3967,7 +3993,7 @@ function spendDialog(lead, detail) {
 }
 // terminal: one line for balance and cost
 function spendTerm() {
-  const s = data.spent?.today, lim = spendLimit();
+  const s = S.data.spent?.today, lim = spendLimit();
   if (s == null) return `<b class="t-acc">today</b>: spending unknown`;
   return `<b class="t-acc">today, whole org</b>: <span class="t-red">${fmt(s)}</span> credits spent${lim ? ` of a ${fmt(lim)} daily limit (${Math.round(s / lim * 100)}%)` : ", no daily limit (set one in Options, Spending)"}`;
 }
@@ -3980,7 +4006,7 @@ document.addEventListener("change", e => {
   spendRefresh();
 });
 function spendPanel() {
-  const lim = spendLimit(), src = data.spent?.source;
+  const lim = spendLimit(), src = S.data.spent?.source;
   return `
       <fieldset class="group"><legend>Daily credit limit</legend>
         <div class="opt-limit"><label for="o-limit">Limit</label><input type="number" class="field" id="o-limit" data-limit min="1" step="1" inputmode="numeric" value="${lim ?? ""}" placeholder="No limit" aria-describedby="o-limit-h"><span>credits a day</span></div>
@@ -3991,10 +4017,10 @@ function spendPanel() {
 }
 
 /* ---------- Shut down: restart, optionally forgetting the window layout or every setting ---------- */
-let resetting = false; // set just before a reload, so nothing writes the forgotten state back
+// set just before a reload, so nothing writes the forgotten state back
 function restart(mode) {
-  resetting = true;
-  clearTimeout(saveT);
+  S.resetting = true;
+  clearTimeout(S.saveT);
   try {
     if (mode === "clean" || mode === "all") { localStorage.removeItem(KEY); localStorage.removeItem("runway-os-icons-v1"); }
     if (mode === "all") localStorage.removeItem(OPT_KEY);
@@ -4016,7 +4042,7 @@ function shutdownDialog() {
             <label class="opt-radio"><input type="radio" name="sd" value="restart" checked><span>Restart <span class="muted">Your windows and settings stay.</span></span></label>
             <label class="opt-radio"><input type="radio" name="sd" value="clean"><span>Restart with a clean desktop <span class="muted">Forgets which windows were open, where, and the Generate form.</span></span></label>
             <label class="opt-radio"><input type="radio" name="sd" value="all"><span>Restart and reset everything <span class="muted">Also resets Options: theme, scale, font and alerts.</span></span></label>
-            <p class="muted sd-note">Your jobs, files and API key aren't touched.${(n => n ? ` ${n} job${n === 1 ? " is" : "s are"} still rendering or queued: ${n === 1 ? "it keeps" : "they keep"} going on Runway, and Activity shows ${n === 1 ? "it" : "them"} again after the restart.` : "")(data.runs.filter(r => ACTIVE.has(r.status)).length)}</p>
+            <p class="muted sd-note">Your jobs, files and API key aren't touched.${(n => n ? ` ${n} job${n === 1 ? " is" : "s are"} still rendering or queued: ${n === 1 ? "it keeps" : "they keep"} going on Runway, and Activity shows ${n === 1 ? "it" : "them"} again after the restart.` : "")(S.data.runs.filter(r => ACTIVE.has(r.status)).length)}</p>
           </fieldset>
         </div>
         <div class="sheet-foot"><span class="grow"></span><button class="raised btn-ok b-default" data-sd="ok">OK</button><button class="raised btn-ok" data-sd="cancel">Cancel</button></div>
@@ -4049,13 +4075,11 @@ document.addEventListener("pointerdown", e => {
 });
 
 /* ---------- desktop icons: click selects, double-click / Enter / tap opens ---------- */
-let lastPointer = "mouse";
-addEventListener("pointerdown", e => { lastPointer = e.pointerType; }, true);
+addEventListener("pointerdown", e => { S.lastPointer = e.pointerType; }, true);
 const icons = $("#icons");
 /* icon grid: icons fill columns top to bottom in order, unless moved; a moved icon keeps its slot (col,row), saved per launcher */
 const ICON_KEY = "runway-os-icons-v1";
-let iconSlots = {};
-try { iconSlots = JSON.parse(localStorage.getItem(ICON_KEY)) || {}; } catch {}
+try { S.iconSlots = JSON.parse(localStorage.getItem(ICON_KEY)) || {}; } catch {}
 const iconGrid = () => {
   const list = $$(".dicon", icons), w = Math.max(...list.map(b => b.offsetWidth), 1), h = Math.max(...list.map(b => b.offsetHeight), 1), gap = px(10), pad = px(10);
   return { cw: w + gap, ch: h + gap, pad, cols: Math.max(1, Math.floor((desk.clientWidth - pad) / (w + gap))), rows: Math.max(1, Math.floor((desk.clientHeight - pad) / (h + gap))) };
@@ -4063,7 +4087,7 @@ const iconGrid = () => {
 function layoutIcons() {
   const g = iconGrid(), list = $$(".dicon", icons), taken = new Set(), slot = {};
   // moved icons first (clamped to the visible grid), then the others in order into the free slots
-  list.forEach(b => { const s = iconSlots[b.dataset.launch]; if (!s) return; let c = clampN(s.col, 0, g.cols - 1), r = clampN(s.row, 0, g.rows - 1);
+  list.forEach(b => { const s = S.iconSlots[b.dataset.launch]; if (!s) return; let c = clampN(s.col, 0, g.cols - 1), r = clampN(s.row, 0, g.rows - 1);
     while (taken.has(c + "," + r)) { r++; if (r >= g.rows) { r = 0; c = (c + 1) % g.cols; } }
     taken.add(c + "," + r); slot[b.dataset.launch] = [c, r]; });
   let c = 0, r = 0;
@@ -4073,9 +4097,8 @@ function layoutIcons() {
   list.forEach(b => { const [cc, rr] = slot[b.dataset.launch]; b.style.transform = `translate(${g.pad + cc * g.cw}px, ${g.pad + rr * g.ch}px)`; b.dataset.slot = cc + "," + rr; });
   icons.classList.add("ready");
 }
-const saveIcons = () => { try { localStorage.setItem(ICON_KEY, JSON.stringify(iconSlots)); } catch {} };
+const saveIcons = () => { try { localStorage.setItem(ICON_KEY, JSON.stringify(S.iconSlots)); } catch {} };
 // drag an icon: it follows the pointer after a few pixels, then snaps to the nearest free slot; a plain click stays a click
-let iconDragged = false;
 icons.addEventListener("pointerdown", e => {
   const b = e.target.closest(".dicon"); if (!b || e.button !== 0) return;
   const sx = e.clientX, sy = e.clientY, m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(b.style.transform) || [0, 0, 0], ox = +m[1], oy = +m[2];
@@ -4088,7 +4111,7 @@ icons.addEventListener("pointerdown", e => {
   const up = ev => {
     removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", up);
     if (!moving) return;
-    b.classList.remove("dragging"); iconDragged = true; setTimeout(() => { iconDragged = false; }, 0);
+    b.classList.remove("dragging"); S.iconDragged = true; setTimeout(() => { S.iconDragged = false; }, 0);
     const g = iconGrid();
     let col = clampN(Math.round((ox + ev.clientX - sx - g.pad) / g.cw), 0, g.cols - 1), row = clampN(Math.round((oy + ev.clientY - sy - g.pad) / g.ch), 0, g.rows - 1);
     // taken by another icon: the nearest free slot instead
@@ -4099,14 +4122,14 @@ icons.addEventListener("pointerdown", e => {
       if (best) { col = best.c; row = best.r; }
     }
     // keep every icon where it is now, so the others don't reflow around the moved one
-    $$(".dicon", icons).forEach(x => { const [c, r] = x.dataset.slot.split(",").map(Number); iconSlots[x.dataset.launch] = { col: c, row: r }; });
-    iconSlots[b.dataset.launch] = { col, row };
+    $$(".dicon", icons).forEach(x => { const [c, r] = x.dataset.slot.split(",").map(Number); S.iconSlots[x.dataset.launch] = { col: c, row: r }; });
+    S.iconSlots[b.dataset.launch] = { col, row };
     saveIcons(); layoutIcons(); b.focus();
   };
   addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);
 });
-const arrangeIcons = () => { iconSlots = {}; saveIcons(); layoutIcons(); };
-icons.addEventListener("click", e => { if (iconDragged) { e.stopPropagation(); return; } const b = e.target.closest("[data-launch]"); if (b && (e.detail === 0 || lastPointer === "touch")) open(b.dataset.launch, null, b); }, true);
+const arrangeIcons = () => { S.iconSlots = {}; saveIcons(); layoutIcons(); };
+icons.addEventListener("click", e => { if (S.iconDragged) { e.stopPropagation(); return; } const b = e.target.closest("[data-launch]"); if (b && (e.detail === 0 || S.lastPointer === "touch")) open(b.dataset.launch, null, b); }, true);
 icons.addEventListener("dblclick", e => { const b = e.target.closest("[data-launch]"); if (b) open(b.dataset.launch, null, b); });
 icons.addEventListener("keydown", e => {
   const items = $$(".dicon", icons), i = items.indexOf(document.activeElement);
@@ -4179,7 +4202,7 @@ desk.addEventListener("click", e => {
   if (it) {
     const w = winOf(it); if (multiClick(w, it.dataset.id, e)) return;
     select(w, it.dataset.id);
-    if (lastPointer === "touch" && runOf(it.dataset.id)) defaultOpen(runOf(it.dataset.id), it);
+    if (S.lastPointer === "touch" && runOf(it.dataset.id)) defaultOpen(runOf(it.dataset.id), it);
   }
 });
 desk.addEventListener("dblclick", e => {
@@ -4287,11 +4310,10 @@ addEventListener("keydown", ev => {
 });
 
 /* ---------- persistence ---------- */
-let saveT;
 function save() {
-  clearTimeout(saveT);
-  if (resetting) return;
-  saveT = setTimeout(() => {
+  clearTimeout(S.saveT);
+  if (S.resetting) return;
+  S.saveT = setTimeout(() => {
     const list = [...wins.values()].map(w => ({ kind: w.kind, arg: w.arg, x: w.x, y: w.y, wd: w.wd, ht: w.ht, max: w.max, minimized: w.minimized, snapped: w.snapped, pre: w.pre, z: w.z, seq: w.seq, filter: w.filter, q: w.q, sort: w.sort, size: w.size, sel: w.sel, tab: w.tab, days: w.days, act: w.kind === "activity" ? w.act : undefined, solo: w.kind === "tree" ? !!w.solo : undefined, gen: w.kind === "generate" ? w.gen : undefined, cmp: w.kind === "compare" ? w.cmp : undefined }));
     try { localStorage.setItem(KEY, JSON.stringify(list)); } catch {}
   }, 150);
@@ -4306,29 +4328,28 @@ function restoreLayout() {
 // first launch (no saved layout, so restoreLayout opens just the terminal): once the first state poll answers
 // and there is no API key, open the key window on top as well. Later loads have a saved layout and skip this.
 const firstLaunch = (() => { try { return !Array.isArray(JSON.parse(localStorage.getItem(KEY))); } catch { return true; } })();
-if (firstLaunch) ready.then(() => { if (!data.live) $(".kin", open("key").body)?.focus({ preventScroll: true }); });
+if (firstLaunch) ready.then(() => { if (!S.data.live) $(".kin", open("key").body)?.focus({ preventScroll: true }); });
 // jobs keep rendering on Runway across a refresh or restart (the server tracks them in runs.json):
 // if any are still queued or rendering, bring Activity back so they stay in view, without taking focus
 ready.then(() => {
-  if (wins.has("activity") || !data.runs.some(r => ACTIVE.has(r.status))) return;
+  if (wins.has("activity") || !S.data.runs.some(r => ACTIVE.has(r.status))) return;
   const prev = frontWin(), aw = open("activity");
   if (prev && prev !== aw) { focus(prev); focusInto?.(prev); }
 });
 addEventListener("resize", () => { wins.forEach(w => { fit(w); place(w); }); layoutIcons(); });
 
 /* ---------- boot screen: a BIOS self-test over the real startup; the log stays up until you start ---------- */
-let bootDone = true;
 // each startup check with its time (ms since the page started loading), kept for the bootlog command
 const bootLog = [];
 async function bootScreen(modelsLoaded) {
   // the checks run and are logged even with the boot screen off; the screen only shows them
-  const show = opts.boot, fast = calm(), deadline = Date.now() + 8000;
+  const show = S.opts.boot, fast = calm(), deadline = Date.now() + 8000;
   let el = null, log = null, hint = null, phase = "loading", early = false;
   const setHint = t => { if (hint) hint.textContent = t; };
   const btns = () => (el ? $$(".boot-act button", el) : []);
   const start = async withKey => {
-    if (bootDone) return;
-    bootDone = true;
+    if (S.bootDone) return;
+    S.bootDone = true;
     removeEventListener("keydown", onKey, true); removeEventListener("pointerdown", onPointer, true);
     document.body.classList.remove("booting");
     el.classList.add("out");
@@ -4342,7 +4363,7 @@ async function bootScreen(modelsLoaded) {
     e.stopPropagation(); // the desktop behind doesn't see keys while the boot screen is up
     if (e.metaKey || e.ctrlKey || ["Shift", "Control", "Alt", "Meta", "CapsLock"].includes(e.key)) return; // browser shortcuts still work
     e.preventDefault();
-    if (bootDone) return;
+    if (S.bootDone) return;
     if (e.key === "Escape") { start(false); return; }
     if (phase === "loading") {
       if (!early) { early = true; setHint("Starting when loading finishes… Press Esc to start now."); }
@@ -4354,12 +4375,12 @@ async function bootScreen(modelsLoaded) {
   };
   const onPointer = e => {
     e.stopPropagation();
-    if (bootDone || phase !== "loading") return;
+    if (S.bootDone || phase !== "loading") return;
     e.preventDefault();
     if (!early) { early = true; setHint("Starting when loading finishes… Press Esc to start now."); }
   };
   if (show) {
-    bootDone = false;
+    S.bootDone = false;
     el = document.createElement("div");
     el.className = "boot";
     // one centered column: logo, name, progress bar, the checks as they run, then the Start button
@@ -4397,27 +4418,27 @@ async function bootScreen(modelsLoaded) {
   let row = begin("Server");
   end(row, location.protocol === "file:" ? "opened as a file" : location.host, location.protocol === "file:");
   row = begin("Loading model list…");
-  if (!(await wait(modelsLoaded)) || !CAT) end(row, "failed. Generate can't list models", true);
-  else { const t = CAT.tasks || []; end(row, `${new Set(t.flatMap(x => x.models.map(m => m.id))).size} models, ${t.length} tasks`); }
+  if (!(await wait(modelsLoaded)) || !S.CAT) end(row, "failed. Generate can't list models", true);
+  else { const t = S.CAT.tasks || []; end(row, `${new Set(t.flatMap(x => x.models.map(m => m.id))).size} models, ${t.length} tasks`); }
   row = begin("Connecting to Runway API…");
   // the first /api/state answer, or the first failed poll (poll keeps retrying every 3 s)
-  while (!loaded && conn.cls !== "off" && Date.now() < deadline) await upTo(ready, 50);
-  if (!loaded) end(row, conn.cls === "off" ? "server not reachable" : "no answer after 8 s", true);
-  else if (!data.live) end(row, "no key", true);
-  else if (data.error) end(row, data.error, true);
+  while (!S.loaded && S.conn.cls !== "off" && Date.now() < deadline) await upTo(ready, 50);
+  if (!S.loaded) end(row, S.conn.cls === "off" ? "server not reachable" : "no answer after 8 s", true);
+  else if (!S.data.live) end(row, "no key", true);
+  else if (S.data.error) end(row, S.data.error, true);
   else end(row, "OK");
-  const live = loaded && data.live && !data.error, n = data.runs.length;
-  const when = data.balanceAt ? `, last known ${absTime(tOf(data.balanceAt))}` : ", last known";
-  end(begin("Credits"), !loaded || data.balance == null ? "unknown" : fmt(data.balance) + (live ? "" : when), !loaded || data.balance == null);
-  end(begin("Jobs"), loaded ? `${fmt(n)} found` : "unknown", !loaded);
-  summary(!loaded ? (conn.cls === "off" ? `Server not reachable. Run python3 server.py${location.protocol === "file:" ? " and open the address it prints" : "; runway os keeps trying"}.` : "The server hasn't answered yet; runway os keeps trying.")
-    : !data.live ? "Ready without a Runway key."
-    : data.error ? "Ready, but the Runway API reported an error."
-    : `Ready. ${data.balance == null ? "Credits unavailable" : fmt(data.balance) + " credits"}, ${fmt(n)} job${n === 1 ? "" : "s"}.`);
+  const live = S.loaded && S.data.live && !S.data.error, n = S.data.runs.length;
+  const when = S.data.balanceAt ? `, last known ${absTime(tOf(S.data.balanceAt))}` : ", last known";
+  end(begin("Credits"), !S.loaded || S.data.balance == null ? "unknown" : fmt(S.data.balance) + (live ? "" : when), !S.loaded || S.data.balance == null);
+  end(begin("Jobs"), S.loaded ? `${fmt(n)} found` : "unknown", !S.loaded);
+  summary(!S.loaded ? (S.conn.cls === "off" ? `Server not reachable. Run python3 server.py${location.protocol === "file:" ? " and open the address it prints" : "; runway os keeps trying"}.` : "The server hasn't answered yet; runway os keeps trying.")
+    : !S.data.live ? "Ready without a Runway key."
+    : S.data.error ? "Ready, but the Runway API reported an error."
+    : `Ready. ${S.data.balance == null ? "Credits unavailable" : fmt(S.data.balance) + " credits"}, ${fmt(n)} job${n === 1 ? "" : "s"}.`);
   phase = "ready";
-  if (!show || bootDone) return;
+  if (!show || S.bootDone) return;
   if (early) { start(false); return; }
-  const act = $(".boot-act", el), keyBtn = loaded && !live;
+  const act = $(".boot-act", el), keyBtn = S.loaded && !live;
   act.innerHTML = `<button class="raised btn-s default" data-start>Start runway os</button>${keyBtn ? '<button class="raised btn-s" data-start="key">Start and add API key</button>' : ""}`;
   act.addEventListener("click", e => { const b = e.target.closest("[data-start]"); if (b) start(b.dataset.start === "key"); });
   $("button", act).focus();
@@ -4438,33 +4459,32 @@ const SIG = {
   props: w => { const r = runOf(w.arg); return r ? [runSig(r), runSig(runOf(r.parent)), ...childrenOf(r.taskId).map(runSig)].join("|") : "-"; },
 };
 // the server answers 304 when nothing changed, so an idle poll costs almost nothing
-let stateTag = null, lastConn = null, pollT = 0;
 function schedulePoll() {
-  clearTimeout(pollT);
-  const ms = document.hidden ? 30000 : data.runs.some(r => ACTIVE.has(r.status)) ? 2000 : 5000;
-  pollT = setTimeout(() => poll().finally(schedulePoll), ms);
+  clearTimeout(S.pollT);
+  const ms = document.hidden ? 30000 : S.data.runs.some(r => ACTIVE.has(r.status)) ? 2000 : 5000;
+  S.pollT = setTimeout(() => poll().finally(schedulePoll), ms);
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) poll().finally(schedulePoll); });
 async function poll() {
   try {
-    const res = await fetch("/api/state", { cache: "no-store", headers: stateTag && loaded ? { "If-None-Match": stateTag } : {} });
+    const res = await fetch("/api/state", { cache: "no-store", headers: S.stateTag && S.loaded ? { "If-None-Match": S.stateTag } : {} });
     if (res.status === 304) {
-      if (conn.cls === "off" && lastConn) { conn = lastConn; wins.forEach(w => w.kind === "overview" && renderWin(w)); }
+      if (S.conn.cls === "off" && S.lastConn) { S.conn = S.lastConn; wins.forEach(w => w.kind === "overview" && renderWin(w)); }
       return;
     }
-    stateTag = res.headers.get("ETag");
+    S.stateTag = res.headers.get("ETag");
     const d = await res.json();
     const c = d.error ? { cls: "warn", text: "Runway API: " + d.error } : d.live ? { cls: "on", text: "Connected" } : { cls: "warn", text: "No API key" };
     const runs = d.runs || [], rs = JSON.stringify(runs) + JSON.stringify(d.inputs || []), ss = rs + d.balance + d.balanceAt + (d.history || []).length;
-    const first = !loaded, runsChanged = rs !== runsSig, anyChanged = ss !== stateSig;
-    const connChanged = c.text !== conn.text || c.cls !== conn.cls;
-    const keySig = [d.live, d.keySource, d.keyHint, d.error].join("|"), keyChanged = keySig !== data.keySig;
-    data = { runs, balance: d.balance, balanceAt: d.balanceAt, history: d.history || [], live: !!d.live, keySource: d.keySource, keyHint: d.keyHint, error: d.error, keySig, inputs: d.inputs || [] };
+    const first = !S.loaded, runsChanged = rs !== S.runsSig, anyChanged = ss !== S.stateSig;
+    const connChanged = c.text !== S.conn.text || c.cls !== S.conn.cls;
+    const keySig = [d.live, d.keySource, d.keyHint, d.error].join("|"), keyChanged = keySig !== S.data.keySig;
+    S.data = { runs, balance: d.balance, balanceAt: d.balanceAt, history: d.history || [], live: !!d.live, keySource: d.keySource, keyHint: d.keyHint, error: d.error, keySig, inputs: d.inputs || [] };
     spendUpdate(d);
-    if (sessionStart == null && d.balance != null) sessionStart = { balance: d.balance, at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
-    runsSig = rs; stateSig = ss; conn = c; lastConn = c; loaded = true; markReady();
-    if (!first) runs.forEach(r => { const was = prevStatus.get(r.taskId); if (was && ACTIVE.has(was) && !ACTIVE.has(r.status)) announce(r); });
-    prevStatus = new Map(runs.map(r => [r.taskId, r.status]));
+    if (S.sessionStart == null && d.balance != null) S.sessionStart = { balance: d.balance, at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
+    S.runsSig = rs; S.stateSig = ss; S.conn = c; S.lastConn = c; S.loaded = true; S.markReady();
+    if (!first) runs.forEach(r => { const was = S.prevStatus.get(r.taskId); if (was && ACTIVE.has(was) && !ACTIVE.has(r.status)) announce(r); });
+    S.prevStatus = new Map(runs.map(r => [r.taskId, r.status]));
     wins.forEach(w => {
       if (w.kind === "overview" || w.kind === "key") { if (first || anyChanged || connChanged) renderWin(w); return; }
       if (!first && !runsChanged) return;
@@ -4477,7 +4497,7 @@ async function poll() {
     if (first || anyChanged) renderTray();
   } catch {
     const c = { cls: "off", text: location.protocol === "file:" ? "Run python3 server.py" : "Server offline" };
-    if (c.text !== conn.text) { conn = c; wins.forEach(w => w.kind === "overview" && renderWin(w)); }
+    if (c.text !== S.conn.text) { S.conn = c; wins.forEach(w => w.kind === "overview" && renderWin(w)); }
   }
 }
 
@@ -4485,14 +4505,14 @@ async function poll() {
 const clock = $("#clock");
 function tick() {
   const now = new Date();
-  clock.textContent = now.toLocaleTimeString([], opts.clock24 ? { hour: "2-digit", minute: "2-digit", hour12: false } : { hour: "numeric", minute: "2-digit", hour12: true });
+  clock.textContent = now.toLocaleTimeString([], S.opts.clock24 ? { hour: "2-digit", minute: "2-digit", hour12: false } : { hour: "numeric", minute: "2-digit", hour12: true });
   clock.title = now.toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" });
   $$("time[data-t]").forEach(t => { t.textContent = t.dataset.kind === "elapsed" ? dur(Date.now() - +t.dataset.t) : ago(+t.dataset.t); });
 }
 
 // the model list and the first state load in parallel
 const modelsLoaded = fetch("/api/models").then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-  .then(c => { CAT = c; }).catch(() => { catFailed = true; })
+  .then(c => { S.CAT = c; }).catch(() => { S.catFailed = true; })
   .finally(() => wins.forEach(w => w.kind === "generate" && renderWin(w)));
 poll();
 applyOptions();
