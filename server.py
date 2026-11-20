@@ -1052,6 +1052,8 @@ def state_body():
         data["balanceAt"] = state["balanceAt"]
     data["history"] = hist[max(0, first - 1):]  # with the last point before the window, for a flat start
     data.update(spent_today(data.get("runs", []), hist))
+    # a tag for the job log and the inputs alone: the page compares it to skip re-rendering when only the balance moved
+    data["runsTag"] = hashlib.sha1(json.dumps([data.get("runs", []), data["inputs"]]).encode()).hexdigest()[:16]
     body = json.dumps(data).encode()
     tag = '"' + hashlib.sha1(body).hexdigest()[:20] + '"'
     state_cache.update(key=ck, body=body, tag=tag)
