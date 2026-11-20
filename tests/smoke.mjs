@@ -92,13 +92,7 @@ listeners.push((m, p) => {
     if (p.canceled || p.errorText === "net::ERR_ABORTED" || p.blockedReason) return; // media loads cut short when a window closes
     const r = reqs.get(p.requestId);
     if (!r || !r.startsWith(origin) || FORBIDDEN.test(r)) return;
-    if (/CONNECTION_RESET|EMPTY_RESPONSE|CONNECTION_CLOSED/.test(p.errorText) && /^GET$/.test(reqMethod.get(p.requestId) || "")) {
-      // a dropped connection under load: fetch it again; only a second failure counts
-      const tag = ctx();
-      fetch(r).then(x => { if (!x.ok) failures.push(`${tag} request failed: ${r.replace(origin, "")} (${p.errorText}, then HTTP ${x.status})`); else warnings.push(`${tag} ${r.replace(origin, "")}: ${p.errorText} once, fine when fetched again`); })
-        .catch(e => failures.push(`${tag} request failed: ${r.replace(origin, "")} (${p.errorText}, then ${e.message})`));
-      return;
-    }
+    // a reset or dropped connection is a failure too: the server has a deep listen backlog and drains early-error bodies
     fail(`request failed: ${r.replace(origin, "")} (${p.errorText})`);
   } else if (m === "Network.requestWillBeSent") {
     reqs.set(p.requestId, p.request.url); reqMethod.set(p.requestId, p.request.method);

@@ -677,6 +677,7 @@ def org_usage(days, key):
 
 def save_upload(handler, length):
     """Stream a file from the browser into inputs/ and return its name and type."""
+    handler.upload_left = length  # bytes not read yet, for draining the request on an error
     raw = urllib.parse.unquote(handler.headers.get("X-Filename") or "upload")
     base = os.path.basename(raw).lstrip(".") or "upload"
     stem, ext = os.path.splitext(base)
@@ -696,6 +697,7 @@ def save_upload(handler, length):
                 break
             f.write(chunk)
             left -= len(chunk)
+            handler.upload_left = left
     if left:
         os.remove(tmp)
         raise ValueError("The upload was cut off. Try again.")
@@ -971,12 +973,44 @@ def notes_post(action, body):
     raise LookupError
 
 
+class Server(ThreadingHTTPServer):
+    # the default listen backlog is 5: a page asking for dozens of thumbnails at once got connections refused or reset
+    request_queue_size = 128
+    daemon_threads = True
+
+
+DRAIN_MAX = 64 * 1024 * 1024  # request bodies up to this size are read and dropped before an early error reply
+
+
 class Handler(SimpleHTTPRequestHandler):
+    # keep-alive: every reply below carries Content-Length (or is a 204/304 with no body), so the browser can reuse
+    # connections instead of opening one per thumbnail; an idle connection is closed after `timeout` seconds
+    protocol_version = "HTTP/1.1"
+    timeout = 120
+
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=ROOT, **kw)
 
     def log_message(self, *a):
         pass
+
+    def body_length(self):
+        try:
+            return max(0, int(self.headers.get("Content-Length", 0) or 0))
+        except ValueError:
+            return 0
+
+    def drain(self, length):
+        """Read and drop an unread request body before answering early: closing a socket with unread data
+        makes the kernel reset the connection, and the browser then sees a reset instead of our reply."""
+        if length > DRAIN_MAX:
+            self.close_connection = True
+            return
+        while length > 0:
+            chunk = self.rfile.read(min(1 << 16, length))
+            if not chunk:
+                break
+            length -= len(chunk)
 
     def do_GET(self):
         route = self.path.split("?")[0]
@@ -1039,6 +1073,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("ETag", tag)
             self.end_headers()
@@ -1054,6 +1089,7 @@ class Handler(SimpleHTTPRequestHandler):
         body = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
@@ -1068,12 +1104,14 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route = self.path.split("?")[0]
+        length = self.body_length()
         if route in ("/api/notes", "/api/notes/rename", "/api/notes/delete", "/api/notes/reveal"):
             if not self.same_origin():
+                self.drain(length)
                 self.send_error(403)
                 return
-            length = int(self.headers.get("Content-Length", 0) or 0)
             if length > NOTE_MAX * 2 + 4096:
+                self.drain(length)
                 self.send_json(413, {"error": "Notes can be up to 2 MB."})
                 return
             try:
@@ -1090,21 +1128,24 @@ class Handler(SimpleHTTPRequestHandler):
             return
         action = self.path.split("?")[0].rsplit("/", 1)[-1]
         if not self.path.startswith("/api/") or action not in ("reveal", "open", "generate", "cancel", "key", "upload", "price"):
+            self.drain(length)
             self.send_error(404)
             return
         if not self.same_origin():
+            self.drain(length)
             self.send_error(403)
             return
-        length = int(self.headers.get("Content-Length", 0) or 0)
         if action == "upload":
             try:
                 if length > 2 * 1024 ** 3:
                     raise ValueError("Files over 2 GB can't be used as inputs.")
                 self.send_json(200, save_upload(self, length))
             except ValueError as e:
+                self.drain(getattr(self, "upload_left", length))
                 self.send_json(400, {"error": str(e)})
             return
         if length > 12 * 1024 * 1024:
+            self.drain(length)
             self.send_json(413, {"error": "The request is too big. Start frames must be under 5 MB."})
             return
         if action == "price":
@@ -1124,6 +1165,7 @@ class Handler(SimpleHTTPRequestHandler):
         if action in ("generate", "cancel"):
             key = api_key()
             if not key:
+                self.drain(length)
                 self.send_json(400, {"error": "No Runway API key. Put it in .runway_key next to server.py."})
                 return
             try:
@@ -1172,4 +1214,4 @@ class Handler(SimpleHTTPRequestHandler):
 if __name__ == "__main__":
     threading.Thread(target=loop, daemon=True).start()
     print(f"Runway Dashboard on http://localhost:{PORT}  (API key: {'found' if api_key() else 'not set — balance/status update only from runs.json'})")
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    Server(("127.0.0.1", PORT), Handler).serve_forever()
