@@ -23,7 +23,7 @@ Serves index.html plus /api/state and keeps runs.json up to date:
 API key: env RUNWAYML_API_SECRET, or a file named .runway_key in this folder.
 Run:  python3 server.py   then open http://localhost:8765
 """
-import hashlib, json, os, shutil, subprocess, threading, time, urllib.parse, urllib.request, urllib.error, uuid, mimetypes
+import bisect, hashlib, json, os, shutil, subprocess, threading, time, urllib.parse, urllib.request, urllib.error, uuid, mimetypes
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from datetime import datetime
 
@@ -35,24 +35,48 @@ POLL_EVERY, BALANCE_EVERY = 8, 20
 ACTIVE = {"pending", "running", "throttled"}
 lock = threading.Lock()
 wake = threading.Event()  # set to sync right away instead of waiting POLL_EVERY
-state = {"lastBalanceCheck": None, "error": None}
+state = {"lastBalanceCheck": None, "error": None, "balanceAt": None}
 
 
 KEY_FILE = os.path.join(ROOT, ".runway_key")
 
 
+def file_sig(path):
+    """(mtime_ns, size) of a file, or None when it's missing: cheap to compare, changes on every rewrite."""
+    try:
+        st = os.stat(path)
+        return st.st_mtime_ns, st.st_size
+    except OSError:
+        return None
+
+
+key_cache = {"sig": None, "key": None}
+
+
+def key_file():
+    """The key saved in .runway_key, or None; read again only when the file changes."""
+    sig = file_sig(KEY_FILE)
+    if sig != key_cache["sig"]:
+        key = None
+        if sig:
+            try:
+                with open(KEY_FILE) as f:
+                    key = f.read().strip() or None
+            except OSError:
+                pass
+        key_cache.update(sig=sig, key=key)
+    return key_cache["key"]
+
+
 def key_source():
     """Where the key comes from: the .runway_key file (set from the dashboard) wins over the env variable."""
-    if os.path.exists(KEY_FILE) and open(KEY_FILE).read().strip():
+    if key_file():
         return "file"
     return "env" if os.environ.get("RUNWAYML_API_SECRET") else None
 
 
 def api_key():
-    src = key_source()
-    if src == "file":
-        return open(KEY_FILE).read().strip()
-    return os.environ.get("RUNWAYML_API_SECRET") if src == "env" else None
+    return key_file() or os.environ.get("RUNWAYML_API_SECRET") or None
 
 
 def set_key(body):
@@ -179,7 +203,10 @@ def load_spec():
             os.replace(SPEC_FILE + ".tmp", SPEC_FILE)
         except Exception:
             pass  # keep the cached copy
-    return json.load(open(SPEC_FILE)) if os.path.exists(SPEC_FILE) else None
+    if not os.path.exists(SPEC_FILE):
+        return None
+    with open(SPEC_FILE) as f:
+        return json.load(f)
 
 
 class Normalizer:
@@ -431,8 +458,10 @@ def runway_upload(path, key):
     b = "----rd" + uuid.uuid4().hex
     parts = [f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode() for k, v in meta["fields"].items()]
     ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    with open(path, "rb") as f:
+        raw = f.read()
     parts.append(f'--{b}\r\nContent-Disposition: form-data; name="file"; filename="{name}"\r\nContent-Type: {ctype}\r\n\r\n'.encode()
-                 + open(path, "rb").read() + f"\r\n--{b}--\r\n".encode())
+                 + raw + f"\r\n--{b}--\r\n".encode())
     req = urllib.request.Request(meta["uploadUrl"], data=b"".join(parts), method="POST",
                                  headers={"Content-Type": f"multipart/form-data; boundary={b}"})
     urllib.request.urlopen(req, timeout=900).read()
@@ -766,20 +795,33 @@ def task_updates(run, t):
     return u
 
 
+history_cache = {"sig": None, "hist": []}
+
+
+def load_history():
+    """balance_history.json as [[unix time, balance], ...], parsed again only when the file changes. Don't mutate it."""
+    sig = file_sig(HISTORY)
+    if sig != history_cache["sig"]:
+        try:
+            with open(HISTORY) as f:
+                hist = json.load(f)
+        except Exception:
+            hist = []
+        history_cache.update(sig=sig, hist=hist if isinstance(hist, list) else [])
+    return history_cache["hist"]
+
+
 def record_balance(balance):
-    try:
-        hist = json.load(open(HISTORY))
-    except Exception:
-        hist = []
+    hist = load_history()
     if not hist or hist[-1][1] != balance:
-        hist.append([int(time.time()), balance])
-        hist = hist[-20000:]
+        hist = (hist + [[int(time.time()), balance]])[-20000:]
         tmp = HISTORY + ".tmp"
-        json.dump(hist, open(tmp, "w"))
+        with open(tmp, "w") as f:
+            json.dump(hist, f)
         os.replace(tmp, HISTORY)
 
 
-def spent_today(runs):
+def spent_today(runs, hist=None):
     """Credits the whole org spent since local midnight, for the daily limit in Options.
     From balance_history.json: start at the last balance at or before midnight and add up every drop
     after it (a rise is a top-up, not spending), so jobs from Claude, this app and other tools all count.
@@ -795,10 +837,7 @@ def spent_today(runs):
             continue
         if t.tzinfo and t.timestamp() >= m and isinstance(r.get("credits"), (int, float)):
             jobs += r["credits"]
-    try:
-        hist = json.load(open(HISTORY))
-    except Exception:
-        hist = []
+    hist = load_history() if hist is None else hist
     pts = [h for h in hist if h[0] <= m][-1:] + [h for h in hist if h[0] > m]
     out = {"spentToday": jobs, "spentSource": "jobs", "spentSince": midnight.isoformat(timespec="seconds")}
     if pts:
@@ -832,16 +871,23 @@ def tick(key):
                     updates[tid].update(status="cancelled", finishedAt=datetime.now().astimezone().isoformat(timespec="seconds"))
             else:
                 raise
+    if balance is not None:  # the time of the last check is served from memory; runs.json gets it when it's written
+        state["balanceAt"] = datetime.now().astimezone().isoformat(timespec="seconds")
     with lock:
-        # merge into the freshest file so rows added meanwhile are kept
-        fresh = load()
+        # merge into the freshest file so rows added meanwhile are kept; write it only when something changed
+        fresh, changed = load(), False
         for r in fresh.get("runs", []):
-            if r.get("taskId") in updates:
-                r.update(updates[r["taskId"]])
-        if balance is not None:
+            u = updates.get(r.get("taskId"))
+            if u and any(r.get(k) != v for k, v in u.items()):
+                r.update(u)
+                changed = True
+        if balance is not None and fresh.get("balance") != balance:
             fresh["balance"] = balance
-            fresh["balanceAt"] = datetime.now().astimezone().isoformat(timespec="seconds")
-        save(fresh)
+            changed = True
+        if changed:
+            if state["balanceAt"]:
+                fresh["balanceAt"] = state["balanceAt"]
+            save(fresh)
 
 
 THUMBS = os.path.join(ROOT, "thumbs")
@@ -906,6 +952,42 @@ def thumb_sources():
            if a and type_of(a) in ("image", "video")]
     out += [(i["file"], os.path.join(INPUTS, i["file"])) for i in list_inputs() if i["type"] in ("image", "video")]
     return out
+
+
+state_cache = {"key": None, "body": None, "tag": None}
+
+
+def state_body():
+    """The /api/state reply and its ETag, built again only when something it's made from changes: runs.json,
+    balance_history.json, the inputs folder, the key, the sync error, the last balance check, the day (for the
+    daily spend) or which history points fall in the last 24 h."""
+    hist = load_history()
+    first = bisect.bisect_left(hist, time.time() - 86400, key=lambda h: h[0])  # first point inside the window
+    k = api_key()
+    try:
+        inputs_sig = os.stat(INPUTS).st_mtime_ns
+    except OSError:
+        inputs_sig = None
+    # stat everything before reading it: a file changed in between is then read fresh on the next request
+    ck = (file_sig(RUNS), history_cache["sig"], first, inputs_sig, key_cache["sig"], bool(os.environ.get("RUNWAYML_API_SECRET")),
+          state["error"], state["balanceAt"], datetime.now().astimezone().date())
+    if ck == state_cache["key"]:
+        return state_cache["body"], state_cache["tag"]
+    with lock:
+        data = load()
+    data["live"] = bool(k)
+    data["keySource"] = key_source()
+    data["keyHint"] = k[-4:] if k and len(k) >= 12 else None
+    data["inputs"] = list_inputs()
+    data["error"] = state["error"]
+    if state["balanceAt"] and (data.get("balanceAt") or "") < state["balanceAt"]:
+        data["balanceAt"] = state["balanceAt"]
+    data["history"] = hist[max(0, first - 1):]  # with the last point before the window, for a flat start
+    data.update(spent_today(data.get("runs", []), hist))
+    body = json.dumps(data).encode()
+    tag = '"' + hashlib.sha1(body).hexdigest()[:20] + '"'
+    state_cache.update(key=ck, body=body, tag=tag)
+    return body, tag
 
 
 def make_posters():
@@ -1122,24 +1204,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(200 if cat else 503, cat or {"error": "Couldn't download Runway's model list. Check the connection."})
             return
         if self.path.startswith("/api/state"):
-            with lock:
-                data = load()
-            k = api_key()
-            data["live"] = bool(k)
-            data["keySource"] = key_source()
-            data["keyHint"] = k[-4:] if k and len(k) >= 12 else None
-            data["inputs"] = list_inputs()
-            data["error"] = state["error"]
-            try:
-                cutoff = time.time() - 86400
-                hist = json.load(open(HISTORY))
-                before = [h for h in hist if h[0] < cutoff][-1:]  # last point before the window, for a flat start
-                data["history"] = before + [h for h in hist if h[0] >= cutoff]
-            except Exception:
-                data["history"] = []
-            data.update(spent_today(data.get("runs", [])))
-            body = json.dumps(data).encode()
-            tag = '"' + hashlib.sha1(body).hexdigest()[:20] + '"'
+            body, tag = state_body()
             if self.headers.get("If-None-Match") == tag:  # nothing changed since the page's last poll
                 self.send_response(304)
                 self.send_header("ETag", tag)
