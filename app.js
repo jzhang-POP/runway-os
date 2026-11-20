@@ -187,6 +187,7 @@
       icon: () => "i-key", title: () => "Runway API key", min: [340, 330],
       geo: d => centered(d, 460, 420, 0, true),
     },
+    tree: { icon: () => "i-tree", title: () => "Job tree", min: [360, 300], geo: cascade(900, 620) },
     props: { icon: () => "i-doc", title: w => `Properties — ${runOf(w.arg) ? nameOf(runOf(w.arg)) : w.arg.slice(0, 8)}`, min: [340, 320], geo: cascade(460, 600) },
   };
 
@@ -209,7 +210,7 @@
       id, kind, arg: arg || null, el, body: $(".wbody", el), prev: null, rendered: null, shell: false,
       x: num(g.x, 40), y: num(g.y, 40), wd: num(g.wd, 480), ht: num(g.ht, 320),
       max: !!g.max, minimized: !!g.minimized, snapped: !!g.snapped, pre: g.pre || null,
-      filter: g.filter || "all", q: g.q || "", sort: g.sort || { key: "created", dir: -1 }, size: num(g.size, 132), sel: g.sel || null, tab: g.tab || "general", days: [7, 30, 90].includes(g.days) ? g.days : undefined, act: g.act,
+      filter: g.filter || "all", q: g.q || "", sort: g.sort || { key: "created", dir: -1 }, size: num(g.size, 132), sel: g.sel || null, tab: g.tab || "general", days: [7, 30, 90].includes(g.days) ? g.days : undefined, act: g.act, solo: !!g.solo,
       gen: { cat: "Video", ep: {}, model: {}, vals: {}, media: {}, adv: false, pending: null, ...(g.gen || {}) },
     };
     w.seq = num(g.seq, ++seqTop); seqTop = Math.max(seqTop, w.seq);
@@ -270,7 +271,7 @@
   function focusInto(w) {
     if (!w || w.minimized || wins.get(w.id) !== w) return;
     const b = w.body, last = w.lastFocus?.isConnected && b.contains(w.lastFocus) ? w.lastFocus : null;
-    for (const el of [last, $(".t-in", b), $("textarea", b), $(".table", b), $(".gridwrap", b), ...$$(FOCUSABLE, b), w.el]) {
+    for (const el of [last, $(".t-in", b), $("textarea", b), $(".table", b), $(".gridwrap", b), $(".tree-wrap:not(.empty)", b), ...$$(FOCUSABLE, b), w.el]) {
       if (!el) continue;
       el.focus({ preventScroll: true });
       if (document.activeElement === el) return; // hidden or disabled controls refuse focus: try the next one
@@ -644,6 +645,7 @@
     images: w => gallery(w, "image"),
     audio: w => gallery(w, "audio"),
     videos: w => gallery(w, "video"),
+    tree: w => treeRender(w),
 
     viewer(w) {
       const r = runOf(w.arg);
@@ -746,6 +748,137 @@
       });
       grid.addEventListener("pointerout", e => { const t = e.target.closest(".tile"); if (t && !t.contains(e.relatedTarget)) $("video", t)?.remove(); });
     }
+  }
+
+  /* job tree: each job under the job it was made from (r.parent), drawn as a skill tree */
+  const baseId = id => String(id ?? "").split("~")[0];
+  const OPS = {
+    image_to_video: ["Animate", "i-animate"], image_upscale: ["Upscale", "i-upscale"], video_upscale: ["Upscale", "i-upscale"],
+    video_to_audio: ["Sound", "i-sound"], video_to_hdr: ["HDR", "i-hdr"], image_to_vector: ["Vectorize", "i-wand"],
+    video_to_video: ["Restyle", "i-wand"], character_performance: ["Perform", "i-wand"], speech_to_speech: ["Voice", "i-wand"],
+    voice_isolation: ["Isolate", "i-wand"], voice_dubbing: ["Dub", "i-wand"],
+  };
+  // what was done to the parent to get this job; old rows have no endpoint, and a video made from a job was an image_to_video
+  const opOf = r => OPS[r.endpoint] || (!r.endpoint && r.type === "video" ? OPS.image_to_video : [r.task || "Derived", "i-wand"]);
+  // the forest: roots are jobs with children and no parent, or a parent missing from runs.json; solo are jobs with no links
+  function treeModel() {
+    const by = new Map(data.runs.map(r => [r.taskId, r])), kids = new Map(), pid = r => (r.parent ? baseId(r.parent) : null);
+    data.runs.forEach(r => { const p = pid(r); if (p && p !== r.taskId) { if (!kids.has(p)) kids.set(p, []); kids.get(p).push(r); } });
+    kids.forEach(l => l.sort((a, b) => createdMs(a) - createdMs(b)));
+    const node = (n, depth, seen) => {
+      const id = n.run ? n.run.taskId : n.missing, s2 = new Set(seen).add(id);
+      const ch = (kids.get(id) || []).filter(r => !s2.has(r.taskId)).map(r => node({ run: r }, depth + 1, s2));
+      return { ...n, id, depth, kids: ch, leaves: Math.max(1, ch.reduce((s, c) => s + c.leaves, 0)),
+        total: (n.run ? costOf(n.run) || 0 : 0) + ch.reduce((s, c) => s + c.total, 0),
+        jobs: (n.run ? 1 : 0) + ch.reduce((s, c) => s + c.jobs, 0),
+        last: Math.max(n.run ? createdMs(n.run) : 0, ...ch.map(c => c.last)) };
+    };
+    const roots = [], solo = [];
+    data.runs.forEach(r => { if (!pid(r)) (kids.has(r.taskId) ? roots.push(node({ run: r }, 0, new Set())) : solo.push(r)); });
+    kids.forEach((_, k) => { if (!by.has(k)) roots.push(node({ missing: k }, 0, new Set())); });
+    roots.sort((a, b) => b.last - a.last);
+    solo.sort((a, b) => createdMs(b) - createdMs(a));
+    return { roots, solo };
+  }
+  // sizes at scale 1: node width, slot (thumbnail frame), node height, gaps between columns and levels, canvas padding
+  const TR = { nw: 96, slot: 64, nh: 110, hg: 18, vg: 52, pad: 18, min: 220 };
+  function treeNodeHTML(w, n, style = "", lvl = 1) {
+    const r = n.run, sel = (r ? n.id : "?" + n.id) === w.sel ? " sel" : "";
+    if (!r) return `
+      <div class="tnode t-missing${sel}" role="treeitem" aria-level="${lvl}" id="${itemId(w, "?" + n.id)}" data-id="?${esc(n.id)}" aria-selected="${!!sel}" style="${style}" title="Source job ${esc(n.id)} isn't in runs.json">
+        <span class="tslot"><span class="thumb sunken"><span class="empty">?</span></span></span>
+        <span class="tname">Unknown source</span><span class="tcost muted">${esc(n.id.slice(0, 8))}</span>
+      </div>`;
+    const s = statusInfo(r), n2 = filesOf(r).length, sum = n.kids?.length ? ` · branch total ${fmt(n.total)} credits` : "";
+    const line = s.cls === "done" ? `${costHTML(r)} cr` : s.cls === "running" ? `${costHTML(r)} cr · ${s.p != null ? s.p + "%" : "…"}` : esc(s.label);
+    return `
+      <div class="tnode t-${s.cls}${sel}" role="treeitem" aria-level="${lvl}" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${!!sel}" style="${style}"${r.asset ? ' draggable="true"' : ""}
+        aria-label="${esc(`${r.model}, ${s.label}, ${costOf(r) ?? 0} credits${sum}`)}" title="${esc(`${r.prompt}\n${r.model} · ${s.label} · ${costOf(r) ?? "—"} credits${sum}`)}">
+        <span class="tslot"><span class="thumb sunken">${thumbInner(thumbOf(r), r.type)}</span>${n2 > 1 ? `<span class="tcount">×${n2}</span>` : ""}${s.cls === "failed" ? '<i class="tx"></i>' : ""}</span>
+        <span class="tname">${esc(r.model)}</span><span class="tcost">${line}</span>
+      </div>`;
+  }
+  // one branch: tidy layout, top to bottom; leaves take a column each and a parent sits over the middle of its children
+  function treeBranchHTML(w, root) {
+    const cw = px(TR.nw + TR.hg), lh = px(TR.nh + TR.vg), pad = px(TR.pad), nodes = [], edges = [];
+    let leaf = 0;
+    const place = (n) => {
+      if (!n.kids.length) n.x = leaf++ * cw;
+      else { n.kids.forEach(place); n.x = Math.round((n.kids[0].x + n.kids[n.kids.length - 1].x) / 2); }
+      n.y = n.depth * lh;
+    };
+    place(root);
+    // a narrow branch gets a minimum width, so its title has room; the tree sits in the middle
+    const W0 = root.leaves * cw - px(TR.hg) + 2 * pad, W = Math.max(W0, px(TR.min)), shift = Math.round((W - W0) / 2);
+    const walk = n => { n.x += shift; nodes.push(n); n.kids.forEach(c => { edges.push([n, c]); walk(c); }); };
+    walk(root);
+    const H = Math.max(...nodes.map(n => n.y)) + px(TR.nh) + 2 * pad;
+    const cx = n => pad + n.x + Math.round(px(TR.nw) / 2) - (pad + n.x + Math.round(px(TR.nw) / 2)) % 2; // even, so 2 px lines stay on whole pixels
+    const yb = n => pad + n.y + px(TR.nh), yt = n => pad + n.y, bar = n => yb(n) + Math.round(px(TR.vg) * 0.3) & ~1;
+    const kind = c => (c.run ? statusInfo(c.run).cls : "queued");
+    const path = ([p, c]) => `M${cx(p)},${yb(p)}V${bar(p)}H${cx(c)}V${yt(c) - px(4)}`;
+    const lines = edges.map(e => `<path class="te-out" d="${path(e)}"/>`).join("") 
+      // lines that share a parent's stem overlap there: draw finished ones last so a branch with any finished job reads as lit
+      + edges.map(e => [e, ["failed", "queued", "running", "done"].indexOf(kind(e[1]))]).sort((a, b) => a[1] - b[1]).map(([e]) => `<path class="te-in te-${kind(e[1])}" d="${path(e)}"/>`).join("");
+    const knots = nodes.filter(n => n.kids.length).map(n => { const on = n.kids.some(c => kind(c) === "done"), k = px(4) & ~1; return `<rect class="te-knot${on ? " on" : ""}" x="${cx(n) - k}" y="${bar(n) - k}" width="${2 * k}" height="${2 * k}"/>`; }).join("");
+    const tags = edges.map(([p, c]) => { const [label, icon] = opOf(c.run); return `<span class="ttag t-${kind(c)}" style="left:${cx(c)}px;top:${Math.round((bar(p) + yt(c) - px(4)) / 2)}px">${icoLabel(icon, esc(label))}</span>`; }).join("");
+    const name = root.run ? root.run.prompt : "Unknown source";
+    return `
+      <section class="tbranch" aria-label="${esc(name)}">
+        <div class="tb-head"><b title="${esc(name)}">${esc(name)}</b><span class="tb-sum">${root.jobs} job${root.jobs === 1 ? "" : "s"} · <b>${fmt(root.total)}</b> credits</span></div>
+        <div class="tb-canvas" style="width:${W}px;height:${H}px">
+          <svg class="tb-lines" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" shape-rendering="crispEdges" aria-hidden="true">${lines}${knots}</svg>
+          ${tags}${nodes.map(n => treeNodeHTML(w, n, `left:${pad + n.x}px;top:${pad + n.y}px;width:${px(TR.nw)}px`, n.depth + 1)).join("")}
+        </div>
+      </section>`;
+  }
+  function treeRender(w) {
+    if (!w.shell) {
+      w.shell = true;
+      w.body.innerHTML = `
+        <div class="toolbar"><label class="check"><input type="checkbox" class="tsolo"><span></span></label></div>
+        <div class="tree-wrap sunken" data-keep="tree" tabindex="0" role="tree" aria-label="Job tree"></div>
+        <div class="statusbar"><span class="sunken seg grow"></span><span class="sunken seg"></span><span class="sunken seg">Double-click or Enter to open</span></div>`;
+      $(".tsolo", w.body).addEventListener("change", e => { w.solo = e.target.checked; renderWin(w); save(); });
+    }
+    const { roots, solo } = treeModel(), wrap = $(".tree-wrap", w.body);
+    $(".tsolo", w.body).checked = !!w.solo;
+    $(".toolbar .check span", w.body).textContent = `Show jobs without links (${solo.length})`;
+    const soloHTML = w.solo && solo.length ? `
+      <section class="tbranch tb-solo" aria-label="Jobs without links">
+        <div class="tb-head"><b>Jobs without links</b><span class="tb-sum">${solo.length} job${solo.length === 1 ? "" : "s"} · <b>${fmt(solo.reduce((s, r) => s + (costOf(r) || 0), 0))}</b> credits</span></div>
+        <div class="tb-flow">${solo.map(r => treeNodeHTML(w, { run: r, id: r.taskId }, `width:${px(TR.nw)}px`)).join("")}</div>
+      </section>` : "";
+    morph(wrap, roots.length ? roots.map(n => treeBranchHTML(w, n)).join("") + soloHTML
+      : loadingOr(`No linked jobs yet. Right-click a job, then Animate, Upscale… to start a branch.${emptyAct(`<button class="raised btn-s b-default" data-open="jobs">${icoLabel("i-folder", "Open Jobs")}</button>`)}`) + soloHTML);
+    // a tree holds only tree items: while empty the box is a plain group around the message and its button, and no tab stop
+    const any = roots.length || soloHTML;
+    wrap.classList.toggle("empty", !any);
+    wrap.setAttribute("role", any ? "tree" : "group");
+    any ? wrap.setAttribute("tabindex", "0") : wrap.removeAttribute("tabindex");
+    activeSync(w);
+    const jobs = roots.reduce((s, n) => s + n.jobs, 0) + (w.solo ? solo.length : 0), credits = roots.reduce((s, n) => s + n.total, 0) + (w.solo ? solo.reduce((s, r) => s + (costOf(r) || 0), 0) : 0), selRun = runOf(w.sel);
+    const segs = $$(".statusbar .seg", w.body);
+    segs[0].textContent = `${roots.length} branch${roots.length === 1 ? "" : "es"} · ${jobs} job${jobs === 1 ? "" : "s"}${selRun ? ` · ${selRun.asset || selRun.taskId} selected` : ""}`;
+    segs[1].textContent = `${fmt(credits)} credits`;
+  }
+  // arrow keys move to the nearest node on screen in that direction, so they also cross between branches
+  function treeMove(w, key) {
+    const items = $$(".tnode[data-id]", w.body); if (!items.length) return;
+    const cur = items.find(el => el.dataset.id === w.sel);
+    if (!cur || key === "Home" || key === "End") { select(w, (key === "End" ? items[items.length - 1] : items[0]).dataset.id, true); return; }
+    const [dx, dy] = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[key];
+    const mid = el => { const b = $(".tslot", el).getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; };
+    const [x0, y0] = mid(cur);
+    let best = null, bs = Infinity;
+    items.forEach(el => {
+      if (el === cur) return;
+      const [x, y] = mid(el), along = (x - x0) * dx + (y - y0) * dy, across = Math.abs((x - x0) * dy) + Math.abs((y - y0) * dx);
+      if (along < 4) return;
+      const sc = along + across * 2.5;
+      if (sc < bs) { bs = sc; best = el; }
+    });
+    if (best) select(w, best.dataset.id, true);
   }
 
   // image viewer: click toggles fit / actual size, drag pans at actual size
@@ -1686,6 +1819,7 @@
       const k = scale / was, sc = g => g && Object.assign(g, { x: Math.round(g.x * k), y: Math.round(g.y * k), wd: Math.round(g.wd * k), ht: Math.round(g.ht * k) });
       sc(w); sc(w.pre); if (w.minW) w.minW = Math.round(w.minW * k);
       fit(w); place(w);
+      if (w.kind === "tree") renderWin(w); // the tree is laid out in pixels
     });
     tick();
   }
@@ -2082,7 +2216,7 @@
   /* ---------- selection in lists and galleries ---------- */
   function select(w, id, scroll) {
     w.sel = id;
-    $$("[data-id].row, [data-id].tile", w.body).forEach(el => { const on = el.dataset.id === id; el.classList.toggle("sel", on); el.setAttribute("aria-selected", on); if (on && scroll) el.scrollIntoView({ block: "nearest" }); });
+    $$("[data-id].row, [data-id].tile, [data-id].tnode", w.body).forEach(el => { const on = el.dataset.id === id; el.classList.toggle("sel", on); el.setAttribute("aria-selected", on); if (on && scroll) el.scrollIntoView({ block: "nearest" }); });
     activeSync(w);
     const r = runOf(id), seg = $(".statusbar .seg", w.body);
     if (seg && r) seg.textContent = seg.textContent.replace(/ · .* selected$/, "") + ` · ${r.asset || r.taskId} selected`;
@@ -2090,8 +2224,8 @@
   }
   // the focusable list (.table grid or .gridwrap listbox) names the selected row or tile as its active descendant
   function activeSync(w) {
-    const box = $(".table, .gridwrap", w.body); if (!box) return;
-    const el = w.sel && $$("[data-id].row, [data-id].tile", w.body).find(x => x.dataset.id === w.sel);
+    const box = $(".table, .gridwrap, .tree-wrap", w.body); if (!box) return;
+    const el = w.sel && $$("[data-id].row, [data-id].tile, [data-id].tnode", w.body).find(x => x.dataset.id === w.sel);
     el ? box.setAttribute("aria-activedescendant", el.id) : box.removeAttribute("aria-activedescendant");
   }
   // delta: ±1 next/previous item, ±2 one grid row up/down, ±1e6 first/last
@@ -2543,18 +2677,18 @@
     const cx = e.target.closest("[data-cancel]"); if (cx) { const r = runOf(cx.dataset.cancel); if (r) cancelJob(r); return; }
     const s = e.target.closest("[data-step]"); if (s) { step(winOf(s), +s.dataset.step); return; }
     const o = e.target.closest("[data-open]"); if (o) { open(o.dataset.open, o.dataset.id || null, o); return; }
-    const it = e.target.closest(".row[data-id], .tile[data-id]");
+    const it = e.target.closest(".row[data-id], .tile[data-id], .tnode[data-id]");
     if (it) {
       const w = winOf(it); select(w, it.dataset.id);
-      if (lastPointer === "touch") defaultOpen(runOf(it.dataset.id), it);
+      if (lastPointer === "touch" && runOf(it.dataset.id)) defaultOpen(runOf(it.dataset.id), it);
     }
   });
   desk.addEventListener("dblclick", e => {
-    const it = e.target.closest(".row[data-id], .tile[data-id]");
+    const it = e.target.closest(".row[data-id], .tile[data-id], .tnode[data-id]");
     if (it && runOf(it.dataset.id)) defaultOpen(runOf(it.dataset.id), it);
   });
   desk.addEventListener("contextmenu", e => {
-    const it = e.target.closest(".row[data-id], .tile[data-id]"), st = e.target.closest(".stage");
+    const it = e.target.closest(".row[data-id], .tile[data-id], .tnode[data-id]"), st = e.target.closest(".stage");
     const r = it ? runOf(it.dataset.id) : st ? runOf(winOf(st)?.arg) : null;
     if (!r) return;
     e.preventDefault();
@@ -2599,6 +2733,11 @@
       else if (e.key === "Enter" && sel && !e.target.closest("button")) { e.preventDefault(); e.altKey ? open("props", sel.taskId) : defaultOpen(sel); }
       return;
     }
+    if (f.kind === "tree" && !e.target.closest(".dicon")) {
+      if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) { e.preventDefault(); treeMove(f, e.key); }
+      else if (e.key === "Enter" && sel && !e.target.closest("button")) { e.preventDefault(); e.altKey ? open("props", sel.taskId) : defaultOpen(sel); }
+      return;
+    }
     if (f.kind === "viewer") {
       const v = $("video, audio", f.el), r = runOf(f.arg);
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); step(f, e.key === "ArrowLeft" ? -1 : 1); }
@@ -2615,7 +2754,7 @@
     clearTimeout(saveT);
     if (resetting) return;
     saveT = setTimeout(() => {
-      const list = [...wins.values()].map(w => ({ kind: w.kind, arg: w.arg, x: w.x, y: w.y, wd: w.wd, ht: w.ht, max: w.max, minimized: w.minimized, snapped: w.snapped, pre: w.pre, z: w.z, seq: w.seq, filter: w.filter, q: w.q, sort: w.sort, size: w.size, sel: w.sel, tab: w.tab, days: w.days, act: w.kind === "activity" ? w.act : undefined, gen: w.kind === "generate" ? w.gen : undefined }));
+      const list = [...wins.values()].map(w => ({ kind: w.kind, arg: w.arg, x: w.x, y: w.y, wd: w.wd, ht: w.ht, max: w.max, minimized: w.minimized, snapped: w.snapped, pre: w.pre, z: w.z, seq: w.seq, filter: w.filter, q: w.q, sort: w.sort, size: w.size, sel: w.sel, tab: w.tab, days: w.days, act: w.kind === "activity" ? w.act : undefined, solo: w.kind === "tree" ? !!w.solo : undefined, gen: w.kind === "generate" ? w.gen : undefined }));
       try { localStorage.setItem(KEY, JSON.stringify(list)); } catch {}
     }, 150);
   }
