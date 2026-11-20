@@ -532,20 +532,24 @@
   const APP_KEYS = { generate: "G", terminal: "T", jobs: "J", tree: "Shift+J", usage: "U", activity: "A", images: "I", videos: "V", audio: "M", options: "O", notes: "N", keys: "/" };
   const SHORTCUTS = [
     ["Windows", [
-      ["Alt+W or Alt+F4", "Close the window"],
-      ["Alt+↓", "Minimize"],
+      ["Cmd+W or Alt+W", "Close the window (Cmd+W only in full screen)"],
+      ["Cmd+M or Alt+↓", "Minimize"],
       ["Alt+↑", "Maximize or restore"],
       ["Alt+← / Alt+→", "Snap to the left or right half"],
-      ["Alt+`", "Switch to the next window"],
+      ["Cmd+` or Alt+`", "Switch to the next window"],
+      ["Ctrl+Cmd+F or F11", "Full screen, where Cmd+W reaches Runway OS"],
       ["Alt+Space", "Window menu (Move, Size…)"],
       ["Ctrl+Esc", "Start menu"],
       ["Esc", "Close a menu, a viewer or Properties"],
+      ["Cmd+,", "Options"],
+      ["Cmd+?", "This list"],
     ]],
     ["Open apps (when you're not typing in a field)", Object.entries(APP_KEYS).filter(([k]) => KINDS[k]).map(([k, key]) => ["Alt+" + key, ({ generate: "Generate", terminal: "Terminal", jobs: "Jobs", tree: "Job tree", usage: "Usage", activity: "Activity", images: "Images", videos: "Videos", audio: "Audio", options: "Options", notes: "Notes", keys: "This list (also F1 or ?)" })[k]])],
     ["Jobs and files", [
       ["↑ ↓ ← →, Home, End", "Move the selection"],
-      ["Enter", "Open"],
-      ["Alt+Enter", "Properties"],
+      ["Enter, Cmd+O or Cmd+↓", "Open"],
+      ["Cmd+I or Alt+Enter", "Properties (Get Info)"],
+      ["Cmd+F", "Search jobs"],
       ["Cmd+C", "Copy the selected job (its task ID)"],
       ["Cmd+V in Generate", "Use the copied job, or a copied image file, as an input"],
       ["Shift+F10 or right-click", "Job menu"],
@@ -571,7 +575,7 @@
         <div class="pwrap keys" data-keep="keys">
           ${SHORTCUTS.filter(([, rows]) => rows.length).map(([title, rows]) => `<fieldset class="group"><legend>${esc(title)}</legend>
             <dl class="ptbl keytbl">${rows.map(([k, v]) => `<dt>${k.split(/( or |, | \/ )/).map(part => /^( or |, | \/ )$/.test(part) ? `<span class="muted">${part}</span>` : `<kbd>${esc(part)}</kbd>`).join("")}</dt><dd>${esc(v)}</dd>`).join("")}</dl></fieldset>`).join("")}
-          <p class="muted">Cmd+W, Cmd+T, Cmd+N and Cmd+Q belong to the browser, so Runway OS uses Alt for windows.</p>
+          <p class="muted">Chrome keeps Cmd+W, Cmd+T, Cmd+N and Cmd+Q for itself, except in full screen, where Runway OS gets Cmd+W. The Alt shortcuts work everywhere.</p>
         </div>`;
     },
     // "System Properties": a Win95 property sheet with General, Usage and Connection tabs
@@ -2320,7 +2324,7 @@
   function runMenu(r, x, y, src) {
     showMenu(x, y, [
       { label: r.asset ? "Open" : "Properties", icon: r.asset ? typeIcon(r.type) : "i-doc", bold: true, hint: "Enter", act: () => defaultOpen(r, src) },
-      r.asset && { label: "Properties", icon: "i-doc", hint: "Alt+Enter", act: () => open("props", r.taskId, src) },
+      r.asset && { label: "Properties", icon: "i-doc", hint: "Cmd+I", act: () => open("props", r.taskId, src) },
       r.parent && runOf(r.parent) && { label: "Go to source", act: () => open("props", r.parent, src) },
       { sep: true },
       r.type === "image" && r.asset && { label: "Animate into video…", icon: "i-animate", act: () => genFrom(r, "animate", src) },
@@ -2342,10 +2346,10 @@
       { label: "Restore", disabled: !w.max && !w.snapped && !w.minimized, act: () => (w.minimized ? restore(w) : toggleMax(w)) },
       { label: "Move", disabled: w.max || w.minimized, act: () => kbStart(w, "move") },
       { label: "Size", disabled: w.max || w.minimized, act: () => kbStart(w, "size") },
-      { label: "Minimize", hint: "Alt+↓", disabled: w.minimized, act: () => minimize(w) },
+      { label: "Minimize", hint: "Cmd+M", disabled: w.minimized, act: () => minimize(w) },
       { label: "Maximize", hint: "Alt+↑", disabled: w.max, act: () => { if (w.minimized) restore(w); if (!w.max) toggleMax(w); } },
       { sep: true },
-      { label: "Close", bold: true, hint: "Alt+W", act: () => close(w) },
+      { label: "Close", bold: true, hint: document.fullscreenElement ? "Cmd+W" : "Alt+W", act: () => close(w) },
     ]);
   }
   // keyboard Move and Size, as in Win95: arrow keys move or size the window (Shift: 1 px), Enter or a click keeps it, Esc puts it back
@@ -2420,6 +2424,22 @@
     [...wins.values()].forEach(w => { w.el.remove(); wins.delete(w.id); });
     refreshFront(); save(); startBtn.focus();
   }
+
+  const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+  let layoutMap = null;
+  navigator.keyboard?.getLayoutMap?.().then(m => { layoutMap = m; }).catch(() => {});
+  // the letter printed on the key, whatever the layout (Option on a Mac changes e.key, so go through the code)
+  const letterOf = ev => String(layoutMap?.get(ev.code) || (ev.code?.startsWith("Key") ? ev.code.slice(3) : ev.key) || "").toLowerCase();
+  const codesFor = letters => { const out = []; layoutMap?.forEach((k, code) => { if (letters.includes(k)) out.push(code); }); return out.length ? out : letters.map(l => "Key" + l.toUpperCase()); };
+  async function toggleFullScreen() {
+    try {
+      if (document.fullscreenElement) { navigator.keyboard?.unlock?.(); await document.exitFullscreen(); return; }
+      await document.documentElement.requestFullscreen({ navigationUI: "hide" });
+      await navigator.keyboard?.lock?.([...codesFor(["w", "n", "t", "m"]), "Backquote"]);
+      balloon({ title: "Full screen", text: "Cmd+W now closes the window in Runway OS. Hold Esc to leave full screen.", ms: 3600 });
+    } catch (err) { balloon({ title: "Couldn't go full screen", text: err.message, ms: 3000 }); }
+  }
+  document.addEventListener("fullscreenchange", () => { if (!document.fullscreenElement) navigator.keyboard?.unlock?.(); });
 
   /* ---------- clipboard, files, balloons ---------- */
   // a copied job is its task ID as text; Cmd+V in Generate turns it back into an input
@@ -2563,6 +2583,7 @@
     if (b.dataset.cmd === "folder") fileAction("reveal", "runs.json");
     if (b.dataset.cmd === "cascade") cascadeAll();
     if (b.dataset.cmd === "tile") tileAll();
+    if (b.dataset.cmd === "fullscreen") toggleFullScreen();
     if (b.dataset.cmd === "shutdown") shutdownDialog();
   });
 
@@ -2618,7 +2639,7 @@
     $('input[name="sd"]:checked', d).focus();
   }
   startMenu.addEventListener("keydown", e => menuKeys(startMenu, e));
-  $$("[data-launch]", startMenu).forEach(b => { const k = APP_KEYS[b.dataset.launch]; if (k) b.insertAdjacentHTML("beforeend", `<kbd>Alt+${k}</kbd>`); });
+  $$("[data-launch]", startMenu).forEach(b => { const k = APP_KEYS[b.dataset.launch]; if (k && !$("kbd", b)) b.insertAdjacentHTML("beforeend", `<kbd>Alt+${k}</kbd>`); });
   document.addEventListener("pointerdown", e => {
     if (!startMenu.hidden && !e.target.closest("#startmenu, #start")) setStart(false);
     if (!menuEl.hidden && !e.target.closest("#ctxmenu")) hideMenu();
@@ -2784,21 +2805,39 @@
     }
     if (!menuEl.hidden || !startMenu.hidden) return;
     const f = frontWin();
-    if (e.altKey && e.code === "Backquote") { // switch windows
+    const cmd = MAC ? ev.metaKey && !e.ctrlKey : e.ctrlKey && !ev.metaKey, L = letterOf(ev);
+    if ((e.altKey || cmd) && e.code === "Backquote") { // switch windows
       e.preventDefault();
       const list = [...wins.values()].sort((a, b) => b.z - a.z); if (list.length < 2) return;
       const next = e.shiftKey ? list[list.length - 1] : list.find(w => w !== f && !w.minimized) || list[1];
       next.minimized ? restore(next) : (focus(next), save(), focusInto(next));
       return;
     }
-    if (e.altKey && (e.code === "KeyW" || e.code === "F4") && f) { e.preventDefault(); close(f); return; }
+    if (e.code === "F11" || (MAC && ev.metaKey && e.ctrlKey && letterOf(ev) === "f")) { e.preventDefault(); toggleFullScreen(); return; }
+    if (cmd && !e.altKey) {
+      const typingNow = e.target.closest("input, textarea, select, [contenteditable]");
+      const r = f && runOf(f.kind === "viewer" || f.kind === "props" ? f.arg : f.sel);
+      if (L === "w" && f) { e.preventDefault(); close(f); return; } // arrives only in full screen with the keyboard locked
+      if (L === "m" && f && !e.shiftKey) { e.preventDefault(); minimize(f); return; }
+      if (e.key === ",") { e.preventDefault(); open("options"); return; }
+      if (e.key === "?" || (e.code === "Slash" && e.shiftKey)) { e.preventDefault(); open("keys"); return; }
+      if (L === "i" && r && !typingNow) { e.preventDefault(); open("props", r.taskId); return; }
+      if ((L === "o" || e.code === "ArrowDown") && r && !typingNow && f.kind !== "viewer") { e.preventDefault(); defaultOpen(r); return; }
+      if (L === "f" && !e.shiftKey) {
+        const box = f && $('input[type="search"]', f.body);
+        e.preventDefault();
+        if (box) { box.focus(); box.select(); } else { const j = open("jobs"); setTimeout(() => $('input[type="search"]', j.body)?.focus(), 0); }
+        return;
+      }
+    }
+    if (e.altKey && (L === "w" || e.code === "F4") && f) { e.preventDefault(); close(f); return; }
     const typing = e.target.closest("input, textarea, select, [contenteditable]");
     if (!typing && (e.code === "F1" || (e.key === "?" && !e.altKey && !ev.metaKey && !e.ctrlKey))) { e.preventDefault(); open("keys"); return; }
     if (e.altKey && !typing && !ev.metaKey && !e.ctrlKey) {
       if (f && e.code === "ArrowDown") { e.preventDefault(); minimize(f); return; }
       if (f && e.code === "ArrowUp") { e.preventDefault(); if (f.max || f.snapped) toggleMax(f); else { f.max = true; place(f); save(); } return; }
       if (f && (e.code === "ArrowLeft" || e.code === "ArrowRight")) { e.preventDefault(); snapHalf(f, e.code === "ArrowLeft" ? "left" : "right"); return; }
-      const want = (e.shiftKey ? "Shift+" : "") + (e.code.startsWith("Key") ? e.code.slice(3) : e.code === "Slash" ? "/" : "");
+      const want = (e.shiftKey ? "Shift+" : "") + (e.code === "Slash" ? "/" : /^[a-z]$/.test(L) ? L.toUpperCase() : "");
       const app = Object.keys(APP_KEYS).find(k => APP_KEYS[k] === want && KINDS[k]);
       if (app) { e.preventDefault(); open(app); return; }
     }
@@ -2809,7 +2848,7 @@
       r ? runMenu(r, b.left + 8, b.bottom - 4, el) : windowMenu(f, b.left + 8, b.bottom - 4);
       return;
     }
-    if ((ev.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.code === "KeyC" && !typing && f && !String(getSelection())) {
+    if ((ev.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && L === "c" && !typing && f && !String(getSelection())) {
       const r = runOf(f.kind === "viewer" || f.kind === "props" ? f.arg : f.sel);
       if (r) { e.preventDefault(); copyJob(r); return; }
     }
