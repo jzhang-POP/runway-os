@@ -8,7 +8,8 @@ Serves index.html plus /api/state and keeps runs.json up to date:
         history of it in balance_history.json
       - syncs every job with its Runway task: status, progress, createdAt, real
         credit cost (estimated while running), failure reason; downloads the
-        output next to this file when it succeeds.
+        output next to this file when it succeeds. While that file downloads, the row
+        stays "running" and /api/state marks it "downloading": true (it can't be cancelled).
   * POST /api/reveal or /api/open {"file": name} shows a saved file in Finder or
     opens it in its default app.
   * GET /api/models lists every task and model in Runway's OpenAPI spec (cached in runway_openapi.json) as form fields;
@@ -1037,12 +1038,17 @@ def state_body():
     except OSError:
         inputs_sig = None
     # stat everything before reading it: a file changed in between is then read fresh on the next request
+    with work_lock:
+        saving = frozenset(downloading)
     ck = (file_sig(RUNS), history_cache["sig"], first, inputs_sig, key_cache["sig"], bool(os.environ.get("RUNWAYML_API_SECRET")),
-          state["error"], state["balanceAt"], datetime.now().astimezone().date())
+          state["error"], state["balanceAt"], datetime.now().astimezone().date(), saving)
     if ck == state_cache["key"]:
         return state_cache["body"], state_cache["tag"]
     with lock:
         data = load()
+    for r in data.get("runs", []):  # succeeded on Runway, file still being saved by the worker: not cancellable any more
+        if r.get("taskId") in saving and r.get("status") in ACTIVE:
+            r["downloading"] = True
     data["live"] = bool(k)
     data["keySource"] = key_source()
     data["keyHint"] = k[-4:] if k and len(k) >= 12 else None
@@ -1462,6 +1468,11 @@ class Handler(SimpleHTTPRequestHandler):
                     tid = str(body.get("taskId", ""))
                     with lock:
                         run = next((r for r in load().get("runs", []) if r.get("taskId") == tid), None)
+                    with work_lock:
+                        saving = tid in downloading
+                    if saving:
+                        self.send_json(400, {"error": "This job already finished on Runway. Its file is being saved."})
+                        return
                     if not run or run.get("status") not in ACTIVE:
                         self.send_json(400, {"error": "Only queued or rendering jobs can be cancelled."})
                         return
