@@ -1,6 +1,6 @@
 import { S, wins } from "../core/state.js";
 import { $, $$, esc, reduced } from "../core/dom.js";
-import { RENDER, SIG } from "../wm/kinds.js";
+import { RENDER } from "../wm/kinds.js";
 import { sheetHTML, sheetKeys } from "../wm/sheet.js";
 import { fit, place, renderWin } from "../wm/windows.js";
 import { layoutIcons } from "../desktop/icons.js";
@@ -221,5 +221,4 @@ export function init() {
     S.opts = { ...OPT_DEFAULT, ...saved };
   } catch {}
   reduced.addEventListener?.("change", applyOptions);
-  SIG.options = () => "";
 }

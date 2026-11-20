@@ -4,6 +4,22 @@ import { absTime, ago, dur, tOf } from "./time.js";
 
 export const ACTIVE = new Set(["pending", "running", "throttled"]);
 export const QUEUED = new Set(["pending", "throttled"]);
+// counts over the job log, worked out once per poll: S.data is a new object whenever a poll brings new data
+// active: rendering or queued; credits: total reported cost; files: finished files per type;
+// progress/withProgress: the sum and count of reported progress among the rendering jobs
+export function counts() {
+  if (S.countsOf === S.data) return S.counts;
+  const c = { active: 0, running: 0, queued: 0, credits: 0, progress: 0, withProgress: 0, files: { image: 0, video: 0, audio: 0 } };
+  for (const r of S.data.runs) {
+    if (ACTIVE.has(r.status)) c.active++;
+    if (QUEUED.has(r.status)) c.queued++;
+    if (r.status === "running") { c.running++; if (r.progress != null) { c.progress += r.progress; c.withProgress++; } }
+    c.credits += r.credits || 0;
+    if (r.asset && Object.hasOwn(c.files, r.type)) c.files[r.type]++;
+  }
+  S.countsOf = S.data;
+  return (S.counts = c);
+}
 // finished on Runway, file still downloading (the server sets r.downloading): too late to cancel
 export const cancellable = r => ACTIVE.has(r.status) && !r.downloading;
 // a job can return several files (outputCount, numVariants): each extra file is its own item, id "taskId~2", "~3"…
@@ -18,6 +34,10 @@ export const assetsOf = type => newestFirst().filter(r => r.type === type && r.a
 export const childrenOf = id => S.data.runs.filter(r => r.parent === id);
 export const createdMs = r => tOf(r.createdAt) || tOf(r.date) || 0;
 export const thumbOf = r => (!r || !r.asset || r.type === "audio" ? null : `thumbs/${encodeURIComponent(r.asset)}.jpg`); // the server redirects to the original if it can't make one
+// image, video or audio from a file name's extension, as server.py's EXT_TYPE does; undefined for anything else
+const EXT_TYPE = { image: "png jpg jpeg webp gif svg", video: "mp4 mov webm m4v", audio: "mp3 wav flac ogg m4a aac opus" };
+const EXT_OF = new Map(Object.entries(EXT_TYPE).flatMap(([t, l]) => l.split(" ").map(e => [e, t])));
+export const kindOfName = name => EXT_OF.get(/\.([^./]+)$/.exec(name || "")?.[1].toLowerCase());
 export const typeIcon = t => (t === "video" ? "i-video" : t === "audio" ? "i-audio" : "i-picture");
 export const plural = t => (t === "audio" ? "Audio" : cap(t) + "s");
 export const nameOf = r => r.asset || r.prompt.slice(0, 48);
@@ -46,15 +66,17 @@ export const relHTML = (iso, kind = "ago") => {
 };
 export const costHTML = r => r.credits != null ? fmt(r.credits)
   : r.estimatedCredits != null ? `<span class="est" title="Runway's estimate while the job runs">~${fmt(r.estimatedCredits)}</span>` : "—";
+export const etaText = end => (end > Date.now() ? `~${dur(end - Date.now())} left` : "longer than usual");
+// a queued or rendering job: the bar while it renders, then the time since it was sent and, while it renders,
+// the time left from the model's typical duration (Activity refreshes [data-eta] every few seconds)
+export function progressHTML(r, s = statusInfo(r)) {
+  const run = s.cls === "running", typ = run ? typicalMs(r.model) : null, end = createdMs(r) + typ;
+  return (run ? `<span class="mprog sunken" aria-hidden="true"><i style="width:${s.p ?? 8}%" class="${s.p == null ? "ind" : ""}"></i></span>` : "")
+    + `<small class="muted">${relHTML(r.createdAt || r.date, "elapsed")}${typ ? ` · <span data-eta="${end}">${etaText(end)}</span>` : ""}</small>`;
+}
 export function statusHTML(r, withBar = true) {
   const s = statusInfo(r);
-  let extra = "";
-  if (withBar && s.cls === "running") {
-    const typ = typicalMs(r.model), el = Date.now() - createdMs(r);
-    extra = `<span class="mprog sunken"><i style="width:${s.p ?? 8}%" class="${s.p == null ? "ind" : ""}"></i></span>`
-      + `<small class="muted">${relHTML(r.createdAt, "elapsed")}${typ ? (typ > el ? ` · ~${dur(typ - el)} left` : " · longer than usual") : ""}</small>`;
-  }
-  return `<span class="st ${s.cls}"><i class="dot"></i>${esc(s.label)}</span>${extra}`;
+  return `<span class="st ${s.cls}"><i class="dot"></i>${esc(s.label)}</span>${withBar && s.cls === "running" ? progressHTML(r, s) : ""}`;
 }
 // thumbnail contents: the picture when there is one, the type icon underneath as a fallback
 export const thumbInner = (src, type) => `${src ? `<img src="${src}" alt="" loading="lazy" onerror="this.hidden=true">` : ""}<span class="empty"><svg class="ico big"><use href="#${typeIcon(type)}"/></svg></span>`;

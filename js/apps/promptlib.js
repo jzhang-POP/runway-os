@@ -1,6 +1,6 @@
 import { S, wins } from "../core/state.js";
 import { $, desk, menuEl } from "../core/dom.js";
-import { api } from "../core/api.js";
+import { postJSON } from "../core/api.js";
 import { balloon } from "../core/ui.js";
 import { D, px } from "../wm/geometry.js";
 import { save } from "../wm/persist.js";
@@ -123,13 +123,13 @@ export async function promptSave(w, into) {
     let info;
     if (into) {
       const old = await noteTextOf(into), neu = old.trim() ? `${old.replace(/\s+$/, "")}\n\n${text}\n` : `${text}\n`;
-      info = await api("/api/notes", { name: into, text: neu });
+      info = await postJSON("/api/notes", { name: into, text: neu });
       wins.forEach(nw => { if (nw.kind === "notes" && nw.ed?.name === into) { Object.assign(nw.ed, { text: neu, saved: neu, state: "saved" }); noteFill(nw); } });
     } else {
       await notesLoad();
       for (let tries = 0; !info; tries++) {
         const name = promptNoteName(text);
-        try { info = await api("/api/notes", { name, text: `${text}\n`, create: true }); }
+        try { info = await postJSON("/api/notes", { name, text: `${text}\n`, create: true }); }
         catch (err) { if (tries > 3 || !/already/i.test(err.message)) throw err; await notesLoad(); } // made elsewhere meanwhile: next number
       }
     }

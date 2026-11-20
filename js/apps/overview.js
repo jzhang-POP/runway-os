@@ -2,20 +2,17 @@ import { S } from "../core/state.js";
 import { esc, fmt, icoLabel } from "../core/dom.js";
 import { ledHTML, logoSVG, spark } from "../core/graphics.js";
 import { morph } from "../core/morph.js";
-import { QUEUED } from "../core/status.js";
+import { counts } from "../core/status.js";
 import { RENDER } from "../wm/kinds.js";
 import { sheetHTML, sheetKeys } from "../wm/sheet.js";
 
 // "System Properties": a Win95 property sheet with General, Usage and Connection tabs
 export function overviewRender(w) {
-  const runs = S.data.runs, running = runs.filter(r => r.status === "running"), queued = runs.filter(r => QUEUED.has(r.status));
-  const v = { balance: S.data.balance };
-  const fl = "";
-  const delta = S.sessionStart != null && S.data.balance != null ? S.sessionStart.balance - S.data.balance : 0;
-  const ps = running.map(r => r.progress).filter(p => p != null);
-  const det = running.length && ps.length === running.length ? Math.round((ps.reduce((a, b) => a + b, 0) / ps.length) * 100) : null;
+  const c = counts(), running = c.running, queued = c.queued, bal = S.data.balance;
+  const delta = S.sessionStart != null && bal != null ? S.sessionStart.balance - bal : 0;
+  // the average progress, when every rendering job reports one
+  const det = running && c.withProgress === running ? Math.round((c.progress / c.withProgress) * 100) : null;
   const checked = S.data.balanceAt ? new Date(S.data.balanceAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : null;
-  const count = t => runs.filter(r => r.type === t && r.asset).length;
   const tab = w.tab || "general", T = [["general", "General"], ["usage", "Usage"], ["connection", "Connection"]];
   let panel = "";
   if (tab === "general") {
@@ -24,10 +21,10 @@ export function overviewRender(w) {
             <div class="sp-logo">${logoSVG("#ffffff")}</div>
             <dl class="sp-facts">
               <dt>System:</dt><dd>runway os<br><span class="muted">Runway API 2024-11-06</span></dd>
-              <dt>Credits left:</dt><dd><div class="led sunken${fl}" role="img" aria-label="${v.balance == null ? "Balance unknown" : fmt(v.balance) + " credits left"}">${ledHTML(v.balance)}</div>
+              <dt>Credits left:</dt><dd><div class="led sunken" role="img" aria-label="${bal == null ? "Balance unknown" : fmt(bal) + " credits left"}">${ledHTML(bal)}</div>
                 <span class="muted">${delta > 0 ? `<span class="down">▼ ${fmt(delta)}</span> since you opened this at ${esc(S.sessionStart.at)}` : checked ? `Checked at ${esc(checked)}` : "Waiting for Runway"}</span></dd>
-              <dt>Activity:</dt><dd>${running.length ? `Rendering ${running.length} job${running.length > 1 ? "s" : ""}${det != null ? ` · ${det}%` : "…"}` : queued.length ? `${queued.length} job${queued.length > 1 ? "s" : ""} queued…` : "Idle. No jobs rendering."}
-                <div class="prog sunken${running.length + queued.length && det == null ? " busy" : ""}"><i style="${det != null ? `width:${det}%;opacity:1` : ""}"></i></div></dd>
+              <dt>Activity:</dt><dd>${running ? `Rendering ${running} job${running > 1 ? "s" : ""}${det != null ? ` · ${det}%` : "…"}` : queued ? `${queued} job${queued > 1 ? "s" : ""} queued…` : "Idle. No jobs rendering."}
+                <div class="prog sunken${running + queued && det == null ? " busy" : ""}"><i style="${det != null ? `width:${det}%;opacity:1` : ""}"></i></div></dd>
             </dl>
           </div>`;
   } else if (tab === "usage") {
@@ -36,12 +33,12 @@ export function overviewRender(w) {
     panel = `
           <fieldset class="group"><legend>Your jobs</legend>
             <div class="sp-rows">
-              ${row("Jobs logged", fmt(runs.length), "jobs")}
-              ${row("Credits spent", fmt(runs.reduce((s, r) => s + (r.credits || 0), 0)), "jobs")}
-              ${row("Rendering or queued", fmt(running.length + queued.length), "jobs")}
-              ${row("Images", fmt(count("image")), "images")}
-              ${row("Videos", fmt(count("video")), "videos")}
-              ${row("Audio files", fmt(count("audio")), "audio")}
+              ${row("Jobs logged", fmt(S.data.runs.length), "jobs")}
+              ${row("Credits spent", fmt(c.credits), "jobs")}
+              ${row("Rendering or queued", fmt(running + queued), "jobs")}
+              ${row("Images", fmt(c.files.image), "images")}
+              ${row("Videos", fmt(c.files.video), "videos")}
+              ${row("Audio files", fmt(c.files.audio), "audio")}
             </div>
           </fieldset>
           <fieldset class="group sp-chart"><legend>Org balance · last 24 h</legend>
@@ -64,7 +61,6 @@ export function overviewRender(w) {
   }
   morph(w.body, sheetHTML(T, tab, panel));
   sheetKeys(w);
-  w.prev = v;
 }
 
 export function init() {

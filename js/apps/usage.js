@@ -1,8 +1,9 @@
 import { S, wins } from "../core/state.js";
 import { $, $$, clampN, esc, fmt } from "../core/dom.js";
+import { getJSON } from "../core/api.js";
 import { createdMs } from "../core/status.js";
 import { px } from "../wm/geometry.js";
-import { RENDER, SIG } from "../wm/kinds.js";
+import { RENDER } from "../wm/kinds.js";
 import { save } from "../wm/persist.js";
 import { renderTasks } from "../wm/taskbar.js";
 import { retitle } from "../wm/windows.js";
@@ -14,9 +15,7 @@ export const usageCache = {};
 export async function usageLoad(days, force) {
   const hit = usageCache[days];
   if (hit && !force && Date.now() - hit.at < 300000) return hit.data;
-  const res = await fetch(`/api/usage?days=${days}`, { cache: "no-store" });
-  const out = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(out.error || `The server answered ${res.status}.`);
+  const out = await getJSON(`/api/usage?days=${days}`);
   usageCache[days] = { at: Date.now(), data: out };
   return out;
 }
@@ -204,5 +203,4 @@ export async function usageRender(w, force) {
 
 export function init() {
   RENDER.usage = w => usageRender(w);
-  SIG.usage = () => "";
 }

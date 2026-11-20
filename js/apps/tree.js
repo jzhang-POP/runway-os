@@ -1,7 +1,7 @@
 import { S } from "../core/state.js";
 import { $, $$, cap, esc, fmt, icoLabel } from "../core/dom.js";
 import { morph } from "../core/morph.js";
-import { costHTML, costOf, createdMs, filesOf, runOf, statusInfo, thumbInner, thumbOf, typeIcon } from "../core/status.js";
+import { costHTML, costOf, createdMs, filesOf, kindOfName, runOf, statusInfo, thumbInner, thumbOf, typeIcon } from "../core/status.js";
 import { emptyAct, itemId, loadingOr } from "../core/ui.js";
 import { px } from "../wm/geometry.js";
 import { RENDER } from "../wm/kinds.js";
@@ -32,7 +32,6 @@ export const fieldWords = f => FIELD_WORDS[f] || cap(String(f || "input").replac
 export const SIDE_FIELD = /^(reference|style|mask|lastFrame)/; // never the main input: the line says the field instead of the operation
 // a job's inputs; rows made before inputs were logged have only a parent, which was the main input
 export const srcsOf = r => (Array.isArray(r.inputs) && r.inputs.length ? r.inputs : r.parent ? [{ field: "", run: r.parent }] : []);
-export const kindOfFile = f => (/\.(mp4|mov|webm|m4v)$/i.test(f) ? "video" : /\.(mp3|wav|flac|ogg|m4a|aac|opus)$/i.test(f) ? "audio" : "image");
 // sizes at scale 1: node width, node height, gaps between columns and levels, canvas padding, branch minimum width,
 // a line passing a level (its column), first line below a level, space between stacked lines and between stacked line labels
 export const TR = { nw: 96, nh: 110, hg: 18, vg: 52, pad: 18, min: 220, dw: 12, t0: 14, step: 8, lab: 22 };
@@ -215,7 +214,7 @@ export function treeNodeHTML(w, n, style = "", lvl = 1) {
   const r = n.run, key = r ? r.taskId : n.key, sel = key === w.sel ? " sel" : "";
   const head = cls => `<div class="tnode ${cls}${sel}" role="treeitem" aria-level="${lvl}" id="${itemId(w, key)}" data-id="${esc(key)}" aria-selected="${!!sel}" style="${style}"`;
   if (n.kind === "upload") {
-    const t = kindOfFile(n.id), have = (S.data.inputs || []).some(i => i.file === n.id);
+    const t = kindOfName(n.id) || "image", have = (S.data.inputs || []).some(i => i.file === n.id);
     const src = !have ? null : t === "image" ? `inputs/${encodeURIComponent(n.id)}` : t === "video" ? `thumbs/${encodeURIComponent(n.id)}.jpg` : null;
     return `
       ${head("t-upload")} aria-label="${esc(`${n.id}, uploaded${have ? "" : ", no longer in inputs"}`)}" title="${esc(`inputs/${n.id}\n${have ? "Uploaded" : "Uploaded, no longer in the inputs folder"}`)}">
@@ -240,7 +239,7 @@ export function treeNodeHTML(w, n, style = "", lvl = 1) {
 // one branch from its memoized layout; only statuses, costs and the selection are filled in here
 export function treeBranchHTML(w, b, by, total) {
   const kind = key => (by.get(key) ? statusInfo(by.get(key)).cls : "queued"), rank = ["failed", "queued", "running", "done"];
-  const typeOfNode = key => (key.startsWith("in:") ? kindOfFile(key.slice(3)) : by.get(key)?.type);
+  const typeOfNode = key => (key.startsWith("in:") ? (kindOfName(key.slice(3)) || "image") : by.get(key)?.type);
   // lines into the same job overlap where they share a source's stem: draw finished ones last so a branch with any finished job reads as lit
   const lit = b.edges.map(x => [x, rank.indexOf(kind(x.e.to))]).sort((p, q) => p[1] - q[1]);
   const lines = b.edges.map(x => `<path class="te-out" d="${x.d}"/>`).join("") + lit.map(([x]) => `<path class="te-in te-${kind(x.e.to)}" d="${x.d}"/>`).join("");

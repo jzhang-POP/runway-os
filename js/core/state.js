@@ -37,6 +37,8 @@ export const S = {
   stateTag: null,
   lastConn: null,
   pollT: 0,
+  counts: null,
+  countsOf: null,
 };
 // resolves on the first successful /api/state poll
 export const ready = new Promise(res => { S.markReady = res; });

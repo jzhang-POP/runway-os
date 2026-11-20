@@ -1,7 +1,7 @@
 import { S, wins } from "../core/state.js";
 import { $, $$, esc, fmt } from "../core/dom.js";
-import { api } from "../core/api.js";
-import { fileItem, filesOf, newestFirst, runOf, thumbInner, thumbOf } from "../core/status.js";
+import { postJSON as api } from "../core/api.js";
+import { fileItem, filesOf, kindOfName, newestFirst, runOf, thumbInner, thumbOf } from "../core/status.js";
 import { balloon } from "../core/ui.js";
 import { px } from "../wm/geometry.js";
 import { RENDER } from "../wm/kinds.js";
@@ -53,7 +53,7 @@ export const picks = w => (w.gen.media[mkey(w)] ||= {});
 export function library(accept) {
   const out = [];
   newestFirst().flatMap(r => filesOf(r).map((_, i) => fileItem(r, i))).forEach(r => {
-    const t = r.asset && (/\.(png|jpe?g|webp|gif|svg)$/i.test(r.asset) ? "image" : /\.(mp4|mov|webm|m4v)$/i.test(r.asset) ? "video" : /\.(mp3|wav|flac|ogg|m4a|aac|opus)$/i.test(r.asset) ? "audio" : r.type);
+    const t = r.asset && (kindOfName(r.asset) || r.type);
     if (r.asset && accept.includes(t)) out.push({ ref: { run: r.taskId }, name: r.asset, type: t, thumb: thumbOf(r), title: r.prompt });
   });
   (S.data.inputs || []).forEach(i => {
@@ -90,13 +90,19 @@ export function genBlock(w) {
   return null;
 }
 // cost hint from what Runway actually charged for this model before
-export function genCost(w) {
-  const m = curModel(w), t = curTask(w); if (!m) return "";
+// the estimate from your last job with this model (and endpoint) that Runway priced, scaled to this form's duration
+export function lastCostFor(w) {
+  const m = curModel(w), t = curTask(w); if (!m) return null;
   const last = newestFirst().find(r => r.model === m.id && r.credits != null && r.costSource === "runway" && (!r.endpoint || r.endpoint === t.endpoint));
-  if (!last) return `No ${m.id} jobs yet. Its cost shows in Jobs once Runway starts it`;
-  const d = +shownVal(m.fields.find(f => f.name === "duration") || {}, vals(w).duration), s = secondsOf(last);
-  if (d && s) { const per = last.credits / s; return `≈ ${fmt(Math.round(per * d))} credits at ${fmt(+per.toFixed(1))}/s, from your last ${m.id} job`; }
-  return `≈ ${fmt(last.credits)} credits, like your last ${m.id} job`;
+  if (!last) return { m, last };
+  const d = +shownVal(m.fields.find(f => f.name === "duration") || {}, vals(w).duration), s = secondsOf(last), per = d && s ? last.credits / s : null;
+  return { m, last, per, credits: per ? Math.round(per * d) : last.credits };
+}
+export function genCost(w) {
+  const c = lastCostFor(w); if (!c) return "";
+  if (!c.last) return `No ${c.m.id} jobs yet. Its cost shows in Jobs once Runway starts it`;
+  if (c.per) return `≈ ${fmt(c.credits)} credits at ${fmt(+c.per.toFixed(1))}/s, from your last ${c.m.id} job`;
+  return `≈ ${fmt(c.credits)} credits, like your last ${c.m.id} job`;
 }
 
 export function genRender(w) {
@@ -305,7 +311,7 @@ export function genMatchAspect(w, ref) {
 // a job or file dragged from Jobs, a gallery or the viewer: put it in the field it was dropped on, or the first field that takes its type
 export function genDropRun(w, id, fieldName) {
   const r = runOf(id), m = curModel(w); if (!r || !r.asset || !m) return;
-  const kind = /\.(png|jpe?g|webp|gif|svg)$/i.test(r.asset) ? "image" : /\.(mp4|mov|webm|m4v)$/i.test(r.asset) ? "video" : /\.(mp3|wav|flac|ogg|m4a|aac|opus)$/i.test(r.asset) ? "audio" : r.type;
+  const kind = kindOfName(r.asset) || r.type;
   const media = m.fields.filter(x => x.kind === "media");
   const f = media.find(x => x.name === fieldName && x.accept.includes(kind)) || media.find(x => x.accept.includes(kind));
   if (!f) { genMsg(w, media.length ? `${m.id} has no ${kind} input here. ${media.map(x => `${x.label} takes ${x.accept.join(" or ")}`).join("; ")}.` : `${m.id} doesn't take files. Pick a task with an input, e.g. Image to video.`); return; }
@@ -445,7 +451,7 @@ export function genApplyPending(w) {
     if (t.models.some(m => m.id === r.model)) g.model[t.endpoint] = r.model;
     const key = `${t.endpoint}|${g.model[t.endpoint] || t.models[0].id}`;
     const { extra: rx, ...rp } = r.params || {};
-    if (rx) (g.extra ||= {})[`${t.endpoint}|${g.model[t.endpoint] || t.models[0].id}`] = JSON.stringify(rx, null, 2);
+    if (rx) (g.extra ||= {})[key] = JSON.stringify(rx, null, 2);
     const v = r.params ? rp : { promptText: r.prompt.startsWith("(no prompt") ? "" : r.prompt, ratio: String(r.settings || "").split(" · ")[0], ...(secondsOf(r) ? { duration: secondsOf(r) } : {}) };
     g.vals[key] = v;
     const m = {};

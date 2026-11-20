@@ -1,7 +1,5 @@
 import { nameOf, plural, runOf, typeIcon } from "../core/status.js";
 import { cascade, centered, px } from "./geometry.js";
-import { cmpIds } from "../apps/compare.js";
-import { noteTitle } from "../apps/notes.js";
 
 export const KINDS = {
   overview: {
@@ -13,15 +11,15 @@ export const KINDS = {
     geo: d => { const wd = Math.min(px(960), d.w - px(120)), y = Math.min(px(284), Math.round(d.h / 3)); return { wd, ht: d.h - y - 2, x: Math.max(px(104), Math.round((d.w - wd) / 2)), y }; },
   },
   terminal: {
-    icon: () => "i-term", title: w => `Terminal — ${w.term?.cwd ? "R:\\" + w.term.cwd.toUpperCase() : "R:\\"}`, min: [380, 240],
+    icon: () => "i-term", title: w => `Terminal — ${w.term?.cwd ? "R:\\" + w.term.cwd.toUpperCase() : "R:\\"}`, min: [380, 240], static: true,
     geo: d => { const g = centered(d, 680, 440, 40); return { ...g, y: Math.max(0, g.y - px(20)) }; },
   },
   options: {
-    icon: () => "i-gear", title: () => "Options", min: [380, 360],
+    icon: () => "i-gear", title: () => "Options", min: [380, 360], static: true,
     geo: d => centered(d, 420, 470, 30, true),
   },
   usage: {
-    icon: () => "i-chart", title: w => `Usage — last ${w.days || 30} days`, min: [420, 360],
+    icon: () => "i-chart", title: w => `Usage — last ${w.days || 30} days`, min: [420, 360], static: true,
     geo: d => centered(d, 760, 620, 20),
   },
   activity: {
@@ -43,11 +41,13 @@ export const KINDS = {
   keys: { icon: () => "i-keys", title: () => "Keyboard shortcuts", min: [360, 300], geo: d => centered(d, 520, 600, 0, true) },
   tree: { icon: () => "i-tree", title: () => "Job tree", min: [360, 300], geo: cascade(900, 620) },
   props: { icon: () => "i-doc", title: w => `Properties — ${runOf(w.arg) ? nameOf(runOf(w.arg)) : w.arg.slice(0, 8)}`, min: [340, 320], geo: cascade(460, 600) },
-  compare: { icon: () => "i-compare", title: w => { const n = cmpIds(w.arg).length; return `Compare — ${n} item${n === 1 ? "" : "s"}`; }, min: [420, 320], geo: d => centered(d, 1040, 700, 0) },
-  notes: { icon: () => "i-notes", title: w => (noteTitle(w) ? `Notes — ${noteTitle(w)}` : "Notes"), min: [420, 300], geo: cascade(780, 540) },
+  // compare.js and notes.js replace these titles with ones that name the items or the note
+  compare: { icon: () => "i-compare", title: () => "Compare", arg: true, min: [420, 320], geo: d => centered(d, 1040, 700, 0) },
+  notes: { icon: () => "i-notes", title: () => "Notes", min: [420, 300], static: true, geo: cascade(780, 540) },
 };
 
+// windows marked static repaint themselves; a poll never repaints them, whatever changed (one constant signature)
+export const SIG = Object.fromEntries(Object.entries(KINDS).filter(([, K]) => K.static).map(([kind]) => [kind, () => ""]));
 // every shortcut the app handles, shown in the Keyboard shortcuts window and as hints in the menus
 export const APP_KEYS = { generate: "G", terminal: "T", jobs: "J", tree: "Shift+J", usage: "U", activity: "A", images: "I", videos: "V", audio: "M", options: "O", notes: "N", keys: "/" };
 export const RENDER = {};
-export const SIG = {};

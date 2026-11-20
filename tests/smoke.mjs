@@ -21,7 +21,7 @@ function parseKinds(src) {
   for (let j = 0; j < body.length; j++) {
     const c = body[j];
     if (c === "{" || c === "(" || c === "[") { if (depth === 0 && c === "{") { const m = body.slice(entryStart, j).match(/(\w+)\s*:\s*$/); name = m && m[1]; entryStart = j; } depth++; }
-    else if (c === "}" || c === ")" || c === "]") { depth--; if (depth === 0 && c === "}" && name) { kinds.push({ kind: name, needsArg: /\bw\.arg\b/.test(body.slice(entryStart, j)) }); name = null; entryStart = j + 1; } }
+    else if (c === "}" || c === ")" || c === "]") { depth--; if (depth === 0 && c === "}" && name) { kinds.push({ kind: name, needsArg: /\bw\.arg\b|\barg: true\b/.test(body.slice(entryStart, j)) }); name = null; entryStart = j + 1; } }
     else if (depth === 0 && c === ",") entryStart = j + 1;
   }
   return kinds;
@@ -482,8 +482,7 @@ async function featureChecks(runs) {
     await key(ESC);
     await until(`!${modal}`, 2000, "Esc to close the Shut down dialog");
     const f = await js(`document.activeElement?.id === "start" ? null : (document.activeElement?.outerHTML || "nothing").slice(0, 80)`);
-    // known bug: the dialog gives focus back to the (hidden) Start menu item it was opened from; warn until the shared modal fixes it
-    if (f) warn(`after Esc, focus should be back on the Start button, it's on ${f}`);
+    if (f) fail(`after Esc, focus should be back on the Start button, it's on ${f}`);
   });
 
   await check("persistence", async () => {
