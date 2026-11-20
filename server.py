@@ -23,7 +23,7 @@ Serves index.html plus /api/state and keeps runs.json up to date:
 API key: env RUNWAYML_API_SECRET, or a file named .runway_key in this folder.
 Run:  python3 server.py   then open http://localhost:8765
 """
-import bisect, hashlib, json, os, shutil, subprocess, threading, time, urllib.parse, urllib.request, urllib.error, uuid, mimetypes
+import bisect, hashlib, json, os, queue, shutil, subprocess, threading, time, urllib.parse, urllib.request, urllib.error, uuid, mimetypes
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from datetime import datetime
 
@@ -749,9 +749,14 @@ def download(url, run, i=0):
             ext = CT_EXT.get((r.headers.get("Content-Type") or "").split(";")[0].strip(), "")
         ext = ext or {"video": ".mp4", "audio": ".mp3"}.get(run.get("type"), ".png")
         name = f"{run.get('date', 'job')}_{run.get('type', 'asset')}_{run['taskId'][:8]}{f'_{i + 1}' if i else ''}{ext}"
-        tmp = os.path.join(ROOT, "." + name + ".part")
-        with open(tmp, "wb") as f:
-            shutil.copyfileobj(r, f, 1 << 20)
+        tmp = os.path.join(ROOT, "." + name + ".part")  # renamed into place once complete
+        try:
+            with open(tmp, "wb") as f:
+                shutil.copyfileobj(r, f, 1 << 20)
+        except BaseException:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            raise
     os.replace(tmp, os.path.join(ROOT, name))
     return name
 
@@ -785,14 +790,77 @@ def task_updates(run, t):
         u["failure"] = t["failure"]
     if t.get("failureCode"):
         u["failureCode"] = t["failureCode"]
-    if st == "succeeded" and t.get("output") and not run.get("asset"):
-        names = [download(url, run, i) for i, url in enumerate(t["output"])]
-        u["asset"], u["type"] = names[0], type_of(names[0]) or run.get("type")
-        if len(names) > 1:
-            u["assets"] = names
     if st in TERMINAL:
         u["synced"] = True
+    if st == "succeeded" and t.get("output") and not run.get("asset"):
+        # the files are downloaded by the worker thread, which marks the job succeeded once they're saved,
+        # so the row never says succeeded without its file and a big download doesn't hold up the sync
+        final = {k: u.pop(k) for k in ("status", "finishedAt", "synced") if k in u}
+        enqueue_download(run, list(t["output"]), final)
     return u
+
+
+# ---------- worker thread: downloads and thumbnails, off the sync loop ----------
+work = queue.Queue()
+work_lock = threading.Lock()
+downloading = set()  # task IDs queued or being downloaded
+work_state = {"postersQueued": False, "downloadError": None}
+
+
+def enqueue_download(run, urls, final):
+    with work_lock:
+        if run["taskId"] in downloading:
+            return
+        downloading.add(run["taskId"])
+    work.put(("download", dict(run), urls, final))
+
+
+def enqueue_posters():
+    with work_lock:
+        if work_state["postersQueued"]:
+            return
+        work_state["postersQueued"] = True
+    work.put(("posters",))
+
+
+def finish_download(run, urls, final):
+    """Save a succeeded job's files, then mark its row succeeded with them and make their thumbnails."""
+    names = [download(url, run, i) for i, url in enumerate(urls)]
+    u = {**final, "asset": names[0], "type": type_of(names[0]) or run.get("type")}
+    if len(names) > 1:
+        u["assets"] = names
+    u.setdefault("finishedAt", datetime.now().astimezone().isoformat(timespec="seconds"))
+    with lock:
+        data = load()
+        for r in data.get("runs", []):
+            if r.get("taskId") == run["taskId"]:
+                r.update(u)
+        save(data)
+    for n in names:
+        make_thumb(n, os.path.join(ROOT, n))
+
+
+def worker():
+    while True:
+        item = work.get()
+        try:
+            if item[0] == "download":
+                try:
+                    finish_download(*item[1:])
+                    work_state["downloadError"] = None
+                except Exception as e:  # tried again on the next sync
+                    work_state["downloadError"] = f"Couldn't download a finished job's file ({type(e).__name__})"
+                finally:
+                    with work_lock:
+                        downloading.discard(item[1]["taskId"])
+            elif item[0] == "posters":
+                with work_lock:
+                    work_state["postersQueued"] = False
+                make_posters()
+        except Exception:
+            pass
+        finally:
+            work.task_done()
 
 
 history_cache = {"sig": None, "hist": []}
@@ -997,16 +1065,20 @@ def make_posters():
 
 
 def loop():
+    seen = None
     while True:
-        try:
-            make_posters()
-        except Exception:
+        try:  # look for missing thumbnails only when the job log or the inputs folder changed
+            sig = (file_sig(RUNS), os.stat(INPUTS).st_mtime_ns if os.path.isdir(INPUTS) else None)
+            if sig != seen:
+                seen = sig
+                enqueue_posters()
+        except OSError:
             pass
         key = api_key()
         if key:
             try:
                 tick(key)
-                state["error"] = None
+                state["error"] = work_state["downloadError"]
             except urllib.error.HTTPError as e:
                 state["error"] = f"Runway API {e.code}"
             except Exception as e:  # network blips etc.
@@ -1424,6 +1496,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    threading.Thread(target=worker, daemon=True).start()
     threading.Thread(target=loop, daemon=True).start()
     print(f"Runway Dashboard on http://localhost:{PORT}  (API key: {'found' if api_key() else 'not set — balance/status update only from runs.json'})")
     Server(("127.0.0.1", PORT), Handler).serve_forever()
