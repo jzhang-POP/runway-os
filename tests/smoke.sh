@@ -87,9 +87,26 @@ for f in "$REPO/runway_openapi.json" "$DATA/runway_openapi.json"; do
   if [ -f "$f" ]; then cp "$f" "$DATAD/runway_openapi.json"; touch "$DATAD/runway_openapi.json"; break; fi
 done
 
+# Pass 3, "fake": a server that believes it has a key, with Runway replaced by tests/fake_runway.py (nothing leaves this
+# machine): one job that has succeeded on Runway and whose file is still downloading, for Generate's price and spend checks
+FAKE="$TMP/fake"; copy_app "$FAKE"
+[ -f "$DATAD/runway_openapi.json" ] && cp -p "$DATAD/runway_openapi.json" "$FAKE/"
+python3 - "$FAKE/runs.json" <<'PY'
+import json, sys, uuid
+from datetime import datetime
+now = datetime.now().astimezone()
+json.dump({"runs": [{"taskId": str(uuid.uuid4()), "date": now.strftime("%Y-%m-%d"), "createdAt": now.isoformat(timespec="seconds"),
+           "type": "image", "model": "gen4_image", "endpoint": "text_to_image", "prompt": "smoke test: a job whose file is still downloading",
+           "settings": "1360:768", "status": "running", "estimatedCredits": 8}]}, open(sys.argv[1], "w"), indent=2)
+PY
+
 P1="$(free_port)"; start_server "$FRESH" "$P1" "$TMP/fresh.log"
 P2="$(free_port)"; start_server "$DATAD" "$P2" "$TMP/data.log"
-wait_http "http://127.0.0.1:$P1/"; wait_http "http://127.0.0.1:$P2/"
+P3="$(free_port)"
+(cd "$FAKE" && exec env LEDGER_PORT="$P3" RUNWAYML_API_SECRET="smoke-fake-key-not-real" https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9 \
+   HTTPS_PROXY=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9 python3 "$HERE/fake_runway.py" "$FAKE" >"$TMP/fake.log" 2>&1) &
+PIDS+=($!)
+wait_http "http://127.0.0.1:$P1/"; wait_http "http://127.0.0.1:$P2/"; wait_http "http://127.0.0.1:$P3/"
 
 # Server checks, before the browser: a burst of parallel GETs (the page asks for dozens of thumbnails at once),
 # the /api/state ETag, and an early error reply to a POST with a body (it must answer, not reset the connection).
@@ -145,11 +162,11 @@ CDP="$(head -1 "$PROFILE/DevToolsActivePort")"
 
 set +e
 node "$HERE/smoke.mjs" --cdp "$CDP" --app "$REPO/js/wm/kinds.js" --out "$OUT" \
-  --fresh "http://localhost:$P1/" --data "http://localhost:$P2/"
+  --fresh "http://localhost:$P1/" --data "http://localhost:$P2/" --data-dir "$DATAD" --fake "http://localhost:$P3/" --fake-dir "$FAKE"
 code=$?
 set -e
 if [ $code -ne 0 ]; then
-  for l in fresh data; do
+  for l in fresh data fake; do
     if grep -q "Traceback" "$TMP/$l.log" 2>/dev/null; then echo "--- server log ($l) ---" >&2; cat "$TMP/$l.log" >&2; fi
   done
 fi

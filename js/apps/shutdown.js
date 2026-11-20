@@ -19,7 +19,7 @@ export function restart(mode) {
 export function shutdownDialog() {
   if ($("#shutdown")) return;
   modal({
-    id: "shutdown", html: `
+    id: "shutdown", fallback: "#start", html: `
       <div class="sd-win window front raised" role="dialog" aria-modal="true" aria-labelledby="sd-t">
         <div class="titlebar"><span class="t"><svg class="ico ticon" aria-hidden="true"><use href="#i-power"/></svg><span class="tt" id="sd-t">Shut down runway os</span></span></div>
         <div class="sd-body">

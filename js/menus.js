@@ -1,6 +1,6 @@
 import { S, wins } from "./core/state.js";
 import { $, $$, clampN, esc, menuEl } from "./core/dom.js";
-import { ACTIVE, runOf, typeIcon } from "./core/status.js";
+import { cancellable, runOf, typeIcon } from "./core/status.js";
 import { balloon, copyText, fileAction } from "./core/ui.js";
 import { resetLayout } from "./wm/persist.js";
 import { cascadeAll, close, defaultOpen, minimize, open, restore, tileAll, toggleMax, winOf } from "./wm/windows.js";
@@ -42,7 +42,7 @@ export function runMenu(r, x, y, src) {
     r.type === "video" && r.asset && { label: "Add sound…", icon: "i-sound", act: () => genFrom(r, "sound", src) },
     r.type === "video" && r.asset && { label: "Convert to HDR…", icon: "i-hdr", act: () => genFrom(r, "hdr", src) },
     { label: "Generate again…", icon: "i-again", act: () => genFrom(r, "again", src) },
-    ACTIVE.has(r.status) && { label: "Cancel job", icon: "i-stop", act: () => cancelJob(r) },
+    cancellable(r) && { label: "Cancel job", icon: "i-stop", act: () => cancelJob(r) },
     { sep: true },
     { label: "Copy prompt", icon: "i-copy", act: () => copyText(r.prompt, "Prompt copied") },
     { label: "Copy task ID", icon: "i-copy", act: () => copyText(r._of || r.taskId, "Task ID copied") },

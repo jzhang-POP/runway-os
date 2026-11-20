@@ -20,6 +20,8 @@ export function counts() {
   S.countsOf = S.data;
   return (S.counts = c);
 }
+// finished on Runway, file still downloading (the server sets r.downloading): too late to cancel
+export const cancellable = r => ACTIVE.has(r.status) && !r.downloading;
 // a job can return several files (outputCount, numVariants): each extra file is its own item, id "taskId~2", "~3"…
 export const filesOf = r => (r.assets?.length ? r.assets : r.asset ? [r.asset] : []);
 export const fileItem = (r, i) => (i === 0 ? r : { ...r, taskId: `${r.taskId}~${i + 1}`, asset: filesOf(r)[i], _of: r.taskId, _n: i + 1 });
@@ -43,6 +45,7 @@ export const costOf = r => r.credits ?? r.estimatedCredits ?? null;
 
 export function statusInfo(r) {
   const p = r.progress != null ? Math.round(r.progress * 100) : null;
+  if (r.downloading) return { cls: "running", label: "Saving file…" };
   if (r.status === "running") return { cls: "running", label: p != null ? `Rendering ${p}%` : "Rendering", p };
   if (r.status === "throttled") return { cls: "queued", label: "Queued (rate limit)" };
   if (r.status === "pending") return { cls: "queued", label: "Queued" };
