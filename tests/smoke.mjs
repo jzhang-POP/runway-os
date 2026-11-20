@@ -275,7 +275,10 @@ async function sweep(cfg, jobs) {
   const th = await js(`[document.documentElement.dataset.theme, document.documentElement.classList.contains("contrast")]`);
   if (th[0] !== (cfg.opts.theme || "dark") || th[1] !== !!cfg.opts.contrast) fail(`theme didn't apply: ${th}`);
   let opened = 0;
-  const targets = [...KINDS.filter(k => !k.needsArg).map(k => [k.kind]), ...jobs.flatMap(j => KINDS.filter(k => k.needsArg && (k.kind !== "viewer" || j.asset)).map(k => [k.kind, j.taskId]))];
+  // Compare takes several jobs at once (its arg is the ids joined by commas): open it once with all the sample jobs
+  const multi = new Set(["compare"]);
+  const targets = [...KINDS.filter(k => !k.needsArg).map(k => [k.kind]), ...jobs.flatMap(j => KINDS.filter(k => k.needsArg && !multi.has(k.kind) && (k.kind !== "viewer" || j.asset)).map(k => [k.kind, j.taskId])),
+    ...(jobs.length > 1 ? KINDS.filter(k => multi.has(k.kind)).map(k => [k.kind, jobs.map(j => j.taskId).join(",")]) : [])];
   for (const [kind, a] of targets) {
     where = a ? `${kind}:${a.slice(0, 8)}` : kind;
     try { const id = await openKind(kind, a); await checkWindow(id, cfg.large); opened++; }

@@ -190,6 +190,7 @@
     keys: { icon: () => "i-keys", title: () => "Keyboard shortcuts", min: [360, 300], geo: d => centered(d, 520, 600, 0, true) },
     tree: { icon: () => "i-tree", title: () => "Job tree", min: [360, 300], geo: cascade(900, 620) },
     props: { icon: () => "i-doc", title: w => `Properties — ${runOf(w.arg) ? nameOf(runOf(w.arg)) : w.arg.slice(0, 8)}`, min: [340, 320], geo: cascade(460, 600) },
+    compare: { icon: () => "i-compare", title: w => { const n = cmpIds(w.arg).length; return `Compare — ${n} item${n === 1 ? "" : "s"}`; }, min: [420, 320], geo: d => centered(d, 1040, 700, 0) },
     notes: { icon: () => "i-notes", title: w => (noteTitle(w) ? `Notes — ${noteTitle(w)}` : "Notes"), min: [420, 300], geo: cascade(780, 540) },
   };
 
@@ -212,7 +213,7 @@
       id, kind, arg: arg || null, el, body: $(".wbody", el), prev: null, rendered: null, shell: false,
       x: num(g.x, 40), y: num(g.y, 40), wd: num(g.wd, 480), ht: num(g.ht, 320),
       max: !!g.max, minimized: !!g.minimized, snapped: !!g.snapped, pre: g.pre || null,
-      filter: g.filter || "all", q: g.q || "", sort: g.sort || { key: "created", dir: -1 }, size: num(g.size, 132), sel: g.sel || null, tab: g.tab || "general", days: [7, 30, 90].includes(g.days) ? g.days : undefined, act: g.act, solo: !!g.solo,
+      filter: g.filter || "all", q: g.q || "", sort: g.sort || { key: "created", dir: -1 }, size: num(g.size, 132), sel: g.sel || null, tab: g.tab || "general", days: [7, 30, 90].includes(g.days) ? g.days : undefined, act: g.act, solo: !!g.solo, cmp: g.cmp || null,
       gen: { cat: "Video", ep: {}, model: {}, vals: {}, media: {}, adv: false, pending: null, ...(g.gen || {}) },
     };
     w.seq = num(g.seq, ++seqTop); seqTop = Math.max(seqTop, w.seq);
@@ -541,7 +542,7 @@
       ["Ctrl+Cmd+F or F11", "Full screen, where Cmd+W reaches Runway OS"],
       ["Alt+Space", "Window menu (Move, Size…)"],
       ["Ctrl+Esc", "Start menu"],
-      ["Esc", "Close a menu, a viewer or Properties"],
+      ["Esc", "Close a menu, a viewer, Compare or Properties"],
       ["Cmd+,", "Options"],
       ["Cmd+?", "This list"],
     ]],
@@ -554,6 +555,10 @@
       ["Cmd+C", "Copy the selected job (its task ID)"],
       ["Cmd+V in Generate", "Use the copied job, or a copied image file, as an input"],
       ["Shift+F10 or right-click", "Job menu"],
+      ["Cmd+click, Shift+click", "Select several jobs or files"],
+      ["Shift+↑ ↓ ← →", "Extend the selection"],
+      ["Cmd+A", "Select all"],
+      ["Alt+C", "Compare the selected files"],
     ]],
     ["Text fields", [
       ["Cmd+X, Cmd+C, Cmd+V", "Cut, copy, paste"],
@@ -567,6 +572,11 @@
       ["Space", "Play or pause"],
       ["M", "Mute"],
       [", .", "Step one frame"],
+    ]],
+    ["Compare", [
+      ["← →", "Move the wipe divider (Shift: 10%)"],
+      ["Space", "Play or pause all"],
+      ["Enter", "Open the selected file"],
     ]],
   ];
   const RENDER = {
@@ -648,8 +658,9 @@
           <div class="toolbar">
             <div class="seg-tabs" role="group" aria-label="Filter by type"></div>
             <input class="field" type="search" placeholder="Search prompts, models, IDs" aria-label="Search jobs" value="${esc(w.q)}">
+            ${CMP_BTN}
           </div>
-          <div class="table sunken" tabindex="0" role="grid" aria-label="Jobs" data-keep="list">
+          <div class="table sunken" tabindex="0" role="grid" aria-multiselectable="true" aria-label="Jobs" data-keep="list">
             <div class="thead" role="row">${COLS.map(c => `<div class="th c-${c.key}${c.num ? " num" : ""}" role="columnheader" aria-sort="none"><button class="raised" data-sort="${c.key}">${c.label}<i class="arrow"></i></button></div>`).join("")}</div>
             <div class="rows"></div>
           </div>
@@ -665,7 +676,7 @@
       $(".seg-tabs", w.body).innerHTML = types.map(t => `<button class="raised" data-filter="${esc(t)}" aria-pressed="${t === w.filter}">${t === "all" ? "All" : esc(plural(t))}</button>`).join("");
       $$(".th [data-sort]", w.body).forEach(b => { b.parentElement.setAttribute("aria-sort", b.dataset.sort === w.sort.key ? (w.sort.dir > 0 ? "ascending" : "descending") : "none"); });
       morph($(".rows", w.body), list.length ? list.map(r => `
-        <div class="row${r.taskId === w.sel ? " sel" : ""}" role="row" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${r.taskId === w.sel}"${r.asset ? ' draggable="true"' : ""}>
+        <div class="row${isSel(w, r.taskId) ? " sel" : ""}" role="row" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${isSel(w, r.taskId)}"${r.asset ? ' draggable="true"' : ""}>
           <div class="c c-name" role="gridcell">${miniThumb(r)}<span class="nm"><b title="${esc(r.prompt)}">${esc(r.prompt)}</b><small>${esc(r.asset || r.settings)}${filesOf(r).length > 1 ? ` <span class="muted">· ${filesOf(r).length} files</span>` : ""}</small></span></div>
           <div class="c c-type" role="gridcell">${esc(cap(r.type))}</div>
           <div class="c c-model" role="gridcell" title="${esc(r.model)}">${esc(r.model)}</div>
@@ -673,7 +684,7 @@
           <div class="c c-cost num" role="gridcell">${costHTML(r)}</div>
           <div class="c c-created" role="gridcell">${relHTML(r.createdAt || r.date)}</div>
         </div>${filesOf(r).slice(1).map((_, k) => { const f = fileItem(r, k + 1); return `
-        <div class="row kid${f.taskId === w.sel ? " sel" : ""}" role="row" id="${itemId(w, f.taskId)}" data-id="${esc(f.taskId)}" aria-selected="${f.taskId === w.sel}" draggable="true">
+        <div class="row kid${isSel(w, f.taskId) ? " sel" : ""}" role="row" id="${itemId(w, f.taskId)}" data-id="${esc(f.taskId)}" aria-selected="${isSel(w, f.taskId)}" draggable="true">
           <div class="c c-name" role="gridcell">${miniThumb(f)}<span class="nm"><b title="${esc(f.asset)}">${esc(f.asset)}</b><small>File ${k + 2} of ${filesOf(r).length}</small></span></div>
           <div class="c c-type" role="gridcell">${esc(cap(r.type))}</div>
           <div class="c c-model" role="gridcell"></div><div class="c c-status" role="gridcell"></div><div class="c c-cost num" role="gridcell"></div><div class="c c-created" role="gridcell"></div>
@@ -681,8 +692,9 @@
         : `<div role="row"><div role="gridcell">${loadingOr(w.q ? `No jobs match “${esc(w.q)}”.${emptyAct('<button class="raised btn-s" data-clearq>Clear search</button>')}`
           : `No jobs yet. Jobs show up here as soon as they're submitted.${emptyAct(GEN_BTN)}`)}</div></div>`);
       activeSync(w);
-      const segs = $$(".statusbar .seg", w.body), selRun = runOf(w.sel);
-      segs[0].textContent = `${list.length} object${list.length === 1 ? "" : "s"}${selRun ? ` · ${selRun.asset || selRun.taskId} selected` : ""}`;
+      const segs = $$(".statusbar .seg", w.body);
+      segs[0].textContent = `${list.length} object${list.length === 1 ? "" : "s"}${selNote(w)}`;
+      cmpBtnSync(w);
       segs[1].textContent = `${fmt(list.reduce((s, r) => s + (r.credits || 0), 0))} credits`;
       segs[2].textContent = "Double-click or Enter to open";
     },
@@ -740,7 +752,7 @@
         ["Model", esc(r.model)], ["Settings", esc(r.settings)],
         ...(r.failure ? [["Failure", `<span class="bad">${esc(r.failure)}</span>${r.failureCode ? ` <code>${esc(r.failureCode)}</code>` : ""}`]] : []),
         ["Task ID", `<code>${esc(r._of || r.taskId)}</code>`], ["File", r.asset ? esc(r.asset) + (filesOf(r).length > 1 ? ` <span class="muted">(file ${r._n || 1} of ${filesOf(r).length})</span>` : "") : "Not saved yet"],
-        ...(parent ? [["Made from", chip(parent)]] : []),
+        ...(parent ? [["Made from", parent.asset && r.asset ? `<span class="chips">${chip(parent)}<button class="raised btn-s" data-compare="${esc(parent.taskId + "," + r.taskId)}" title="This file and its source side by side">${icoLabel("i-compare", "Compare")}</button></span>` : chip(parent)]] : []),
         ...(kids.length ? [["Used in", `<span class="chips">${kids.map(chip).join("")}</span>`]] : []),
       ];
       morph(w.body, `
@@ -774,15 +786,15 @@
     if (!w.shell) {
       w.shell = true;
       w.body.innerHTML = `
-        <div class="toolbar"><label class="sizer">Size <input type="range" min="84" max="260" step="4" value="${w.size}" aria-label="Thumbnail size" aria-valuetext="${w.size} px thumbnails"></label></div>
-        <div class="gridwrap sunken" data-keep="grid" tabindex="0" role="listbox" aria-label="${plural(type)}"><div class="grid"></div></div>
+        <div class="toolbar"><label class="sizer">Size <input type="range" min="84" max="260" step="4" value="${w.size}" aria-label="Thumbnail size" aria-valuetext="${w.size} px thumbnails"></label>${CMP_BTN}</div>
+        <div class="gridwrap sunken" data-keep="grid" tabindex="0" role="listbox" aria-multiselectable="true" aria-label="${plural(type)}"><div class="grid"></div></div>
         <div class="statusbar"><span class="sunken seg grow"></span><span class="sunken seg">${type === "video" ? "Hover to preview · " : ""}Double-click or Enter to open</span></div>`;
       $("input", w.body).addEventListener("input", e => { w.size = +e.target.value; e.target.setAttribute("aria-valuetext", `${w.size} px thumbnails`); $(".grid", w.body).style.setProperty("--tile", w.size + "px"); save(); });
     }
     const items = assetsOf(type), grid = $(".grid", w.body), wrap = $(".gridwrap", w.body);
     grid.style.setProperty("--tile", w.size + "px");
     morph(grid, items.length ? items.map(r => `
-      <div class="tile${r.taskId === w.sel ? " sel" : ""}" role="option" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${r.taskId === w.sel}" aria-label="${esc(r.asset)}" title="${esc(r.prompt)}" draggable="true">
+      <div class="tile${isSel(w, r.taskId) ? " sel" : ""}" role="option" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${isSel(w, r.taskId)}" aria-label="${esc(r.asset)}" title="${esc(r.prompt)}" draggable="true">
         <span class="thumb sunken">${thumbInner(thumbOf(r), type)}${type === "video" ? '<span class="play"></span>' : ""}</span>
         <span class="cap">${esc(r.asset)}</span>
       </div>`).join("") : loadingOr(`No ${type === "audio" ? "audio" : type + "s"} yet. Finished ${type === "audio" ? "audio files are" : type + "s are"} saved here automatically.${emptyAct(GEN_BTN)}`));
@@ -790,8 +802,8 @@
     wrap.setAttribute("role", items.length ? "listbox" : "group");
     items.length ? wrap.setAttribute("tabindex", "0") : wrap.removeAttribute("tabindex");
     activeSync(w);
-    const selRun = runOf(w.sel);
-    $(".statusbar .seg", w.body).textContent = `${items.length} object${items.length === 1 ? "" : "s"}${selRun && selRun.type === type ? ` · ${selRun.asset} selected` : ""}`;
+    $(".statusbar .seg", w.body).textContent = `${items.length} object${items.length === 1 ? "" : "s"}${selNote(w)}`;
+    cmpBtnSync(w);
     if (type === "video" && !w.hoverBound) {
       w.hoverBound = true;
       grid.addEventListener("pointerover", e => {
@@ -805,7 +817,9 @@
     }
   }
 
-  /* job tree: each job under the job it was made from (r.parent), drawn as a skill tree */
+  /* job tree: each job under the jobs and uploaded files it was made from (r.inputs, else r.parent), drawn as a skill tree.
+     A job can have several inputs, so a branch is a small graph: it's laid out in layers (longest path from its sources),
+     with the order in each layer chosen to cross few lines and each job placed over the middle of what was made from it. */
   const baseId = id => String(id ?? "").split("~")[0];
   const OPS = {
     image_to_video: ["Animate", "i-animate"], image_upscale: ["Upscale", "i-upscale"], video_upscale: ["Upscale", "i-upscale"],
@@ -813,77 +827,248 @@
     video_to_video: ["Restyle", "i-wand"], character_performance: ["Perform", "i-wand"], speech_to_speech: ["Voice", "i-wand"],
     voice_isolation: ["Isolate", "i-wand"], voice_dubbing: ["Dub", "i-wand"],
   };
-  // what was done to the parent to get this job; old rows have no endpoint, and a video made from a job was an image_to_video
+  // what was done to the main input to get this job; old rows have no endpoint, and a video made from a job was an image_to_video
   const opOf = r => OPS[r.endpoint] || (!r.endpoint && r.type === "video" ? OPS.image_to_video : [r.task || "Derived", "i-wand"]);
-  // the forest: roots are jobs with children and no parent, or a parent missing from runs.json; solo are jobs with no links
-  function treeModel() {
-    const by = new Map(data.runs.map(r => [r.taskId, r])), kids = new Map(), pid = r => (r.parent ? baseId(r.parent) : null);
-    data.runs.forEach(r => { const p = pid(r); if (p && p !== r.taskId) { if (!kids.has(p)) kids.set(p, []); kids.get(p).push(r); } });
-    kids.forEach(l => l.sort((a, b) => createdMs(a) - createdMs(b)));
-    const node = (n, depth, seen) => {
-      const id = n.run ? n.run.taskId : n.missing, s2 = new Set(seen).add(id);
-      const ch = (kids.get(id) || []).filter(r => !s2.has(r.taskId)).map(r => node({ run: r }, depth + 1, s2));
-      return { ...n, id, depth, kids: ch, leaves: Math.max(1, ch.reduce((s, c) => s + c.leaves, 0)),
-        total: (n.run ? costOf(n.run) || 0 : 0) + ch.reduce((s, c) => s + c.total, 0),
-        jobs: (n.run ? 1 : 0) + ch.reduce((s, c) => s + c.jobs, 0),
-        last: Math.max(n.run ? createdMs(n.run) : 0, ...ch.map(c => c.last)) };
+  // an input field in plain words, for the lines of inputs other than the main one
+  const FIELD_WORDS = {
+    promptImage: "Start frame", promptImages: "Start frame", firstFrame: "Start frame", lastFrame: "End frame", imageUri: "Image",
+    referenceImage: "Reference", referenceImages: "Reference", referenceImageUri: "Reference", styleImages: "Style",
+    videoUri: "Video", promptVideo: "Video", referenceVideo: "Reference video", referenceVideos: "Reference video",
+    audioUri: "Audio", referenceAudio: "Reference audio", referenceAudios: "Reference audio", characterImage: "Character", maskUri: "Mask",
+  };
+  const fieldWords = f => FIELD_WORDS[f] || cap(String(f || "input").replace(/([A-Z])/g, " $1").toLowerCase().replace(/ uri$/, "").trim());
+  const SIDE_FIELD = /^(reference|style|mask|lastFrame)/; // never the main input: the line says the field instead of the operation
+  // a job's inputs; rows made before inputs were logged have only a parent, which was the main input
+  const srcsOf = r => (Array.isArray(r.inputs) && r.inputs.length ? r.inputs : r.parent ? [{ field: "", run: r.parent }] : []);
+  const kindOfFile = f => (/\.(mp4|mov|webm|m4v)$/i.test(f) ? "video" : /\.(mp3|wav|flac|ogg|m4a|aac|opus)$/i.test(f) ? "audio" : "image");
+  // sizes at scale 1: node width, node height, gaps between columns and levels, canvas padding, branch minimum width,
+  // a line passing a level (its column), first line below a level, space between stacked lines and between stacked line labels
+  const TR = { nw: 96, nh: 110, hg: 18, vg: 52, pad: 18, min: 220, dw: 12, t0: 14, step: 8, lab: 22 };
+  let treeMemo = null;
+  // the graph and its layout depend only on links and dates (and the UI scale): built once per change, not on every poll
+  function treeGraph() {
+    const sig = scale + "\n" + data.runs.map(r => `${r.taskId}\t${createdMs(r)}\t${r.inputs?.length ? JSON.stringify(r.inputs) : r.parent || ""}`).join("\n");
+    if (treeMemo?.sig === sig) return treeMemo;
+    const by = new Map(data.runs.map(r => [r.taskId, r])), nodes = new Map(), pairs = new Map();
+    const node = (key, kind, id, t) => {
+      let n = nodes.get(key);
+      if (!n) nodes.set(key, (n = { key, kind, id, t, ins: [], outs: [] }));
+      else if (t < n.t) n.t = t; // an uploaded file or missing job sorts by its first use
+      return n;
     };
-    const roots = [], solo = [];
-    data.runs.forEach(r => { if (!pid(r)) (kids.has(r.taskId) ? roots.push(node({ run: r }, 0, new Set())) : solo.push(r)); });
-    kids.forEach((_, k) => { if (!by.has(k)) roots.push(node({ missing: k }, 0, new Set())); });
-    roots.sort((a, b) => b.last - a.last);
-    solo.sort((a, b) => createdMs(b) - createdMs(a));
-    return { roots, solo };
+    data.runs.forEach(r => node(r.taskId, "run", r.taskId, createdMs(r)));
+    data.runs.forEach(r => {
+      const srcs = srcsOf(r), main = srcs.findIndex(i => !SIDE_FIELD.test(i.field || "")), t = createdMs(r);
+      let frames = 0;
+      srcs.forEach((i, k) => {
+        let from, file = 0;
+        if (i.run) {
+          const [b, n] = String(i.run).split("~");
+          from = by.has(b) ? nodes.get(b) : node("?" + b, "missing", b, t);
+          file = n ? +n || 0 : 0; // "taskId~n": the n-th file of a job with several
+        } else if (i.input) from = node("in:" + i.input, "upload", String(i.input), t);
+        if (!from || from.key === r.taskId) return;
+        const ek = from.key + ">" + r.taskId;
+        let e = pairs.get(ek);
+        if (!e) { pairs.set(ek, (e = { from: from.key, to: r.taskId, main: false, labels: [], files: [] })); from.outs.push(e); nodes.get(r.taskId).ins.push(e); }
+        // a second start frame is the end frame (promptImage as a list of first and last)
+        const word = i.field === "promptImage" && frames++ ? "End frame" : fieldWords(i.field);
+        if (k === main) e.main = true;
+        else if (!e.labels.includes(word)) e.labels.push(word);
+        if (file && !e.files.includes(file)) e.files.push(file);
+      });
+    });
+    // branches: connected groups of nodes
+    const comp = new Map(), groups = [];
+    nodes.forEach(n => {
+      if (comp.has(n.key) || (!n.ins.length && !n.outs.length)) return;
+      const g = [], stack = [n]; comp.set(n.key, g);
+      while (stack.length) {
+        const m = stack.pop(); g.push(m);
+        for (const e of [...m.ins, ...m.outs]) for (const k of [e.from, e.to]) if (!comp.has(k)) { comp.set(k, g); stack.push(nodes.get(k)); }
+      }
+      groups.push(g);
+    });
+    const branches = groups.map(g => treeLayout(g, nodes)).sort((a, b) => b.last - a.last);
+    const solo = data.runs.filter(r => !comp.has(r.taskId)).sort((a, b) => createdMs(b) - createdMs(a)).map(r => r.taskId);
+    return (treeMemo = { sig, branches, solo });
   }
-  // sizes at scale 1: node width, slot (thumbnail frame), node height, gaps between columns and levels, canvas padding
-  const TR = { nw: 96, slot: 64, nh: 110, hg: 18, vg: 52, pad: 18, min: 220 };
+  // one branch, Sugiyama style: drop cycles, layer, add a waypoint where a line passes a level, order the levels, place, route
+  function treeLayout(g, nodes) {
+    const byT = (a, b) => a.t - b.t || (a.key < b.key ? -1 : 1);
+    g.sort(byT);
+    // cycles can't come from Runway, but a hand-edited runs.json could have them: the line that closes a loop isn't drawn
+    const state = new Map(), live = new Set();
+    const dfs = n => {
+      state.set(n.key, 1);
+      n.outs.slice().sort((a, b) => byT(nodes.get(a.to), nodes.get(b.to))).forEach(e => {
+        const s = state.get(e.to);
+        if (s === 1) return;
+        live.add(e);
+        if (!s) dfs(nodes.get(e.to));
+      });
+      state.set(n.key, 2);
+    };
+    g.forEach(n => state.has(n.key) || dfs(n));
+    const ins = new Map(g.map(n => [n.key, n.ins.filter(e => live.has(e))])), outs = new Map(g.map(n => [n.key, n.outs.filter(e => live.has(e))]));
+    // layers: longest path from the sources; a source then moves down to sit just above the first job made from it
+    const layer = new Map(), deg = new Map(g.map(n => [n.key, ins.get(n.key).length])), order = g.filter(n => !deg.get(n.key));
+    order.forEach(n => layer.set(n.key, 0));
+    for (let i = 0; i < order.length; i++) {
+      const n = order[i];
+      outs.get(n.key).forEach(e => {
+        layer.set(e.to, Math.max(layer.get(e.to) ?? 0, layer.get(n.key) + 1));
+        deg.set(e.to, deg.get(e.to) - 1);
+        if (!deg.get(e.to)) order.push(nodes.get(e.to));
+      });
+    }
+    g.forEach(n => { if (!ins.get(n.key).length && outs.get(n.key).length) layer.set(n.key, Math.min(...outs.get(n.key).map(e => layer.get(e.to))) - 1); });
+    // layout items: the nodes, plus a waypoint on each level a line passes; each line becomes a chain of hops
+    const items = new Map(), L = [];
+    const item = (key, lv, real, t) => { const it = { key, lv, real, t, up: [], down: [], x: 0 }; items.set(key, it); (L[lv] ||= []).push(it); return it; };
+    g.forEach(n => item(n.key, layer.get(n.key), true, n.t));
+    const chains = [];
+    g.forEach(n => outs.get(n.key).forEach(e => {
+      const chain = [items.get(e.from)];
+      for (let lv = layer.get(e.from) + 1; lv < layer.get(e.to); lv++) chain.push(item(`${e.from}>${e.to}@${lv}`, lv, false, n.t));
+      chain.push(items.get(e.to));
+      for (let i = 1; i < chain.length; i++) { chain[i - 1].down.push(chain[i]); chain[i].up.push(chain[i - 1]); }
+      chains.push({ e, chain });
+    }));
+    // order within levels: oldest first, then barycenter sweeps down and up; keep the order with the fewest crossings
+    for (let lv = 0; lv < L.length; lv++) L[lv] ||= [];
+    const idx = () => L.forEach(l => l.forEach((it, i) => (it.i = i)));
+    const bary = (l, nb) => { l.forEach(it => { const ns = nb(it); it.b = ns.length ? ns.reduce((s, m) => s + m.i, 0) / ns.length : it.i; }); l.sort((a, b) => a.b - b.b || a.i - b.i); l.forEach((it, i) => (it.i = i)); };
+    const crossings = () => {
+      let c = 0;
+      for (let lv = 0; lv < L.length - 1; lv++) {
+        const es = L[lv].flatMap(a => a.down.map(b => [a.i, b.i])).sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+        for (let i = 0; i < es.length; i++) for (let j = i + 1; j < es.length; j++) if (es[j][0] > es[i][0] && es[j][1] < es[i][1]) c++;
+      }
+      return c;
+    };
+    L[0].sort((a, b) => a.t - b.t); idx();
+    for (let lv = 1; lv < L.length; lv++) { L[lv].sort((a, b) => a.t - b.t); L[lv].forEach((it, i) => (it.i = i)); bary(L[lv], it => it.up); }
+    let best = L.map(l => l.slice()), bestC = crossings();
+    for (let pass = 0; pass < 4 && bestC; pass++) {
+      for (let lv = 1; lv < L.length; lv++) bary(L[lv], it => it.up);
+      for (let lv = L.length - 2; lv >= 0; lv--) bary(L[lv], it => it.down);
+      const c = crossings();
+      if (c < bestC) { bestC = c; best = L.map(l => l.slice()); }
+    }
+    best.forEach((l, lv) => (L[lv] = l)); idx();
+    // x: pack each level, then pull items toward the mean of their neighbours, ending with parents over their children
+    const nw = px(TR.nw), wOf = it => (it.real ? nw : px(TR.dw)), sep = (a, b) => (wOf(a) + wOf(b)) / 2 + (a.real && b.real ? px(TR.hg) : px(8));
+    const fit = (l, want) => {
+      const a = [], b = [];
+      l.forEach((it, i) => (a[i] = i ? Math.max(want[i], a[i - 1] + sep(l[i - 1], it)) : want[i]));
+      for (let i = l.length - 1; i >= 0; i--) b[i] = i < l.length - 1 ? Math.min(want[i], b[i + 1] - sep(l[i], l[i + 1])) : want[i];
+      l.forEach((it, i) => (it.x = (a[i] + b[i]) / 2)); // both sweeps keep the spacing, so their mean does too
+    };
+    L.forEach(l => l.forEach((it, i) => (it.x = i ? l[i - 1].x + sep(l[i - 1], it) : 0)));
+    const mean = ns => ns.reduce((s, m) => s + m.x, 0) / ns.length;
+    for (let pass = 0; pass < 4; pass++) {
+      for (let lv = 1; lv < L.length; lv++) fit(L[lv], L[lv].map(it => (it.up.length ? mean(it.up) : it.x)));
+      for (let lv = L.length - 2; lv >= 0; lv--) fit(L[lv], L[lv].map(it => (it.down.length ? mean(it.down) : it.x)));
+    }
+    const all = [...items.values()], x0 = Math.min(...all.map(it => it.x - wOf(it) / 2)), W0 = Math.max(...all.map(it => it.x + wOf(it) / 2)) - x0;
+    const pad = px(TR.pad), W = Math.max(Math.ceil(W0) + 2 * pad, px(TR.min)), shift = pad + (W - 2 * pad - W0) / 2 - x0;
+    all.forEach(it => (it.cx = Math.round(it.x + shift) & ~1)); // even, so 2 px lines stay on whole pixels
+    // where lines enter a job: spread over its top when it has several inputs, in the order of where they come from
+    const enter = new Map();
+    all.forEach(it => {
+      const m = it.up.length; if (!m) return;
+      const sp = Math.min(px(36), Math.floor((nw - px(16)) / Math.max(1, m - 1))) & ~1;
+      it.up.slice().sort((a, b) => a.cx - b.cx).forEach((u, r) => enter.set(u.key + ">" + it.key, { x: it.real ? it.cx + Math.round((r - (m - 1) / 2) * sp) & ~1 : it.cx, r, m }));
+    });
+    // stacked lines below each level: a line's horizontal run gets its own height when it would overlap another's
+    const track = new Map(), gaps = [];
+    L.forEach((l, lv) => {
+      const spans = l.filter(it => it.down.length).map(it => {
+        const xs = [it.cx, ...it.down.map(d => enter.get(it.key + ">" + d.key).x)];
+        return { it, a: Math.min(...xs), b: Math.max(...xs) };
+      }).sort((p, q) => p.a - q.a);
+      const ends = [];
+      spans.forEach(s => {
+        if (s.b - s.a < 2) { track.set(s.it.key, 0); return; } // straight down: crossing a line is fine, sharing one isn't
+        let t = ends.findIndex(e => e < s.a - px(6));
+        if (t < 0) t = ends.length;
+        ends[t] = s.b; track.set(s.it.key, t);
+      });
+      const rows = Math.max(1, ...(L[lv + 1] || []).filter(it => it.real).map(it => it.up.length));
+      gaps[lv] = Math.max(px(TR.vg), px(TR.t0) + Math.max(0, ends.length - 1) * px(TR.step) + px(4) + rows * px(TR.lab) + px(4));
+    });
+    const top = [pad];
+    for (let lv = 1; lv < L.length; lv++) top[lv] = top[lv - 1] + px(TR.nh) + gaps[lv - 1];
+    const H = top[L.length - 1] + px(TR.nh) + pad, yt = it => top[it.lv], yb = it => top[it.lv] + px(TR.nh);
+    const ty = it => (yb(it) + px(TR.t0) + track.get(it.key) * px(TR.step)) & ~1;
+    // the lines: down from the source to its stacked height, across, down through each waypoint, into the job
+    const edges = chains.map(({ e, chain }) => {
+      let d = `M${chain[0].cx},${yb(chain[0])}`;
+      for (let i = 1; i < chain.length; i++) {
+        const a = chain[i - 1], b = chain[i], x = enter.get(a.key + ">" + b.key).x;
+        d += `V${ty(a)}H${x}V${b.real ? yt(b) - px(4) : yb(b)}`;
+      }
+      const last = chain[chain.length - 2], to = chain[chain.length - 1], en = enter.get(last.key + ">" + to.key);
+      const lo = ty(last), zt = en.m > 1 ? Math.max(...to.up.map(ty)) + px(4) : lo, zb = yt(to) - px(4);
+      return { e, d, lx: en.x, ly: Math.round(zt + (en.r + 0.5) * (zb - zt) / en.m) };
+    });
+    const knots = g.filter(n => outs.get(n.key).length).map(n => { const it = items.get(n.key); return { key: n.key, x: it.cx, y: ty(it) }; });
+    const jobs = g.filter(n => n.kind === "run");
+    const head = jobs.find(n => !ins.get(n.key).length) || jobs[0];
+    return { W, H, edges, knots, head: head.key, jobs: jobs.map(n => n.key), last: Math.max(...jobs.map(n => n.t)),
+      nodes: g.map(n => ({ key: n.key, kind: n.kind, id: n.id, lv: layer.get(n.key), left: items.get(n.key).cx - Math.round(nw / 2), top: yt(items.get(n.key)) })),
+      outs: new Map(g.map(n => [n.key, outs.get(n.key).map(e => e.to)])) };
+  }
   function treeNodeHTML(w, n, style = "", lvl = 1) {
-    const r = n.run, sel = (r ? n.id : "?" + n.id) === w.sel ? " sel" : "";
+    const r = n.run, key = r ? r.taskId : n.key, sel = key === w.sel ? " sel" : "";
+    const head = cls => `<div class="tnode ${cls}${sel}" role="treeitem" aria-level="${lvl}" id="${itemId(w, key)}" data-id="${esc(key)}" aria-selected="${!!sel}" style="${style}"`;
+    if (n.kind === "upload") {
+      const t = kindOfFile(n.id), have = (data.inputs || []).some(i => i.file === n.id);
+      const src = !have ? null : t === "image" ? `inputs/${encodeURIComponent(n.id)}` : t === "video" ? `thumbs/${encodeURIComponent(n.id)}.jpg` : null;
+      return `
+      ${head("t-upload")} aria-label="${esc(`${n.id}, uploaded${have ? "" : ", no longer in inputs"}`)}" title="${esc(`inputs/${n.id}\n${have ? "Uploaded" : "Uploaded, no longer in the inputs folder"}`)}">
+        <span class="tslot"><span class="thumb sunken">${thumbInner(src, t)}</span></span>
+        <span class="tname">${esc(n.id)}</span><span class="tcost">Uploaded</span>
+      </div>`;
+    }
     if (!r) return `
-      <div class="tnode t-missing${sel}" role="treeitem" aria-level="${lvl}" id="${itemId(w, "?" + n.id)}" data-id="?${esc(n.id)}" aria-selected="${!!sel}" style="${style}" title="Source job ${esc(n.id)} isn't in runs.json">
+      ${head("t-missing")} title="Source job ${esc(n.id)} isn't in runs.json">
         <span class="tslot"><span class="thumb sunken"><span class="empty">?</span></span></span>
         <span class="tname">Unknown source</span><span class="tcost muted">${esc(n.id.slice(0, 8))}</span>
       </div>`;
-    const s = statusInfo(r), n2 = filesOf(r).length, sum = n.kids?.length ? ` · branch total ${fmt(n.total)} credits` : "";
+    const s = statusInfo(r), n2 = filesOf(r).length;
     const line = s.cls === "done" ? `${costHTML(r)} cr` : s.cls === "running" ? `${costHTML(r)} cr · ${s.p != null ? s.p + "%" : "…"}` : esc(s.label);
     return `
-      <div class="tnode t-${s.cls}${sel}" role="treeitem" aria-level="${lvl}" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${!!sel}" style="${style}"${r.asset ? ' draggable="true"' : ""}
-        aria-label="${esc(`${r.model}, ${s.label}, ${costOf(r) ?? 0} credits${sum}`)}" title="${esc(`${r.prompt}\n${r.model} · ${s.label} · ${costOf(r) ?? "—"} credits${sum}`)}">
+      ${head("t-" + s.cls)}${r.asset ? ' draggable="true"' : ""}
+        aria-label="${esc(`${r.model}, ${s.label}, ${costOf(r) ?? 0} credits`)}" title="${esc(`${r.prompt}\n${r.model} · ${s.label} · ${costOf(r) ?? "—"} credits`)}">
         <span class="tslot"><span class="thumb sunken">${thumbInner(thumbOf(r), r.type)}</span>${n2 > 1 ? `<span class="tcount">×${n2}</span>` : ""}${s.cls === "failed" ? '<i class="tx"></i>' : ""}</span>
         <span class="tname">${esc(r.model)}</span><span class="tcost">${line}</span>
       </div>`;
   }
-  // one branch: tidy layout, top to bottom; leaves take a column each and a parent sits over the middle of its children
-  function treeBranchHTML(w, root) {
-    const cw = px(TR.nw + TR.hg), lh = px(TR.nh + TR.vg), pad = px(TR.pad), nodes = [], edges = [];
-    let leaf = 0;
-    const place = (n) => {
-      if (!n.kids.length) n.x = leaf++ * cw;
-      else { n.kids.forEach(place); n.x = Math.round((n.kids[0].x + n.kids[n.kids.length - 1].x) / 2); }
-      n.y = n.depth * lh;
-    };
-    place(root);
-    // a narrow branch gets a minimum width, so its title has room; the tree sits in the middle
-    const W0 = root.leaves * cw - px(TR.hg) + 2 * pad, W = Math.max(W0, px(TR.min)), shift = Math.round((W - W0) / 2);
-    const walk = n => { n.x += shift; nodes.push(n); n.kids.forEach(c => { edges.push([n, c]); walk(c); }); };
-    walk(root);
-    const H = Math.max(...nodes.map(n => n.y)) + px(TR.nh) + 2 * pad;
-    const cx = n => pad + n.x + Math.round(px(TR.nw) / 2) - (pad + n.x + Math.round(px(TR.nw) / 2)) % 2; // even, so 2 px lines stay on whole pixels
-    const yb = n => pad + n.y + px(TR.nh), yt = n => pad + n.y, bar = n => yb(n) + Math.round(px(TR.vg) * 0.3) & ~1;
-    const kind = c => (c.run ? statusInfo(c.run).cls : "queued");
-    const path = ([p, c]) => `M${cx(p)},${yb(p)}V${bar(p)}H${cx(c)}V${yt(c) - px(4)}`;
-    const lines = edges.map(e => `<path class="te-out" d="${path(e)}"/>`).join("") 
-      // lines that share a parent's stem overlap there: draw finished ones last so a branch with any finished job reads as lit
-      + edges.map(e => [e, ["failed", "queued", "running", "done"].indexOf(kind(e[1]))]).sort((a, b) => a[1] - b[1]).map(([e]) => `<path class="te-in te-${kind(e[1])}" d="${path(e)}"/>`).join("");
-    const knots = nodes.filter(n => n.kids.length).map(n => { const on = n.kids.some(c => kind(c) === "done"), k = px(4) & ~1; return `<rect class="te-knot${on ? " on" : ""}" x="${cx(n) - k}" y="${bar(n) - k}" width="${2 * k}" height="${2 * k}"/>`; }).join("");
-    const tags = edges.map(([p, c]) => { const [label, icon] = opOf(c.run); return `<span class="ttag t-${kind(c)}" style="left:${cx(c)}px;top:${Math.round((bar(p) + yt(c) - px(4)) / 2)}px">${icoLabel(icon, esc(label))}</span>`; }).join("");
-    const name = root.run ? root.run.prompt : "Unknown source";
+  // one branch from its memoized layout; only statuses, costs and the selection are filled in here
+  function treeBranchHTML(w, b, by, total) {
+    const kind = key => (by.get(key) ? statusInfo(by.get(key)).cls : "queued"), rank = ["failed", "queued", "running", "done"];
+    const typeOfNode = key => (key.startsWith("in:") ? kindOfFile(key.slice(3)) : by.get(key)?.type);
+    // lines into the same job overlap where they share a source's stem: draw finished ones last so a branch with any finished job reads as lit
+    const lit = b.edges.map(x => [x, rank.indexOf(kind(x.e.to))]).sort((p, q) => p[1] - q[1]);
+    const lines = b.edges.map(x => `<path class="te-out" d="${x.d}"/>`).join("") + lit.map(([x]) => `<path class="te-in te-${kind(x.e.to)}" d="${x.d}"/>`).join("");
+    const k = px(4) & ~1;
+    const knots = b.knots.map(n => `<rect class="te-knot${b.outs.get(n.key).some(c => kind(c) === "done") ? " on" : ""}" x="${n.x - k}" y="${n.y - k}" width="${2 * k}" height="${2 * k}"/>`).join("");
+    const tags = b.edges.map(({ e, lx, ly }) => {
+      const to = by.get(e.to), [op, opIcon] = opOf(to), words = [...(e.main ? [op] : []), ...e.labels];
+      const of = by.get(e.from) ? filesOf(by.get(e.from)).length : 0, fs = e.files.slice().sort((p, q) => p - q);
+      if (of > 1 && fs.length) words.push(`file${fs.length > 1 ? "s" : ""} ${fs.length > 1 ? fs.slice(0, -1).join(", ") + " and " + fs[fs.length - 1] : fs[0]} of ${of}`);
+      return `<span class="ttag t-${kind(e.to)}" style="left:${lx}px;top:${ly}px">${icoLabel(e.main ? opIcon : typeIcon(typeOfNode(e.from)), esc(words.join(" · ")))}</span>`;
+    }).join("");
+    const name = by.get(b.head)?.prompt || "Untitled";
+    const nw = px(TR.nw);
     return `
       <section class="tbranch" aria-label="${esc(name)}">
-        <div class="tb-head"><b title="${esc(name)}">${esc(name)}</b><span class="tb-sum">${root.jobs} job${root.jobs === 1 ? "" : "s"} · <b>${fmt(root.total)}</b> credits</span></div>
-        <div class="tb-canvas" style="width:${W}px;height:${H}px">
-          <svg class="tb-lines" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" shape-rendering="crispEdges" aria-hidden="true">${lines}${knots}</svg>
-          ${tags}${nodes.map(n => treeNodeHTML(w, n, `left:${pad + n.x}px;top:${pad + n.y}px;width:${px(TR.nw)}px`, n.depth + 1)).join("")}
+        <div class="tb-head"><b title="${esc(name)}">${esc(name)}</b><span class="tb-sum">${b.jobs.length} job${b.jobs.length === 1 ? "" : "s"} · <b>${fmt(total)}</b> credits</span></div>
+        <div class="tb-canvas" style="width:${b.W}px;height:${b.H}px">
+          <svg class="tb-lines" width="${b.W}" height="${b.H}" viewBox="0 0 ${b.W} ${b.H}" shape-rendering="crispEdges" aria-hidden="true">${lines}${knots}</svg>
+          ${tags}${b.nodes.map(n => treeNodeHTML(w, n.kind === "run" ? { run: by.get(n.key) } : n, `left:${n.left}px;top:${n.top}px;width:${nw}px`, n.lv + 1)).join("")}
         </div>
       </section>`;
   }
@@ -896,25 +1081,28 @@
         <div class="statusbar"><span class="sunken seg grow"></span><span class="sunken seg"></span><span class="sunken seg">Double-click or Enter to open</span></div>`;
       $(".tsolo", w.body).addEventListener("change", e => { w.solo = e.target.checked; renderWin(w); save(); });
     }
-    const { roots, solo } = treeModel(), wrap = $(".tree-wrap", w.body);
+    const { branches, solo: soloIds } = treeGraph(), by = new Map(data.runs.map(r => [r.taskId, r])), wrap = $(".tree-wrap", w.body);
+    const solo = soloIds.map(id => by.get(id)), totals = branches.map(b => b.jobs.reduce((s, id) => s + (costOf(by.get(id)) || 0), 0));
     $(".tsolo", w.body).checked = !!w.solo;
     $(".toolbar .check span", w.body).textContent = `Show jobs without links (${solo.length})`;
+    const soloCredits = solo.reduce((s, r) => s + (costOf(r) || 0), 0);
     const soloHTML = w.solo && solo.length ? `
       <section class="tbranch tb-solo" aria-label="Jobs without links">
-        <div class="tb-head"><b>Jobs without links</b><span class="tb-sum">${solo.length} job${solo.length === 1 ? "" : "s"} · <b>${fmt(solo.reduce((s, r) => s + (costOf(r) || 0), 0))}</b> credits</span></div>
-        <div class="tb-flow">${solo.map(r => treeNodeHTML(w, { run: r, id: r.taskId }, `width:${px(TR.nw)}px`)).join("")}</div>
+        <div class="tb-head"><b>Jobs without links</b><span class="tb-sum">${solo.length} job${solo.length === 1 ? "" : "s"} · <b>${fmt(soloCredits)}</b> credits</span></div>
+        <div class="tb-flow">${solo.map(r => treeNodeHTML(w, { run: r }, `width:${px(TR.nw)}px`)).join("")}</div>
       </section>` : "";
-    morph(wrap, roots.length ? roots.map(n => treeBranchHTML(w, n)).join("") + soloHTML
+    morph(wrap, branches.length ? branches.map((b, i) => treeBranchHTML(w, b, by, totals[i])).join("") + soloHTML
       : loadingOr(`No linked jobs yet. Right-click a job, then Animate, Upscale… to start a branch.${emptyAct(`<button class="raised btn-s b-default" data-open="jobs">${icoLabel("i-folder", "Open Jobs")}</button>`)}`) + soloHTML);
     // a tree holds only tree items: while empty the box is a plain group around the message and its button, and no tab stop
-    const any = roots.length || soloHTML;
+    const any = branches.length || soloHTML;
     wrap.classList.toggle("empty", !any);
     wrap.setAttribute("role", any ? "tree" : "group");
     any ? wrap.setAttribute("tabindex", "0") : wrap.removeAttribute("tabindex");
     activeSync(w);
-    const jobs = roots.reduce((s, n) => s + n.jobs, 0) + (w.solo ? solo.length : 0), credits = roots.reduce((s, n) => s + n.total, 0) + (w.solo ? solo.reduce((s, r) => s + (costOf(r) || 0), 0) : 0), selRun = runOf(w.sel);
+    const jobs = branches.reduce((s, b) => s + b.jobs.length, 0) + (w.solo ? solo.length : 0), credits = totals.reduce((s, c) => s + c, 0) + (w.solo ? soloCredits : 0), selRun = runOf(w.sel);
+    const selName = selRun ? selRun.asset || selRun.taskId : String(w.sel || "").startsWith("in:") ? w.sel.slice(3) : null;
     const segs = $$(".statusbar .seg", w.body);
-    segs[0].textContent = `${roots.length} branch${roots.length === 1 ? "" : "es"} · ${jobs} job${jobs === 1 ? "" : "s"}${selRun ? ` · ${selRun.asset || selRun.taskId} selected` : ""}`;
+    segs[0].textContent = `${branches.length} branch${branches.length === 1 ? "" : "es"} · ${jobs} job${jobs === 1 ? "" : "s"}${selName ? ` · ${selName} selected` : ""}`;
     segs[1].textContent = `${fmt(credits)} credits`;
   }
   // arrow keys move to the nearest node on screen in that direction, so they also cross between branches
@@ -2979,12 +3167,15 @@
   function keyMsg(w, text) { const m = $(".kmsg", w.body); if (m) { m.hidden = !text; m.textContent = text || ""; } }
 
   /* ---------- selection in lists and galleries ---------- */
-  function select(w, id, scroll) {
+  // keep: leave a multi-selection (Cmd+click, Shift+click) as it is and only move the focused item
+  function select(w, id, scroll, keep) {
     w.sel = id;
-    $$("[data-id].row, [data-id].tile, [data-id].tnode", w.body).forEach(el => { const on = el.dataset.id === id; el.classList.toggle("sel", on); el.setAttribute("aria-selected", on); if (on && scroll) el.scrollIntoView({ block: "nearest" }); });
+    if (!keep) { w.multi = null; w.anchor = id; }
+    $$("[data-id].row, [data-id].tile, [data-id].tnode", w.body).forEach(el => { const on = isSel(w, el.dataset.id); el.classList.toggle("sel", on); el.setAttribute("aria-selected", on); if (el.dataset.id === id && scroll) el.scrollIntoView({ block: "nearest" }); });
     activeSync(w);
-    const r = runOf(id), seg = $(".statusbar .seg", w.body);
-    if (seg && r) seg.textContent = seg.textContent.replace(/ · .* selected$/, "") + ` · ${r.asset || r.taskId} selected`;
+    const seg = $(".statusbar .seg", w.body);
+    if (seg) seg.textContent = seg.textContent.replace(/ · .* selected$/, "") + selNote(w);
+    cmpBtnSync(w);
     save();
   }
   // the focusable list (.table grid or .gridwrap listbox) names the selected row or tile as its active descendant
@@ -3006,6 +3197,395 @@
     } else n = i < 0 ? 0 : i + delta;
     select(w, items[clampN(n, 0, items.length - 1)].dataset.id, true);
   }
+
+  /* ---------- multi-select (Jobs, Images, Videos, Audio) and the Compare window ---------- */
+  // w.sel stays the focused item (Enter, Cmd+I, the job menu); w.multi, when set, is the whole selection and w.anchor where Shift ranges start
+  const MULTI = new Set(["jobs", "images", "videos", "audio"]);
+  const CMP_MAX = 12;
+  const CMP_BTN = `<button type="button" class="raised btn-s" data-compare-sel disabled title="Pick two or more with Cmd+click or Shift+click, then see them side by side (Alt+C)">${icoLabel("i-compare", "Compare")}</button>`;
+  const cmpBase = id => String(id ?? "").split("~")[0];
+  const isSel = (w, id) => (w.multi ? w.multi.has(id) : id != null && id === w.sel);
+  const listIds = w => $$("[data-id].row, [data-id].tile", w.body).map(el => el.dataset.id);
+  // the selected items in list order (only the ones the list shows)
+  function selIds(w) {
+    if (!w.multi) return w.sel && runOf(w.sel) ? [w.sel] : [];
+    return listIds(w).filter(id => w.multi.has(id));
+  }
+  function selNote(w) {
+    const n = MULTI.has(w.kind) ? selIds(w).length : 0;
+    if (n > 1) return ` · ${n} selected`;
+    const r = runOf(w.sel);
+    return r ? ` · ${r.asset || r.taskId} selected` : "";
+  }
+  function cmpBtnSync(w) {
+    const b = $("[data-compare-sel]", w.body); if (!b) return;
+    const n = selIds(w).length, t = n > 1 ? `Compare (${n})` : "Compare", s = $("span", b);
+    b.disabled = n < 2;
+    if (s.textContent !== t) s.textContent = t;
+  }
+  // Cmd+click adds or removes one item, Shift+click selects the range from the anchor (with Cmd, adds it); true when handled
+  function multiClick(w, id, e) {
+    const add = MAC ? e.metaKey : e.ctrlKey;
+    if (!w || !MULTI.has(w.kind) || (!add && !e.shiftKey)) return false;
+    if (e.shiftKey) {
+      const ids = listIds(w), b = ids.indexOf(id);
+      let a = ids.indexOf(w.anchor ?? w.sel);
+      if (a < 0) { a = b; w.anchor = id; }
+      const range = ids.slice(Math.min(a, b), Math.max(a, b) + 1);
+      w.multi = new Set(add ? [...selIds(w), ...range] : range);
+      select(w, id, false, true);
+    } else {
+      const m = new Set(selIds(w));
+      m.has(id) ? m.delete(id) : m.add(id);
+      w.multi = m; w.anchor = id;
+      select(w, m.has(id) ? id : [...m].pop() ?? null, false, true);
+    }
+    getSelection()?.removeAllRanges();
+    return true;
+  }
+  // right-click on an item of a multi-selection keeps the selection (the menu then offers Compare)
+  function menuSelect(w, id) {
+    if (w && MULTI.has(w.kind) && isSel(w, id) && selIds(w).length > 1) select(w, id, false, true);
+    else select(w, id);
+  }
+  function selectAll(w) {
+    const ids = listIds(w); if (!ids.length) return;
+    w.multi = new Set(ids);
+    select(w, w.multi.has(w.sel) ? w.sel : ids[0], false, true);
+  }
+  // Shift+arrow keys: move like the arrow keys, then select from the anchor to there
+  function extendSel(w, delta) {
+    const anchor = w.anchor ?? w.sel;
+    moveSel(w, delta);
+    const ids = listIds(w), a = ids.indexOf(anchor), b = ids.indexOf(w.sel);
+    if (a < 0 || b < 0) return;
+    w.multi = new Set(ids.slice(Math.min(a, b), Math.max(a, b) + 1)); w.anchor = anchor;
+    select(w, w.sel, false, true);
+  }
+  function compare(ids, src) {
+    ids = [...new Set(ids)].filter(id => runOf(id));
+    if (ids.length < 2) return null;
+    if (ids.length > CMP_MAX) { balloon({ title: "Compare", text: `Showing the first ${CMP_MAX} of ${ids.length} files.`, icon: "i-compare", ms: 5000 }); ids = ids.slice(0, CMP_MAX); }
+    return open("compare", ids.join(","), src);
+  }
+  function compareSel(w, src) {
+    if (compare(selIds(w), src)) return;
+    balloon({ title: "Compare", text: "Pick two or more first: Cmd+click or Shift+click them.", icon: "i-compare", ms: 5000 });
+  }
+  // job menu entries: the selection, the files of a multi-output job, the job and its source, the jobs made from the same source
+  function cmpMenu(r, src) {
+    const w = src && winOf(src), ids = w && MULTI.has(w.kind) && isSel(w, r.taskId) ? selIds(w) : [];
+    const base = cmpBase(r.taskId), job = runOf(base), files = job ? filesOf(job) : [];
+    const parent = r.parent ? runOf(r.parent) : null;
+    const sibs = r.parent ? data.runs.filter(x => x.parent && cmpBase(x.parent) === cmpBase(r.parent) && x.asset).sort((a, b) => createdMs(a) - createdMs(b)) : [];
+    return [
+      ids.length > 1 && { label: `Compare (${ids.length})`, icon: "i-compare", hint: "Alt+C", act: () => compare(ids, src) },
+      files.length > 1 && { label: `Compare outputs (${files.length})`, icon: "i-compare", act: () => compare(files.map((_, i) => (i ? `${base}~${i + 1}` : base)), src) },
+      parent?.asset && r.asset && { label: "Compare with source", icon: "i-compare", act: () => compare([parent.taskId, r.taskId], src) },
+      sibs.length > 1 && { label: `Compare with siblings (${sibs.length})`, icon: "i-compare", act: () => compare(sibs.map(x => x.taskId), src) },
+    ];
+  }
+
+  // the Compare window: arg is the item ids joined by commas ("taskId" or "taskId~n"); w.cmp holds its options
+  const cmpIds = arg => [...new Set(String(arg || "").split(",").filter(Boolean))];
+  const cmpOpts = w => (w.cmp ||= { mode: "side", sync: true, actual: false, at: 0.5, swap: false });
+  function cmpItems(w) {
+    const ids = cmpIds(w.arg);
+    if (cmpOpts(w).swap && ids.length === 2) ids.reverse();
+    return ids.map((id, i) => ({ id, r: runOf(id), letter: i < 26 ? String.fromCharCode(65 + i) : String(i + 1) }));
+  }
+  // "diff" when the known values don't all match, "same" when they do, "" with fewer than two
+  const diffCls = vals => { const k = vals.filter(v => v != null); return k.length < 2 ? "" : k.every(v => v === k[0]) ? "same" : "diff"; };
+  function cmpInfo(w, items) {
+    const rs = items.map(x => x.r), live = rs.filter(Boolean);
+    const cls = get => diffCls(rs.map(r => (r ? get(r) : null)));
+    const pkeys = [...new Set(live.flatMap(r => Object.keys(r.params || {}).filter(k => k !== "promptText")))];
+    const pval = (r, k) => { const v = r.params?.[k]; return v == null ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v); };
+    const words = s => new Set(String(s || "").toLowerCase().match(/[\p{L}\p{N}']+/gu) || []);
+    const sets = rs.map(r => (r ? words(r.prompt) : null));
+    const size = x => (x.r?.asset ? w.sizes[x.id] ?? null : null);
+    const C = {
+      status: cls(r => statusInfo(r).label), type: cls(r => r.type), model: cls(r => r.model), settings: cls(r => r.settings || ""),
+      credits: cls(r => costOf(r)), parent: cls(r => (r.parent ? cmpBase(r.parent) : "")), prompt: cls(r => r.prompt || ""),
+      size: diffCls(items.map(size)), params: Object.fromEntries(pkeys.map(k => [k, cls(r => pval(r, k))])),
+    };
+    const showStatus = live.some(r => r.status !== "succeeded"), showParent = live.some(r => r.parent), showSize = live.some(r => r.asset);
+    return items.map((x, i) => {
+      const r = x.r;
+      if (!r) return `<p class="muted">This job is no longer in runs.json.</p>`;
+      const files = filesOf(runOf(cmpBase(r.taskId)) || r).length, parent = r.parent ? runOf(r.parent) : null;
+      const prompt = C.prompt !== "diff" ? esc(r.prompt) : String(r.prompt || "").split(/([\p{L}\p{N}']+)/u)
+        .map((t, k) => (k % 2 && sets.some((s, j) => s && j !== i && !s.has(t.toLowerCase())) ? `<b>${esc(t)}</b>` : esc(t))).join("");
+      const rows = [
+        showStatus && ["Status", C.status, statusHTML(r, false)],
+        ["Type", C.type, esc(cap(r.type))],
+        ["Model", C.model, esc(r.model)],
+        ["Settings", C.settings, esc(r.settings || "—")],
+        pkeys.length && ["Parameters", "", pkeys.map(k => `<span class="${C.params[k]}">${esc(k)} ${esc(pval(r, k))}</span>`).join("<br>")],
+        showSize && ["Size", C.size, esc(size(x) ?? "—")],
+        ["Credits", C.credits, `${costHTML(r)}${files > 1 ? ` <span class="muted">for all ${files} files</span>` : ""}`],
+        ["Task ID", "", `<code>${esc(r._of || r.taskId)}</code>${files > 1 ? ` <span class="muted">file ${r._n || 1} of ${files}</span>` : ""}`],
+        ["Created", "", r.createdAt ? esc(absTime(tOf(r.createdAt))) : esc(r.date || "—")],
+        showParent && ["Made from", C.parent, parent ? esc(nameOf(parent)) : r.parent ? `<code>${esc(cmpBase(r.parent).slice(0, 8))}</code>` : "—"],
+      ].filter(Boolean);
+      return `<dl class="cmp-dl">${rows.map(([k, c, v]) => `<dt>${k}</dt><dd class="${c}">${v}</dd>`).join("")}</dl>
+        <div class="plabel">Prompt</div><div class="promptbox sunken cmp-prompt ${C.prompt}">${prompt || '<span class="muted">No prompt</span>'}</div>`;
+    });
+  }
+  function cmpFrameHTML(x, o) {
+    const r = x.r, id = esc(x.id);
+    if (!r) return `<div class="cmp-frame sunken none">This job is no longer in runs.json.</div>`;
+    if (!r.asset) return `<div class="cmp-frame sunken none"><span><svg class="ico big" aria-hidden="true"><use href="#${typeIcon(r.type)}"/></svg>${ACTIVE.has(r.status) ? "The file shows here when the job finishes." : "No file"}</span></div>`;
+    const src = encodeURI(r.asset);
+    if (r.type === "audio") return `<div class="cmp-frame sunken audio" data-id="${id}"><svg class="aud-ico" aria-hidden="true"><use href="#i-audio"/></svg><audio src="${src}" controls preload="metadata" data-size-of="${id}"></audio></div>`;
+    if (r.type === "video") return `<div class="cmp-frame sunken checker" data-id="${id}" draggable="true"><video src="${src}" poster="${thumbOf(r)}" controls muted playsinline preload="auto"${o.sync ? "" : " loop"} data-size-of="${id}"></video></div>`;
+    return `<div class="cmp-frame sunken checker${o.actual ? " actual" : ""}" data-id="${id}"${o.actual ? "" : ' draggable="true"'} title="${o.actual ? "Drag to look around: all the images follow" : ""}"><img src="${src}" alt="${esc(r.prompt)}" draggable="false" data-size-of="${id}"></div>`;
+  }
+  const cmpColHTML = (w, x, frame) => `
+    <div class="cmp-col" data-col="${esc(x.id)}">
+      <div class="cmp-head" data-id="${esc(x.id)}"${x.r?.asset ? ' draggable="true"' : ""} title="${esc(x.r?.prompt || "")}"><b class="cmp-letter">${x.letter}</b><span class="nm1">${esc(x.r ? nameOf(x.r) : x.id)}</span></div>
+      ${frame ? cmpFrameHTML(x, cmpOpts(w)) : ""}
+      <div class="cmp-info"></div>
+    </div>`;
+  function cmpWipeHTML(w, [a, b]) {
+    const o = cmpOpts(w), pct = Math.round(o.at * 100);
+    return `<div class="cmp-wipe sunken checker${o.actual ? " actual" : ""}">
+      <div class="cw-scroll"><div class="cw-canvas"><img class="cw-a" src="${encodeURI(a.r.asset)}" alt="${esc(a.r.prompt)}" draggable="false" data-size-of="${esc(a.id)}"><img class="cw-b" src="${encodeURI(b.r.asset)}" alt="${esc(b.r.prompt)}" draggable="false" data-size-of="${esc(b.id)}"></div></div>
+      <span class="cw-tag a">A · ${esc(nameOf(a.r))}</span><span class="cw-tag b">B · ${esc(nameOf(b.r))}</span>
+      <div class="cw-line" role="slider" tabindex="0" aria-label="Wipe divider, A on the left and B on the right" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" style="left:${o.at * 100}%"><span class="cw-grip raised"></span></div>
+    </div>`;
+  }
+
+  function cmpRender(w) {
+    const o = cmpOpts(w), items = cmpItems(w), live = items.filter(x => x.r), shown = items.filter(x => x.r?.asset);
+    const imgs = shown.filter(x => x.r.type === "image"), media = shown.filter(x => x.r.type !== "image");
+    const canWipe = items.length === 2 && imgs.length === 2, wipe = canWipe && o.mode === "wipe";
+    const n = items.length, cols = n <= 4 ? Math.max(1, n) : n <= 6 ? 3 : 4;
+    if (!w.shell) {
+      w.shell = true; w.sizes = {};
+      w.body.innerHTML = `<div class="toolbar cmp-bar"></div><div class="cmp-main" data-keep="cmp"></div>
+        <div class="statusbar"><span class="sunken seg grow"></span><span class="sunken seg"></span><span class="sunken seg"></span></div>`;
+      cmpBind(w);
+    }
+    morph($(".cmp-bar", w.body), `${canWipe ? `<div class="seg-tabs" role="group" aria-label="Layout"><button class="raised" data-cmp-mode="side" aria-pressed="${!wipe}">Side by side</button><button class="raised" data-cmp-mode="wipe" aria-pressed="${wipe}">Wipe</button></div>` : ""}${imgs.length ? `<label class="check"><input type="checkbox" data-cmp-opt="actual"${o.actual ? " checked" : ""}><span>Actual size</span></label>` : ""}${media.length > 1 ? `<label class="check"><input type="checkbox" data-cmp-opt="sync"${o.sync ? " checked" : ""}><span>Sync playback</span></label>` : ""}${media.length ? `<button class="raised btn-s" data-cmp-play title="Space">Play all</button>` : ""}${wipe ? `<button class="raised btn-s" data-cmp-swap title="Put ${esc(nameOf(items[1].r))} on the left">Swap sides</button>` : ""}`);
+    $$("[data-cmp-opt]", w.body).forEach(c => { c.checked = !!o[c.dataset.cmpOpt]; });
+    const main = $(".cmp-main", w.body), key = [wipe, o.actual, cols, ...items.map(x => `${x.id}:${x.r?.asset || ""}`)].join("|");
+    if (w.rendered !== key) {
+      w.rendered = key;
+      w.cmpRO?.disconnect(); w.cmpRO = null; w.cmpPaint = null;
+      main.innerHTML = !items.length ? loadingOr("Nothing to compare.")
+        : wipe ? `${cmpWipeHTML(w, items)}<div class="cmp-grid infos" style="--cmp-cols:2">${items.map(x => cmpColHTML(w, x, false)).join("")}</div>`
+        : `<div class="cmp-grid${n <= cols ? " one" : ""}" style="--cmp-cols:${cols}">${items.map(x => cmpColHTML(w, x, true)).join("")}</div>`;
+      cmpMediaBind(w);
+      if (wipe) cmpWipe(w);
+    }
+    const infos = cmpInfo(w, items);
+    $$(".cmp-info", main).forEach((el, i) => morph(el, infos[i]));
+    $$(".cmp-col", main).forEach(el => el.classList.toggle("sel", el.dataset.col === w.sel));
+    cmpPlayLabel(w);
+    // credits once per job: the files of a multi-output job share its charge
+    const jobs = new Map(live.map(x => [cmpBase(x.id), runOf(cmpBase(x.id)) || x.r]));
+    const total = [...jobs.values()].reduce((s, r) => s + (costOf(r) || 0), 0), est = [...jobs.values()].some(r => r.credits == null && r.estimatedCredits != null);
+    const segs = $$(".statusbar .seg", w.body), gone = n - live.length;
+    segs[0].textContent = `${n} item${n === 1 ? "" : "s"} from ${jobs.size} job${jobs.size === 1 ? "" : "s"}${gone ? ` · ${gone} no longer in runs.json` : ""}`;
+    segs[1].textContent = `${est ? "~" : ""}${fmt(total)} credits in total`;
+    segs[2].textContent = wipe ? "Drag the divider or press ← →" : "Double-click to open";
+  }
+  RENDER.compare = cmpRender;
+
+  // sizes and durations once the files load (shown and compared in the Size row); sync and panning
+  function cmpMediaBind(w) {
+    const main = $(".cmp-main", w.body);
+    $$("[data-size-of]", main).forEach(m => {
+      const id = m.dataset.sizeOf, set = v => { if (w.sizes[id] !== v) { w.sizes[id] = v; renderWin(w); } };
+      if (m.tagName === "IMG") { const f = () => m.naturalWidth && set(`${m.naturalWidth}×${m.naturalHeight}`); m.complete ? f() : m.addEventListener("load", f, { once: true }); }
+      else { const f = () => set(m.tagName === "VIDEO" ? `${m.videoWidth}×${m.videoHeight} · ${m.duration.toFixed(1)}s` : `${m.duration.toFixed(1)}s`); m.readyState >= 1 ? f() : m.addEventListener("loadedmetadata", f, { once: true }); }
+    });
+    cmpSync(w);
+    // actual size side by side: drag to pan, and every image follows to the same spot
+    const frames = $$(".cmp-frame.actual", main);
+    let quiet = false;
+    frames.forEach(f => {
+      const img = $("img", f), center = () => { f.scrollLeft = (f.scrollWidth - f.clientWidth) / 2; f.scrollTop = (f.scrollHeight - f.clientHeight) / 2; };
+      img.complete ? center() : img.addEventListener("load", center, { once: true });
+      f.addEventListener("scroll", () => {
+        if (quiet) return;
+        const fx = f.scrollLeft / Math.max(1, f.scrollWidth - f.clientWidth), fy = f.scrollTop / Math.max(1, f.scrollHeight - f.clientHeight);
+        quiet = true;
+        frames.forEach(g => { if (g !== f) { g.scrollLeft = fx * (g.scrollWidth - g.clientWidth); g.scrollTop = fy * (g.scrollHeight - g.clientHeight); } });
+        requestAnimationFrame(() => { quiet = false; });
+      });
+      cmpPan(f, f);
+    });
+  }
+  // drag inside el to scroll sc
+  function cmpPan(el, sc, when = () => true) {
+    el.addEventListener("pointerdown", e => {
+      if (e.button !== 0 || !when(e)) return;
+      const sx = e.clientX, sy = e.clientY, sl = sc.scrollLeft, st = sc.scrollTop;
+      e.preventDefault(); el.setPointerCapture(e.pointerId); el.classList.add("panning");
+      const mv = ev => { sc.scrollLeft = sl - (ev.clientX - sx); sc.scrollTop = st - (ev.clientY - sy); };
+      const up = () => { el.removeEventListener("pointermove", mv); el.classList.remove("panning"); };
+      el.addEventListener("pointermove", mv);
+      el.addEventListener("pointerup", up, { once: true }); el.addEventListener("pointercancel", up, { once: true });
+    });
+  }
+
+  // two images, B over A and cut off left of the divider; in actual size both are drawn at the larger one's pixel size, so they stay aligned
+  function cmpWipe(w) {
+    const box = $(".cmp-wipe", w.body), o = cmpOpts(w); if (!box) return;
+    const sc = $(".cw-scroll", box), cv = $(".cw-canvas", box), [ia, ib] = $$(".cw-canvas img", box), line = $(".cw-line", box);
+    const paint = () => {
+      line.style.left = o.at * 100 + "%";
+      const p = Math.round(o.at * 100), lr = line.getBoundingClientRect(), cr = cv.getBoundingClientRect();
+      ib.style.clipPath = `inset(0 0 0 ${Math.max(0, lr.left + lr.width / 2 - cr.left)}px)`;
+      line.setAttribute("aria-valuenow", p);
+      line.setAttribute("aria-valuetext", `${p}% A, ${100 - p}% B`);
+    };
+    const layout = () => {
+      const big = [ia, ib].sort((x, y) => y.naturalWidth * y.naturalHeight - x.naturalWidth * x.naturalHeight)[0];
+      const on = o.actual && big.naturalWidth > 0;
+      cv.style.width = on ? big.naturalWidth + "px" : ""; cv.style.height = on ? big.naturalHeight + "px" : "";
+      if (on && !box.dataset.centered) { box.dataset.centered = "1"; sc.scrollLeft = (sc.scrollWidth - sc.clientWidth) / 2; sc.scrollTop = (sc.scrollHeight - sc.clientHeight) / 2; }
+      paint();
+    };
+    [ia, ib].forEach(i => (i.complete ? null : i.addEventListener("load", layout, { once: true })));
+    layout();
+    sc.addEventListener("scroll", paint);
+    w.cmpRO = new ResizeObserver(paint); w.cmpRO.observe(box);
+    w.cmpPaint = paint;
+    // the divider follows the pointer from a press anywhere (in actual size, from the divider only; elsewhere the press pans)
+    box.addEventListener("pointerdown", e => {
+      if (e.button !== 0 || (o.actual && !e.target.closest(".cw-line"))) return;
+      e.preventDefault(); line.focus({ preventScroll: true });
+      box.setPointerCapture(e.pointerId);
+      const at = ev => { const br = sc.getBoundingClientRect(); o.at = clampN((ev.clientX - br.left) / br.width, 0, 1); paint(); };
+      if (!e.target.closest(".cw-line")) at(e);
+      const up = () => { box.removeEventListener("pointermove", at); save(); };
+      box.addEventListener("pointermove", at);
+      box.addEventListener("pointerup", up, { once: true }); box.addEventListener("pointercancel", up, { once: true });
+    });
+    cmpPan(box, sc, e => o.actual && !e.target.closest(".cw-line"));
+  }
+  function cmpWipeMove(w, to) {
+    const o = cmpOpts(w); if (!w.cmpPaint) return;
+    o.at = clampN(to, 0, 1); w.cmpPaint(); save();
+  }
+  // which side of the divider a point is on: the item shown there
+  function cmpWipeItem(w, x) {
+    const line = $(".cw-line", w.body), items = cmpItems(w); if (!line) return null;
+    const lr = line.getBoundingClientRect();
+    return items[x < lr.left + lr.width / 2 ? 0 : 1];
+  }
+
+  // Sync playback: play, pause, seek and speed on one file go to all; when every file has ended they start over together
+  function cmpSync(w) {
+    const els = $$(".cmp-frame video, .cmp-frame audio", w.body), o = cmpOpts(w);
+    if (!els.length) return;
+    // changes made here fire the same events as the user's: ignore those for a moment
+    const quiet = new Map(els.map(m => [m, {}]));
+    const hush = (m, ev, fn) => { quiet.get(m)[ev] = performance.now() + 400; fn(); };
+    const mine = (m, ev) => performance.now() < (quiet.get(m)[ev] || 0);
+    let lead = els[0];
+    const follow = (m, fn) => { if (!o.sync || els.length < 2) return; els.forEach(x => { if (x !== m) fn(x); }); };
+    const seekTo = (x, t) => { const tt = Math.min(t, x.duration || t); if (Math.abs(x.currentTime - tt) > 0.04) hush(x, "seeking", () => { x.currentTime = tt; }); };
+    els.forEach(m => {
+      m.addEventListener("play", () => {
+        cmpPlayLabel(w);
+        if (mine(m, "play")) return;
+        lead = m;
+        follow(m, x => { seekTo(x, m.currentTime); if (x.paused && m.currentTime < (x.duration || Infinity) - 0.05) hush(x, "play", () => x.play().catch(() => {})); });
+      });
+      m.addEventListener("pause", () => {
+        cmpPlayLabel(w);
+        if (mine(m, "pause") || m.ended) return;
+        follow(m, x => { if (!x.paused) hush(x, "pause", () => x.pause()); });
+      });
+      m.addEventListener("seeking", () => { if (!mine(m, "seeking")) { lead = m; follow(m, x => seekTo(x, m.currentTime)); } });
+      m.addEventListener("ratechange", () => { if (!mine(m, "ratechange")) follow(m, x => { if (x.playbackRate !== m.playbackRate) hush(x, "ratechange", () => { x.playbackRate = m.playbackRate; }); }); });
+      m.addEventListener("ended", () => {
+        cmpPlayLabel(w);
+        if (!o.sync || els.length < 2 || !els.every(x => x.ended)) return;
+        els.forEach(x => { hush(x, "seeking", () => { x.currentTime = 0; }); hush(x, "play", () => x.play().catch(() => {})); });
+      });
+      // keep the others on the leader's clock (files of different lengths stop at their end)
+      m.addEventListener("timeupdate", () => {
+        if (m !== lead || m.paused || !o.sync) return;
+        follow(m, x => { if (!x.paused && m.currentTime < (x.duration || 0) && Math.abs(x.currentTime - m.currentTime) > 0.15) hush(x, "seeking", () => { x.currentTime = m.currentTime; }); });
+      });
+    });
+    w.cmpMedia = { els, setSync: on => { els.forEach(x => { x.loop = !on; }); if (on) els.forEach(x => x !== lead && seekTo(x, lead.currentTime)); } };
+  }
+  function cmpPlayAll(w) {
+    const els = w.cmpMedia?.els.filter(x => x.isConnected) || []; if (!els.length) return;
+    const playing = els.some(x => !x.paused);
+    els.forEach(x => { if (playing) x.pause(); else x.play().catch(() => {}); });
+  }
+  function cmpPlayLabel(w) {
+    const b = $("[data-cmp-play]", w.body); if (!b) return;
+    const t = (w.cmpMedia?.els || []).some(x => x.isConnected && !x.paused) ? "Pause all" : "Play all";
+    if (b.textContent !== t) b.textContent = t;
+  }
+
+  function cmpBind(w) {
+    const b = w.body, o = cmpOpts(w);
+    const colOf = (e, t = e.target) => {
+      const c = t.closest("[data-col]"); if (c) return { id: c.dataset.col, el: $(".cmp-head", c) };
+      const x = t.closest(".cmp-wipe") && cmpWipeItem(w, e.clientX); return x ? { id: x.id, el: t.closest(".cmp-wipe") } : null;
+    };
+    const pick = id => { w.sel = id; $$(".cmp-col", b).forEach(el => el.classList.toggle("sel", el.dataset.col === id)); save(); };
+    b.addEventListener("click", e => {
+      const m = e.target.closest("[data-cmp-mode]"); if (m) { o.mode = m.dataset.cmpMode; renderWin(w); save(); return; }
+      if (e.target.closest("[data-cmp-swap]")) { o.swap = !o.swap; w.rendered = null; renderWin(w); save(); return; }
+      if (e.target.closest("[data-cmp-play]")) { cmpPlayAll(w); return; }
+      const c = e.target.closest("[data-col]"); if (c) pick(c.dataset.col);
+    });
+    b.addEventListener("change", e => {
+      const c = e.target.closest("[data-cmp-opt]"); if (!c) return;
+      o[c.dataset.cmpOpt] = c.checked; save();
+      if (c.dataset.cmpOpt === "sync") w.cmpMedia?.setSync(c.checked); else renderWin(w);
+    });
+    b.addEventListener("dblclick", e => {
+      if (e.target.closest(".cmp-bar, video, audio, .cmp-info")) return;
+      const c = colOf(e), r = c && runOf(c.id); if (r) defaultOpen(r, c.el);
+    });
+    b.addEventListener("contextmenu", e => {
+      if (e.shiftKey || e.target.closest(".cmp-bar, .promptbox")) return;
+      const c = colOf(e), r = c && runOf(c.id); if (!r) return;
+      e.preventDefault(); pick(c.id);
+      runMenu(r, e.clientX, e.clientY, c.el);
+    });
+    // the keyboard while the window is in front
+    b.addEventListener("keydown", e => {
+      if (e.altKey || e.metaKey || e.ctrlKey || e.target.closest("input, textarea, select, video, audio")) return;
+      if ((e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End") && w.cmpPaint) {
+        e.preventDefault();
+        const d = (e.shiftKey ? 0.1 : 0.01) * (e.key === "ArrowLeft" ? -1 : 1);
+        cmpWipeMove(w, e.key === "Home" ? 0 : e.key === "End" ? 1 : o.at + d);
+      } else if (e.key === " " && !e.target.closest("button") && w.cmpMedia) { e.preventDefault(); cmpPlayAll(w); }
+      else if (e.key === "Enter" && !e.target.closest("button") && runOf(w.sel)) { e.preventDefault(); defaultOpen(runOf(w.sel)); }
+    });
+  }
+
+  // Alt+C compares the selection, Cmd+A selects everything in the list; Shift+arrows extend the selection (capture: before the plain arrow keys)
+  addEventListener("keydown", ev => {
+    if (kb || !menuEl.hidden || !startMenu.hidden) return;
+    const f = frontWin(), t = ev.target instanceof Element ? ev.target : document.body;
+    if (!f || !MULTI.has(f.kind) || t.closest("input, textarea, select, [contenteditable], .dicon")) return;
+    const cmd = MAC ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey && !ev.metaKey, L = letterOf(ev);
+    if (ev.altKey && !cmd && !ev.shiftKey && !ev.metaKey && !ev.ctrlKey && L === "c") { ev.preventDefault(); ev.stopPropagation(); compareSel(f); return; }
+    if (cmd && !ev.altKey && !ev.shiftKey && L === "a") { ev.preventDefault(); ev.stopPropagation(); selectAll(f); return; }
+    if (!ev.shiftKey || ev.altKey || ev.metaKey || ev.ctrlKey) return;
+    const grid = f.kind !== "jobs";
+    const d = { ArrowDown: grid ? 2 : 1, ArrowUp: grid ? -2 : -1, ArrowRight: grid ? 1 : 0, ArrowLeft: grid ? -1 : 0, Home: -1e6, End: 1e6 }[ev.key];
+    if (!d) return;
+    ev.preventDefault(); ev.stopPropagation();
+    extendSel(f, d);
+  }, true);
+  desk.addEventListener("click", e => {
+    const s = e.target.closest("[data-compare-sel]"); if (s) { compareSel(winOf(s), s); return; }
+    const c = e.target.closest("[data-compare]"); if (c) compare(c.dataset.compare.split(","), c);
+  });
 
   /* ---------- context menus ---------- */
   let menuItems = [], menuReturn = null;
@@ -3039,6 +3619,7 @@
       { label: r.asset ? "Open" : "Properties", icon: r.asset ? typeIcon(r.type) : "i-doc", bold: true, hint: "Enter", act: () => defaultOpen(r, src) },
       r.asset && { label: "Properties", icon: "i-doc", hint: "Cmd+I", act: () => open("props", r.taskId, src) },
       r.parent && runOf(r.parent) && { label: "Go to source", act: () => open("props", r.parent, src) },
+      ...cmpMenu(r, src),
       { sep: true },
       r.type === "image" && r.asset && { label: "Animate into video…", icon: "i-animate", act: () => genFrom(r, "animate", src) },
       (r.type === "image" || r.type === "video") && r.asset && { label: "Upscale…", icon: "i-upscale", act: () => genFrom(r, "upscale", src) },
@@ -3599,7 +4180,8 @@
     const o = e.target.closest("[data-open]"); if (o) { open(o.dataset.open, o.dataset.id || null, o); return; }
     const it = e.target.closest(".row[data-id], .tile[data-id], .tnode[data-id]");
     if (it) {
-      const w = winOf(it); select(w, it.dataset.id);
+      const w = winOf(it); if (multiClick(w, it.dataset.id, e)) return;
+      select(w, it.dataset.id);
       if (lastPointer === "touch" && runOf(it.dataset.id)) defaultOpen(runOf(it.dataset.id), it);
     }
   });
@@ -3612,7 +4194,7 @@
     const r = it ? runOf(it.dataset.id) : st ? runOf(winOf(st)?.arg) : null;
     if (!r) return;
     e.preventDefault();
-    if (it) select(winOf(it), it.dataset.id);
+    if (it) menuSelect(winOf(it), it.dataset.id);
     runMenu(r, e.clientX, e.clientY, it || st);
   });
 
@@ -3625,7 +4207,7 @@
       if (!menuEl.hidden) { hideMenu(); return; }
       if (!startMenu.hidden) { setStart(false); startBtn.focus(); return; }
       const f = frontWin();
-      if (f && (f.kind === "viewer" || f.kind === "props") && !e.target.closest("input")) close(f);
+      if (f && (f.kind === "viewer" || f.kind === "props" || f.kind === "compare") && !e.target.closest("input")) close(f);
       return;
     }
     if (!menuEl.hidden || !startMenu.hidden) return;
@@ -3713,7 +4295,7 @@
     clearTimeout(saveT);
     if (resetting) return;
     saveT = setTimeout(() => {
-      const list = [...wins.values()].map(w => ({ kind: w.kind, arg: w.arg, x: w.x, y: w.y, wd: w.wd, ht: w.ht, max: w.max, minimized: w.minimized, snapped: w.snapped, pre: w.pre, z: w.z, seq: w.seq, filter: w.filter, q: w.q, sort: w.sort, size: w.size, sel: w.sel, tab: w.tab, days: w.days, act: w.kind === "activity" ? w.act : undefined, solo: w.kind === "tree" ? !!w.solo : undefined, gen: w.kind === "generate" ? w.gen : undefined }));
+      const list = [...wins.values()].map(w => ({ kind: w.kind, arg: w.arg, x: w.x, y: w.y, wd: w.wd, ht: w.ht, max: w.max, minimized: w.minimized, snapped: w.snapped, pre: w.pre, z: w.z, seq: w.seq, filter: w.filter, q: w.q, sort: w.sort, size: w.size, sel: w.sel, tab: w.tab, days: w.days, act: w.kind === "activity" ? w.act : undefined, solo: w.kind === "tree" ? !!w.solo : undefined, gen: w.kind === "generate" ? w.gen : undefined, cmp: w.kind === "compare" ? w.cmp : undefined }));
       try { localStorage.setItem(KEY, JSON.stringify(list)); } catch {}
     }, 150);
   }
@@ -3721,7 +4303,7 @@
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(KEY)); } catch {}
     if (!Array.isArray(saved)) { open("terminal"); return; } // first launch: just the terminal
-    saved.filter(s => KINDS[s.kind] && (s.kind === "viewer" || s.kind === "props" ? s.arg : true)).sort((a, b) => a.z - b.z).forEach(s => make(s.kind, s.arg, s));
+    saved.filter(s => KINDS[s.kind] && (s.kind === "viewer" || s.kind === "props" || s.kind === "compare" ? s.arg : true)).sort((a, b) => a.z - b.z).forEach(s => make(s.kind, s.arg, s));
     refreshFront();
   }
   // first launch (no saved layout, so restoreLayout opens just the terminal): once the first state poll answers
