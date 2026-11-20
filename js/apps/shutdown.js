@@ -1,7 +1,7 @@
 import { S } from "../core/state.js";
 import { $ } from "../core/dom.js";
 import { modal } from "../core/modal.js";
-import { ACTIVE } from "../core/status.js";
+import { counts } from "../core/status.js";
 import { KEY } from "../wm/persist.js";
 import { OPT_KEY } from "./options.js";
 
@@ -28,7 +28,7 @@ export function shutdownDialog() {
             <label class="opt-radio"><input type="radio" name="sd" value="restart" checked><span>Restart <span class="muted">Your windows and settings stay.</span></span></label>
             <label class="opt-radio"><input type="radio" name="sd" value="clean"><span>Restart with a clean desktop <span class="muted">Forgets which windows were open, where, and the Generate form.</span></span></label>
             <label class="opt-radio"><input type="radio" name="sd" value="all"><span>Restart and reset everything <span class="muted">Also resets Options: theme, scale, font and alerts.</span></span></label>
-            <p class="muted sd-note">Your jobs, files and API key aren't touched.${(n => n ? ` ${n} job${n === 1 ? " is" : "s are"} still rendering or queued: ${n === 1 ? "it keeps" : "they keep"} going on Runway, and Activity shows ${n === 1 ? "it" : "them"} again after the restart.` : "")(S.data.runs.filter(r => ACTIVE.has(r.status)).length)}</p>
+            <p class="muted sd-note">Your jobs, files and API key aren't touched.${(n => n ? ` ${n} job${n === 1 ? " is" : "s are"} still rendering or queued: ${n === 1 ? "it keeps" : "they keep"} going on Runway, and Activity shows ${n === 1 ? "it" : "them"} again after the restart.` : "")(counts().active)}</p>
           </fieldset>
         </div>
         <div class="sheet-foot"><span class="grow"></span><button class="raised btn-ok b-default" data-m="ok">OK</button><button class="raised btn-ok" data-m="cancel">Cancel</button></div>

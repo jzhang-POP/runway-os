@@ -1,7 +1,7 @@
 import { S, ready, wins } from "../core/state.js";
 import { $, clampN, esc, fmt } from "../core/dom.js";
 import { R_BITS, spark } from "../core/graphics.js";
-import { ACTIVE, assetsOf, createdMs, newestFirst, runOf, statusInfo } from "../core/status.js";
+import { ACTIVE, assetsOf, counts, createdMs, newestFirst, runOf, statusInfo } from "../core/status.js";
 import { upTo } from "../core/time.js";
 import { fileAction } from "../core/ui.js";
 import { KINDS, RENDER, SIG } from "../wm/kinds.js";
@@ -53,9 +53,7 @@ export function termFind(w, arg) {
 }
 
 export function neofetch() {
-  const runs = S.data.runs, active = runs.filter(r => ACTIVE.has(r.status)).length;
-  const up = Math.round((Date.now() - bootAt) / 60000), sp = spark(S.data.history);
-  const count = t => runs.filter(r => r.type === t && r.asset).length;
+  const c = counts(), up = Math.round((Date.now() - bootAt) / 60000), sp = spark(S.data.history);
   const info = [
     `<b class="t-acc">you</b>@<b class="t-acc">runway-os</b>`,
     "-------------",
@@ -65,9 +63,9 @@ export function neofetch() {
     `<b class="t-acc">API</b>: ${S.data.live ? `Runway 2024-11-06, key ending ${esc(S.data.keyHint || "…")}` : "no key"}`,
     `<b class="t-acc">Credits</b>: <span class="t-red">${S.data.balance == null ? "?" : fmt(S.data.balance)}</span>`,
     `<b class="t-acc">Org, 24 h</b>: ${sp.spent != null ? `${fmt(sp.spent)} credits spent` : "collecting"}`,
-    `<b class="t-acc">Jobs</b>: ${runs.length} (${fmt(runs.reduce((s, r) => s + (r.credits || 0), 0))} credits)`,
-    `<b class="t-acc">Files</b>: ${count("image")} images, ${count("video")} videos, ${count("audio")} audio`,
-    `<b class="t-acc">Rendering</b>: ${active || "idle"}`,
+    `<b class="t-acc">Jobs</b>: ${S.data.runs.length} (${fmt(c.credits)} credits)`,
+    `<b class="t-acc">Files</b>: ${c.files.image} images, ${c.files.video} videos, ${c.files.audio} audio`,
+    `<b class="t-acc">Rendering</b>: ${c.active || "idle"}`,
     "",
     ["#08090b", "#ff2b1c", "#5fdc7a", "#ffc94a", "#1f6fc4", "#c678dd", "#56b6c2", "#e4e4e8"].map(c => `<span class="t-sw" style="background:${c}"></span>`).join(""),
   ];

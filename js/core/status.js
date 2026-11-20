@@ -4,6 +4,22 @@ import { absTime, ago, dur, tOf } from "./time.js";
 
 export const ACTIVE = new Set(["pending", "running", "throttled"]);
 export const QUEUED = new Set(["pending", "throttled"]);
+// counts over the job log, worked out once per poll: S.data is a new object whenever a poll brings new data
+// active: rendering or queued; credits: total reported cost; files: finished files per type;
+// progress/withProgress: the sum and count of reported progress among the rendering jobs
+export function counts() {
+  if (S.countsOf === S.data) return S.counts;
+  const c = { active: 0, running: 0, queued: 0, credits: 0, progress: 0, withProgress: 0, files: { image: 0, video: 0, audio: 0 } };
+  for (const r of S.data.runs) {
+    if (ACTIVE.has(r.status)) c.active++;
+    if (QUEUED.has(r.status)) c.queued++;
+    if (r.status === "running") { c.running++; if (r.progress != null) { c.progress += r.progress; c.withProgress++; } }
+    c.credits += r.credits || 0;
+    if (r.asset && Object.hasOwn(c.files, r.type)) c.files[r.type]++;
+  }
+  S.countsOf = S.data;
+  return (S.counts = c);
+}
 // a job can return several files (outputCount, numVariants): each extra file is its own item, id "taskId~2", "~3"…
 export const filesOf = r => (r.assets?.length ? r.assets : r.asset ? [r.asset] : []);
 export const fileItem = (r, i) => (i === 0 ? r : { ...r, taskId: `${r.taskId}~${i + 1}`, asset: filesOf(r)[i], _of: r.taskId, _n: i + 1 });
