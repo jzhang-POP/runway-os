@@ -47,15 +47,17 @@ export const relHTML = (iso, kind = "ago") => {
 };
 export const costHTML = r => r.credits != null ? fmt(r.credits)
   : r.estimatedCredits != null ? `<span class="est" title="Runway's estimate while the job runs">~${fmt(r.estimatedCredits)}</span>` : "—";
+export const etaText = end => (end > Date.now() ? `~${dur(end - Date.now())} left` : "longer than usual");
+// a queued or rendering job: the bar while it renders, then the time since it was sent and, while it renders,
+// the time left from the model's typical duration (Activity refreshes [data-eta] every few seconds)
+export function progressHTML(r, s = statusInfo(r)) {
+  const run = s.cls === "running", typ = run ? typicalMs(r.model) : null, end = createdMs(r) + typ;
+  return (run ? `<span class="mprog sunken" aria-hidden="true"><i style="width:${s.p ?? 8}%" class="${s.p == null ? "ind" : ""}"></i></span>` : "")
+    + `<small class="muted">${relHTML(r.createdAt || r.date, "elapsed")}${typ ? ` · <span data-eta="${end}">${etaText(end)}</span>` : ""}</small>`;
+}
 export function statusHTML(r, withBar = true) {
   const s = statusInfo(r);
-  let extra = "";
-  if (withBar && s.cls === "running") {
-    const typ = typicalMs(r.model), el = Date.now() - createdMs(r);
-    extra = `<span class="mprog sunken"><i style="width:${s.p ?? 8}%" class="${s.p == null ? "ind" : ""}"></i></span>`
-      + `<small class="muted">${relHTML(r.createdAt, "elapsed")}${typ ? (typ > el ? ` · ~${dur(typ - el)} left` : " · longer than usual") : ""}</small>`;
-  }
-  return `<span class="st ${s.cls}"><i class="dot"></i>${esc(s.label)}</span>${extra}`;
+  return `<span class="st ${s.cls}"><i class="dot"></i>${esc(s.label)}</span>${withBar && s.cls === "running" ? progressHTML(r, s) : ""}`;
 }
 // thumbnail contents: the picture when there is one, the type icon underneath as a fallback
 export const thumbInner = (src, type) => `${src ? `<img src="${src}" alt="" loading="lazy" onerror="this.hidden=true">` : ""}<span class="empty"><svg class="ico big"><use href="#${typeIcon(type)}"/></svg></span>`;

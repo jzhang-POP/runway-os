@@ -1,8 +1,7 @@
 import { S, wins } from "../core/state.js";
 import { $, $$, cap, esc, fmt, icoLabel } from "../core/dom.js";
 import { morph } from "../core/morph.js";
-import { ACTIVE, createdMs, miniThumb, relHTML, runOf, statusInfo, typeIcon, typicalMs } from "../core/status.js";
-import { dur } from "../core/time.js";
+import { ACTIVE, createdMs, etaText, miniThumb, progressHTML, relHTML, runOf, statusInfo, typeIcon, typicalMs } from "../core/status.js";
 import { GEN_BTN, emptyAct } from "../core/ui.js";
 import { D, px } from "../wm/geometry.js";
 import { KINDS, RENDER } from "../wm/kinds.js";
@@ -14,7 +13,6 @@ import { poll } from "../live.js";
 /* ---------- Activity: jobs in progress and recently finished, like a download manager ---------- */
 export const fresh = {}; // rows the server just returned from /api/generate, shown until a poll brings them from runs.json
 export const sentRun = (w, id) => runOf(id) || fresh[id];
-export const etaText = end => (end > Date.now() ? `~${dur(end - Date.now())} left` : "longer than usual");
 // every queued or rendering job, then finished ones from the last 24 h that weren't cleared, newest first
 export function activityList(w) {
   const since = Math.max(Date.now() - 86400000, w.act?.clearedAt || 0), hide = new Set(w.act?.hide || []);
@@ -27,9 +25,7 @@ export function genSentItem(w, r) {
   const s = statusInfo(r), id = esc(r.taskId), name = `${r.task || cap(r.type)} · ${r.model}`;
   let st = `<span class="st ${s.cls}"><i class="dot"></i>${esc(s.label)}</span>`, acts = "";
   if (ACTIVE.has(r.status)) {
-    const typ = s.cls === "running" ? typicalMs(r.model) : null, end = createdMs(r) + typ;
-    if (s.cls === "running") st += `<span class="mprog sunken" aria-hidden="true"><i style="width:${s.p ?? 8}%" class="${s.p == null ? "ind" : ""}"></i></span>`;
-    st += `<small class="muted">${relHTML(r.createdAt || r.date, "elapsed")}${typ ? ` · <span data-eta="${end}">${etaText(end)}</span>` : ""}</small>`;
+    st += progressHTML(r, s);
     const busy = w.gsBusy?.has(r.taskId);
     acts = `<button type="button" class="raised btn-s b-danger" data-gs="cancel" data-run="${id}" aria-label="${busy ? "Cancelling" : "Cancel"} ${esc(name)}" ${busy ? "disabled" : ""}>${icoLabel("i-stop", busy ? "Cancelling…" : "Cancel")}</button>`;
   } else if (r.status === "succeeded") {

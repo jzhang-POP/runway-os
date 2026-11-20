@@ -1,8 +1,7 @@
 import { S, wins } from "../core/state.js";
 import { $, $$, esc, fmt } from "../core/dom.js";
 import { modal } from "../core/modal.js";
-import { newestFirst } from "../core/status.js";
-import { curModel, curTask, genBody, genRefresh, secondsOf, shownVal, vals } from "./generate.js";
+import { curModel, genBody, genRefresh, lastCostFor } from "./generate.js";
 import { setOpt } from "./options.js";
 
 /* ---------- spending guard: a daily credit limit for the whole org (Options → Spending) ----------
@@ -38,11 +37,8 @@ export function spendTray() {
 export function spendQuote(w) {
   const key = JSON.stringify(genBody(w)), pr = w.priceFor === key ? w.price : null;
   if (pr?.credits != null) return { credits: pr.credits, exact: !!pr.exact };
-  const m = curModel(w), t = curTask(w);
-  const last = m && newestFirst().find(r => r.model === m.id && r.credits != null && r.costSource === "runway" && (!r.endpoint || r.endpoint === t.endpoint));
-  if (!last) return { credits: null, exact: false };
-  const d = +shownVal(m.fields.find(f => f.name === "duration") || {}, vals(w).duration), sec = secondsOf(last);
-  return { credits: d && sec ? Math.round(last.credits / sec * d) : last.credits, exact: false };
+  const c = lastCostFor(w);
+  return { credits: c?.last ? c.credits : null, exact: false };
 }
 // a quiet note after the price in Generate's footer, only when this job takes today's spending to 80% of the limit or more
 export function spendHint(w, hint, pr) {

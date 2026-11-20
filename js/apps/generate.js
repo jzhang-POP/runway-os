@@ -90,13 +90,19 @@ export function genBlock(w) {
   return null;
 }
 // cost hint from what Runway actually charged for this model before
-export function genCost(w) {
-  const m = curModel(w), t = curTask(w); if (!m) return "";
+// the estimate from your last job with this model (and endpoint) that Runway priced, scaled to this form's duration
+export function lastCostFor(w) {
+  const m = curModel(w), t = curTask(w); if (!m) return null;
   const last = newestFirst().find(r => r.model === m.id && r.credits != null && r.costSource === "runway" && (!r.endpoint || r.endpoint === t.endpoint));
-  if (!last) return `No ${m.id} jobs yet. Its cost shows in Jobs once Runway starts it`;
-  const d = +shownVal(m.fields.find(f => f.name === "duration") || {}, vals(w).duration), s = secondsOf(last);
-  if (d && s) { const per = last.credits / s; return `≈ ${fmt(Math.round(per * d))} credits at ${fmt(+per.toFixed(1))}/s, from your last ${m.id} job`; }
-  return `≈ ${fmt(last.credits)} credits, like your last ${m.id} job`;
+  if (!last) return { m, last };
+  const d = +shownVal(m.fields.find(f => f.name === "duration") || {}, vals(w).duration), s = secondsOf(last), per = d && s ? last.credits / s : null;
+  return { m, last, per, credits: per ? Math.round(per * d) : last.credits };
+}
+export function genCost(w) {
+  const c = lastCostFor(w); if (!c) return "";
+  if (!c.last) return `No ${c.m.id} jobs yet. Its cost shows in Jobs once Runway starts it`;
+  if (c.per) return `≈ ${fmt(c.credits)} credits at ${fmt(+c.per.toFixed(1))}/s, from your last ${c.m.id} job`;
+  return `≈ ${fmt(c.credits)} credits, like your last ${c.m.id} job`;
 }
 
 export function genRender(w) {
