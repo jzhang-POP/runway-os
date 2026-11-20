@@ -1,6 +1,7 @@
 import { nameOf, plural, runOf, typeIcon } from "../core/status.js";
 import { cascade, centered, px } from "./geometry.js";
-import { cmpIds, noteTitle } from "../main.js";
+import { cmpIds } from "../apps/compare.js";
+import { noteTitle } from "../apps/notes.js";
 
 export const KINDS = {
   overview: {

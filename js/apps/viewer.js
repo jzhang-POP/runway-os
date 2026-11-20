@@ -6,7 +6,7 @@ import { RENDER } from "../wm/kinds.js";
 import { save } from "../wm/persist.js";
 import { renderTasks } from "../wm/taskbar.js";
 import { close, focus, renderWin } from "../wm/windows.js";
-import { bindZoom } from "../main.js";
+import { bindZoom } from "./tree.js";
 
 export function viewerRender(w) {
   const r = runOf(w.arg);

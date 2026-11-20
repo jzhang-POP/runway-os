@@ -1,8 +1,8 @@
 import { S, wins } from "../core/state.js";
 import { $, $$, esc, fmt } from "../core/dom.js";
 import { newestFirst } from "../core/status.js";
+import { curModel, curTask, genBody, genRefresh, secondsOf, shownVal, vals } from "./generate.js";
 import { setOpt } from "./options.js";
-import { curModel, curTask, genBody, genRefresh, secondsOf, shownVal, vals } from "../main.js";
 
 /* ---------- spending guard: a daily credit limit for the whole org (Options → Spending) ----------
    The server works out data.spent.today from balance_history.json: every drop in the org balance since local midnight,
