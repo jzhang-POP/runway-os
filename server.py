@@ -844,21 +844,74 @@ def tick(key):
         save(fresh)
 
 
-def make_posters():
-    """Save a still frame for each video asset as thumbs/<asset>.jpg (needs ffmpeg)."""
-    if not shutil.which("ffmpeg"):
-        return
+THUMBS = os.path.join(ROOT, "thumbs")
+THUMB_W = 320
+thumb_lock = threading.Lock()
+thumb_failed = set()  # (source, mtime) that couldn't be made into a thumbnail, so they aren't retried every pass
+
+
+def make_thumb(name, src):
+    """Write thumbs/<name>.jpg, about THUMB_W px wide: a still frame of a video (ffmpeg) or a smaller copy of an image
+    (sips on macOS, else ffmpeg). Written to a temp file and renamed, so a half-written thumbnail is never served.
+    Returns True when the thumbnail exists afterwards."""
+    out = os.path.join(THUMBS, name + ".jpg")
+    kind = type_of(name)
+    if os.path.exists(out):
+        return True
+    if kind not in ("image", "video") or not os.path.isfile(src):
+        return False
+    with thumb_lock:
+        if os.path.exists(out):
+            return True
+        ck = (src, os.path.getmtime(src))
+        if ck in thumb_failed:
+            return False
+        os.makedirs(THUMBS, exist_ok=True)
+        tmp = os.path.join(THUMBS, "." + name + "." + uuid.uuid4().hex[:8] + ".tmp.jpg")
+        scale = f"scale='min({THUMB_W},iw)':-2"
+        try:
+            if kind == "video" or not shutil.which("sips"):
+                if not shutil.which("ffmpeg"):
+                    return False
+                seek = ["-ss", "0.3"] if kind == "video" else []
+                subprocess.run(["ffmpeg", "-v", "error", "-y", *seek, "-i", src, "-frames:v", "1", "-vf", scale, "-q:v", "4", tmp],
+                               check=False, timeout=120, stdin=subprocess.DEVNULL)
+            else:
+                cmd = ["sips", "-s", "format", "jpeg", "-s", "formatOptions", "80"]
+                r = subprocess.run(["sips", "-g", "pixelWidth", src], capture_output=True, text=True, check=False, timeout=60)
+                try:
+                    w = float(r.stdout.strip().rsplit(" ", 1)[-1])
+                except ValueError:
+                    w = 0
+                cmd += ["--resampleWidth", str(THUMB_W)] if w > THUMB_W or not w else []
+                subprocess.run(cmd + [src, "--out", tmp], capture_output=True, check=False, timeout=120)
+            if os.path.isfile(tmp) and os.path.getsize(tmp) > 0:
+                os.replace(tmp, out)
+                return True
+            thumb_failed.add(ck)
+            return False
+        except (OSError, subprocess.SubprocessError):
+            thumb_failed.add(ck)
+            return False
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+
+
+def thumb_sources():
+    """(name, path) of every image and video the job log and inputs/ hold."""
     with lock:
         runs = load().get("runs", [])
-    vids = [(a, os.path.join(ROOT, a)) for r in runs for a in ([r.get("asset")] + (r.get("assets") or [])) if a and type_of(a) == "video"]
-    vids += [(i["file"], os.path.join(INPUTS, i["file"])) for i in list_inputs() if i["type"] == "video"]
-    for a, src in vids:
-        out = os.path.join(ROOT, "thumbs", a + ".jpg")
-        if os.path.exists(out) or not os.path.exists(src):
-            continue
-        os.makedirs(os.path.dirname(out), exist_ok=True)
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "0.3", "-i", src,
-                        "-frames:v", "1", "-vf", "scale=320:-1", out], check=False)
+    out = [(a, os.path.join(ROOT, a)) for r in runs for a in ([r.get("asset")] + (r.get("assets") or []))
+           if a and type_of(a) in ("image", "video")]
+    out += [(i["file"], os.path.join(INPUTS, i["file"])) for i in list_inputs() if i["type"] in ("image", "video")]
+    return out
+
+
+def make_posters():
+    """A thumbnail in thumbs/ for each image and video asset and input that has none yet."""
+    for name, src in thumb_sources():
+        make_thumb(name, src)
 
 
 def loop():
@@ -1103,8 +1156,26 @@ class Handler(SimpleHTTPRequestHandler):
         if any(seg.startswith(".") for seg in urllib.parse.unquote(self.path.split("?")[0]).split("/")):
             self.send_error(404)  # never serve .runway_key
             return
+        if route.startswith("/thumbs/") and route.endswith(".jpg") and self.thumb_fallback(route):
+            return
         super().do_GET()
 
+
+    def thumb_fallback(self, route):
+        """A thumbnail that isn't made yet (a job that just finished, an upload): make it now; if that fails for an
+        image, redirect to the full image. Returns True when it answered the request itself."""
+        name = urllib.parse.unquote(route[len("/thumbs/"):-len(".jpg")])
+        if "/" in name or os.path.exists(os.path.join(THUMBS, name + ".jpg")):
+            return False
+        src = next((p for p in (os.path.join(ROOT, name), os.path.join(INPUTS, name)) if os.path.isfile(p)), None)
+        if not src or make_thumb(name, src) or type_of(name) != "image":
+            return False
+        self.send_response(302)
+        self.send_header("Location", ("/inputs/" if src.startswith(INPUTS + os.sep) else "/") + urllib.parse.quote(name))
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        return True
 
     def send_json(self, code, obj):
         body = json.dumps(obj).encode()
