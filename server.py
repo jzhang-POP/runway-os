@@ -23,7 +23,7 @@ Serves index.html plus /api/state and keeps runs.json up to date:
 API key: env RUNWAYML_API_SECRET, or a file named .runway_key in this folder.
 Run:  python3 server.py   then open http://localhost:8765
 """
-import hashlib, json, os, shutil, subprocess, threading, time, urllib.parse, urllib.request, urllib.error, uuid, mimetypes
+import bisect, hashlib, json, os, queue, shutil, subprocess, threading, time, urllib.parse, urllib.request, urllib.error, uuid, mimetypes
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from datetime import datetime
 
@@ -35,24 +35,48 @@ POLL_EVERY, BALANCE_EVERY = 8, 20
 ACTIVE = {"pending", "running", "throttled"}
 lock = threading.Lock()
 wake = threading.Event()  # set to sync right away instead of waiting POLL_EVERY
-state = {"lastBalanceCheck": None, "error": None}
+state = {"lastBalanceCheck": None, "error": None, "balanceAt": None}
 
 
 KEY_FILE = os.path.join(ROOT, ".runway_key")
 
 
+def file_sig(path):
+    """(mtime_ns, size) of a file, or None when it's missing: cheap to compare, changes on every rewrite."""
+    try:
+        st = os.stat(path)
+        return st.st_mtime_ns, st.st_size
+    except OSError:
+        return None
+
+
+key_cache = {"sig": None, "key": None}
+
+
+def key_file():
+    """The key saved in .runway_key, or None; read again only when the file changes."""
+    sig = file_sig(KEY_FILE)
+    if sig != key_cache["sig"]:
+        key = None
+        if sig:
+            try:
+                with open(KEY_FILE) as f:
+                    key = f.read().strip() or None
+            except OSError:
+                pass
+        key_cache.update(sig=sig, key=key)
+    return key_cache["key"]
+
+
 def key_source():
     """Where the key comes from: the .runway_key file (set from the dashboard) wins over the env variable."""
-    if os.path.exists(KEY_FILE) and open(KEY_FILE).read().strip():
+    if key_file():
         return "file"
     return "env" if os.environ.get("RUNWAYML_API_SECRET") else None
 
 
 def api_key():
-    src = key_source()
-    if src == "file":
-        return open(KEY_FILE).read().strip()
-    return os.environ.get("RUNWAYML_API_SECRET") if src == "env" else None
+    return key_file() or os.environ.get("RUNWAYML_API_SECRET") or None
 
 
 def set_key(body):
@@ -179,7 +203,10 @@ def load_spec():
             os.replace(SPEC_FILE + ".tmp", SPEC_FILE)
         except Exception:
             pass  # keep the cached copy
-    return json.load(open(SPEC_FILE)) if os.path.exists(SPEC_FILE) else None
+    if not os.path.exists(SPEC_FILE):
+        return None
+    with open(SPEC_FILE) as f:
+        return json.load(f)
 
 
 class Normalizer:
@@ -431,8 +458,10 @@ def runway_upload(path, key):
     b = "----rd" + uuid.uuid4().hex
     parts = [f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode() for k, v in meta["fields"].items()]
     ctype = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    with open(path, "rb") as f:
+        raw = f.read()
     parts.append(f'--{b}\r\nContent-Disposition: form-data; name="file"; filename="{name}"\r\nContent-Type: {ctype}\r\n\r\n'.encode()
-                 + open(path, "rb").read() + f"\r\n--{b}--\r\n".encode())
+                 + raw + f"\r\n--{b}--\r\n".encode())
     req = urllib.request.Request(meta["uploadUrl"], data=b"".join(parts), method="POST",
                                  headers={"Content-Type": f"multipart/form-data; boundary={b}"})
     urllib.request.urlopen(req, timeout=900).read()
@@ -677,6 +706,7 @@ def org_usage(days, key):
 
 def save_upload(handler, length):
     """Stream a file from the browser into inputs/ and return its name and type."""
+    handler.upload_left = length  # bytes not read yet, for draining the request on an error
     raw = urllib.parse.unquote(handler.headers.get("X-Filename") or "upload")
     base = os.path.basename(raw).lstrip(".") or "upload"
     stem, ext = os.path.splitext(base)
@@ -696,6 +726,7 @@ def save_upload(handler, length):
                 break
             f.write(chunk)
             left -= len(chunk)
+            handler.upload_left = left
     if left:
         os.remove(tmp)
         raise ValueError("The upload was cut off. Try again.")
@@ -718,9 +749,14 @@ def download(url, run, i=0):
             ext = CT_EXT.get((r.headers.get("Content-Type") or "").split(";")[0].strip(), "")
         ext = ext or {"video": ".mp4", "audio": ".mp3"}.get(run.get("type"), ".png")
         name = f"{run.get('date', 'job')}_{run.get('type', 'asset')}_{run['taskId'][:8]}{f'_{i + 1}' if i else ''}{ext}"
-        tmp = os.path.join(ROOT, "." + name + ".part")
-        with open(tmp, "wb") as f:
-            shutil.copyfileobj(r, f, 1 << 20)
+        tmp = os.path.join(ROOT, "." + name + ".part")  # renamed into place once complete
+        try:
+            with open(tmp, "wb") as f:
+                shutil.copyfileobj(r, f, 1 << 20)
+        except BaseException:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            raise
     os.replace(tmp, os.path.join(ROOT, name))
     return name
 
@@ -754,30 +790,106 @@ def task_updates(run, t):
         u["failure"] = t["failure"]
     if t.get("failureCode"):
         u["failureCode"] = t["failureCode"]
-    if st == "succeeded" and t.get("output") and not run.get("asset"):
-        names = [download(url, run, i) for i, url in enumerate(t["output"])]
-        u["asset"], u["type"] = names[0], type_of(names[0]) or run.get("type")
-        if len(names) > 1:
-            u["assets"] = names
     if st in TERMINAL:
         u["synced"] = True
+    if st == "succeeded" and t.get("output") and not run.get("asset"):
+        # the files are downloaded by the worker thread, which marks the job succeeded once they're saved,
+        # so the row never says succeeded without its file and a big download doesn't hold up the sync
+        final = {k: u.pop(k) for k in ("status", "finishedAt", "synced") if k in u}
+        enqueue_download(run, list(t["output"]), final)
     return u
 
 
+# ---------- worker thread: downloads and thumbnails, off the sync loop ----------
+work = queue.Queue()
+work_lock = threading.Lock()
+downloading = set()  # task IDs queued or being downloaded
+work_state = {"postersQueued": False, "downloadError": None}
+
+
+def enqueue_download(run, urls, final):
+    with work_lock:
+        if run["taskId"] in downloading:
+            return
+        downloading.add(run["taskId"])
+    work.put(("download", dict(run), urls, final))
+
+
+def enqueue_posters():
+    with work_lock:
+        if work_state["postersQueued"]:
+            return
+        work_state["postersQueued"] = True
+    work.put(("posters",))
+
+
+def finish_download(run, urls, final):
+    """Save a succeeded job's files, then mark its row succeeded with them and make their thumbnails."""
+    names = [download(url, run, i) for i, url in enumerate(urls)]
+    u = {**final, "asset": names[0], "type": type_of(names[0]) or run.get("type")}
+    if len(names) > 1:
+        u["assets"] = names
+    u.setdefault("finishedAt", datetime.now().astimezone().isoformat(timespec="seconds"))
+    with lock:
+        data = load()
+        for r in data.get("runs", []):
+            if r.get("taskId") == run["taskId"]:
+                r.update(u)
+        save(data)
+    for n in names:
+        make_thumb(n, os.path.join(ROOT, n))
+
+
+def worker():
+    while True:
+        item = work.get()
+        try:
+            if item[0] == "download":
+                try:
+                    finish_download(*item[1:])
+                    work_state["downloadError"] = None
+                except Exception as e:  # tried again on the next sync
+                    work_state["downloadError"] = f"Couldn't download a finished job's file ({type(e).__name__})"
+                finally:
+                    with work_lock:
+                        downloading.discard(item[1]["taskId"])
+            elif item[0] == "posters":
+                with work_lock:
+                    work_state["postersQueued"] = False
+                make_posters()
+        except Exception:
+            pass
+        finally:
+            work.task_done()
+
+
+history_cache = {"sig": None, "hist": []}
+
+
+def load_history():
+    """balance_history.json as [[unix time, balance], ...], parsed again only when the file changes. Don't mutate it."""
+    sig = file_sig(HISTORY)
+    if sig != history_cache["sig"]:
+        try:
+            with open(HISTORY) as f:
+                hist = json.load(f)
+        except Exception:
+            hist = []
+        history_cache.update(sig=sig, hist=hist if isinstance(hist, list) else [])
+    return history_cache["hist"]
+
+
 def record_balance(balance):
-    try:
-        hist = json.load(open(HISTORY))
-    except Exception:
-        hist = []
+    hist = load_history()
     if not hist or hist[-1][1] != balance:
-        hist.append([int(time.time()), balance])
-        hist = hist[-20000:]
+        hist = (hist + [[int(time.time()), balance]])[-20000:]
         tmp = HISTORY + ".tmp"
-        json.dump(hist, open(tmp, "w"))
+        with open(tmp, "w") as f:
+            json.dump(hist, f)
         os.replace(tmp, HISTORY)
 
 
-def spent_today(runs):
+def spent_today(runs, hist=None):
     """Credits the whole org spent since local midnight, for the daily limit in Options.
     From balance_history.json: start at the last balance at or before midnight and add up every drop
     after it (a rise is a top-up, not spending), so jobs from Claude, this app and other tools all count.
@@ -793,10 +905,7 @@ def spent_today(runs):
             continue
         if t.tzinfo and t.timestamp() >= m and isinstance(r.get("credits"), (int, float)):
             jobs += r["credits"]
-    try:
-        hist = json.load(open(HISTORY))
-    except Exception:
-        hist = []
+    hist = load_history() if hist is None else hist
     pts = [h for h in hist if h[0] <= m][-1:] + [h for h in hist if h[0] > m]
     out = {"spentToday": jobs, "spentSource": "jobs", "spentSince": midnight.isoformat(timespec="seconds")}
     if pts:
@@ -830,46 +939,146 @@ def tick(key):
                     updates[tid].update(status="cancelled", finishedAt=datetime.now().astimezone().isoformat(timespec="seconds"))
             else:
                 raise
+    if balance is not None:  # the time of the last check is served from memory; runs.json gets it when it's written
+        state["balanceAt"] = datetime.now().astimezone().isoformat(timespec="seconds")
     with lock:
-        # merge into the freshest file so rows added meanwhile are kept
-        fresh = load()
+        # merge into the freshest file so rows added meanwhile are kept; write it only when something changed
+        fresh, changed = load(), False
         for r in fresh.get("runs", []):
-            if r.get("taskId") in updates:
-                r.update(updates[r["taskId"]])
-        if balance is not None:
+            u = updates.get(r.get("taskId"))
+            if u and any(r.get(k) != v for k, v in u.items()):
+                r.update(u)
+                changed = True
+        if balance is not None and fresh.get("balance") != balance:
             fresh["balance"] = balance
-            fresh["balanceAt"] = datetime.now().astimezone().isoformat(timespec="seconds")
-        save(fresh)
+            changed = True
+        if changed:
+            if state["balanceAt"]:
+                fresh["balanceAt"] = state["balanceAt"]
+            save(fresh)
+
+
+THUMBS = os.path.join(ROOT, "thumbs")
+THUMB_W = 320
+thumb_lock = threading.Lock()
+thumb_failed = set()  # (source, mtime) that couldn't be made into a thumbnail, so they aren't retried every pass
+
+
+def make_thumb(name, src):
+    """Write thumbs/<name>.jpg, about THUMB_W px wide: a still frame of a video (ffmpeg) or a smaller copy of an image
+    (sips on macOS, else ffmpeg). Written to a temp file and renamed, so a half-written thumbnail is never served.
+    Returns True when the thumbnail exists afterwards."""
+    out = os.path.join(THUMBS, name + ".jpg")
+    kind = type_of(name)
+    if os.path.exists(out):
+        return True
+    if kind not in ("image", "video") or not os.path.isfile(src):
+        return False
+    with thumb_lock:
+        if os.path.exists(out):
+            return True
+        ck = (src, os.path.getmtime(src))
+        if ck in thumb_failed:
+            return False
+        os.makedirs(THUMBS, exist_ok=True)
+        tmp = os.path.join(THUMBS, "." + name + "." + uuid.uuid4().hex[:8] + ".tmp.jpg")
+        scale = f"scale='min({THUMB_W},iw)':-2"
+        try:
+            if kind == "video" or not shutil.which("sips"):
+                if not shutil.which("ffmpeg"):
+                    return False
+                seek = ["-ss", "0.3"] if kind == "video" else []
+                subprocess.run(["ffmpeg", "-v", "error", "-y", *seek, "-i", src, "-frames:v", "1", "-vf", scale, "-q:v", "4", tmp],
+                               check=False, timeout=120, stdin=subprocess.DEVNULL)
+            else:
+                cmd = ["sips", "-s", "format", "jpeg", "-s", "formatOptions", "80"]
+                r = subprocess.run(["sips", "-g", "pixelWidth", src], capture_output=True, text=True, check=False, timeout=60)
+                try:
+                    w = float(r.stdout.strip().rsplit(" ", 1)[-1])
+                except ValueError:
+                    w = 0
+                cmd += ["--resampleWidth", str(THUMB_W)] if w > THUMB_W or not w else []
+                subprocess.run(cmd + [src, "--out", tmp], capture_output=True, check=False, timeout=120)
+            if os.path.isfile(tmp) and os.path.getsize(tmp) > 0:
+                os.replace(tmp, out)
+                return True
+            thumb_failed.add(ck)
+            return False
+        except (OSError, subprocess.SubprocessError):
+            thumb_failed.add(ck)
+            return False
+        finally:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+
+
+def thumb_sources():
+    """(name, path) of every image and video the job log and inputs/ hold."""
+    with lock:
+        runs = load().get("runs", [])
+    out = [(a, os.path.join(ROOT, a)) for r in runs for a in ([r.get("asset")] + (r.get("assets") or []))
+           if a and type_of(a) in ("image", "video")]
+    out += [(i["file"], os.path.join(INPUTS, i["file"])) for i in list_inputs() if i["type"] in ("image", "video")]
+    return out
+
+
+state_cache = {"key": None, "body": None, "tag": None}
+
+
+def state_body():
+    """The /api/state reply and its ETag, built again only when something it's made from changes: runs.json,
+    balance_history.json, the inputs folder, the key, the sync error, the last balance check, the day (for the
+    daily spend) or which history points fall in the last 24 h."""
+    hist = load_history()
+    first = bisect.bisect_left(hist, time.time() - 86400, key=lambda h: h[0])  # first point inside the window
+    k = api_key()
+    try:
+        inputs_sig = os.stat(INPUTS).st_mtime_ns
+    except OSError:
+        inputs_sig = None
+    # stat everything before reading it: a file changed in between is then read fresh on the next request
+    ck = (file_sig(RUNS), history_cache["sig"], first, inputs_sig, key_cache["sig"], bool(os.environ.get("RUNWAYML_API_SECRET")),
+          state["error"], state["balanceAt"], datetime.now().astimezone().date())
+    if ck == state_cache["key"]:
+        return state_cache["body"], state_cache["tag"]
+    with lock:
+        data = load()
+    data["live"] = bool(k)
+    data["keySource"] = key_source()
+    data["keyHint"] = k[-4:] if k and len(k) >= 12 else None
+    data["inputs"] = list_inputs()
+    data["error"] = state["error"]
+    if state["balanceAt"] and (data.get("balanceAt") or "") < state["balanceAt"]:
+        data["balanceAt"] = state["balanceAt"]
+    data["history"] = hist[max(0, first - 1):]  # with the last point before the window, for a flat start
+    data.update(spent_today(data.get("runs", []), hist))
+    body = json.dumps(data).encode()
+    tag = '"' + hashlib.sha1(body).hexdigest()[:20] + '"'
+    state_cache.update(key=ck, body=body, tag=tag)
+    return body, tag
 
 
 def make_posters():
-    """Save a still frame for each video asset as thumbs/<asset>.jpg (needs ffmpeg)."""
-    if not shutil.which("ffmpeg"):
-        return
-    with lock:
-        runs = load().get("runs", [])
-    vids = [(a, os.path.join(ROOT, a)) for r in runs for a in ([r.get("asset")] + (r.get("assets") or [])) if a and type_of(a) == "video"]
-    vids += [(i["file"], os.path.join(INPUTS, i["file"])) for i in list_inputs() if i["type"] == "video"]
-    for a, src in vids:
-        out = os.path.join(ROOT, "thumbs", a + ".jpg")
-        if os.path.exists(out) or not os.path.exists(src):
-            continue
-        os.makedirs(os.path.dirname(out), exist_ok=True)
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "0.3", "-i", src,
-                        "-frames:v", "1", "-vf", "scale=320:-1", out], check=False)
+    """A thumbnail in thumbs/ for each image and video asset and input that has none yet."""
+    for name, src in thumb_sources():
+        make_thumb(name, src)
 
 
 def loop():
+    seen = None
     while True:
-        try:
-            make_posters()
-        except Exception:
+        try:  # look for missing thumbnails only when the job log or the inputs folder changed
+            sig = (file_sig(RUNS), os.stat(INPUTS).st_mtime_ns if os.path.isdir(INPUTS) else None)
+            if sig != seen:
+                seen = sig
+                enqueue_posters()
+        except OSError:
             pass
         key = api_key()
         if key:
             try:
                 tick(key)
-                state["error"] = None
+                state["error"] = work_state["downloadError"]
             except urllib.error.HTTPError as e:
                 state["error"] = f"Runway API {e.code}"
             except Exception as e:  # network blips etc.
@@ -971,12 +1180,67 @@ def notes_post(action, body):
     raise LookupError
 
 
+class Server(ThreadingHTTPServer):
+    # the default listen backlog is 5: a page asking for dozens of thumbnails at once got connections refused or reset
+    request_queue_size = 128
+    daemon_threads = True
+
+
+DRAIN_MAX = 64 * 1024 * 1024  # request bodies up to this size are read and dropped before an early error reply
+
+
 class Handler(SimpleHTTPRequestHandler):
+    # keep-alive: every reply below carries Content-Length (or is a 204/304 with no body), so the browser can reuse
+    # connections instead of opening one per thumbnail; an idle connection is closed after `timeout` seconds
+    protocol_version = "HTTP/1.1"
+    timeout = 120
+
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=ROOT, **kw)
 
     def log_message(self, *a):
         pass
+
+    def send_response(self, code, message=None):
+        self._code, self._cache_set = code, False
+        super().send_response(code, message)
+
+    def send_header(self, keyword, value):
+        if keyword.lower() == "cache-control":
+            self._cache_set = True
+        super().send_header(keyword, value)
+
+    def end_headers(self):
+        # static files: the page's own code revalidates every load (so an edit shows up on reload), while thumbnails
+        # and media, whose names never get reused for other content, are cached for a day
+        if not getattr(self, "_cache_set", True) and getattr(self, "_code", 0) in (200, 206, 304):
+            path = urllib.parse.unquote(self.path.split("?")[0]).lower()
+            media = path.startswith(("/thumbs/", "/inputs/")) or (path.count("/") == 1 and type_of(path))
+            if media:
+                self.send_header("Cache-Control", "max-age=86400")
+                if self._code != 304:
+                    self.send_header("Accept-Ranges", "bytes")
+            elif path.endswith(("/", ".js", ".mjs", ".css", ".html", ".svg")):
+                self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
+    def body_length(self):
+        try:
+            return max(0, int(self.headers.get("Content-Length", 0) or 0))
+        except ValueError:
+            return 0
+
+    def drain(self, length):
+        """Read and drop an unread request body before answering early: closing a socket with unread data
+        makes the kernel reset the connection, and the browser then sees a reset instead of our reply."""
+        if length > DRAIN_MAX:
+            self.close_connection = True
+            return
+        while length > 0:
+            chunk = self.rfile.read(min(1 << 16, length))
+            if not chunk:
+                break
+            length -= len(chunk)
 
     def do_GET(self):
         route = self.path.split("?")[0]
@@ -1014,24 +1278,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(200 if cat else 503, cat or {"error": "Couldn't download Runway's model list. Check the connection."})
             return
         if self.path.startswith("/api/state"):
-            with lock:
-                data = load()
-            k = api_key()
-            data["live"] = bool(k)
-            data["keySource"] = key_source()
-            data["keyHint"] = k[-4:] if k and len(k) >= 12 else None
-            data["inputs"] = list_inputs()
-            data["error"] = state["error"]
-            try:
-                cutoff = time.time() - 86400
-                hist = json.load(open(HISTORY))
-                before = [h for h in hist if h[0] < cutoff][-1:]  # last point before the window, for a flat start
-                data["history"] = before + [h for h in hist if h[0] >= cutoff]
-            except Exception:
-                data["history"] = []
-            data.update(spent_today(data.get("runs", [])))
-            body = json.dumps(data).encode()
-            tag = '"' + hashlib.sha1(body).hexdigest()[:20] + '"'
+            body, tag = state_body()
             if self.headers.get("If-None-Match") == tag:  # nothing changed since the page's last poll
                 self.send_response(304)
                 self.send_header("ETag", tag)
@@ -1039,6 +1286,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("ETag", tag)
             self.end_headers()
@@ -1047,13 +1295,85 @@ class Handler(SimpleHTTPRequestHandler):
         if any(seg.startswith(".") for seg in urllib.parse.unquote(self.path.split("?")[0]).split("/")):
             self.send_error(404)  # never serve .runway_key
             return
+        if route.startswith("/thumbs/") and route.endswith(".jpg") and self.thumb_fallback(route):
+            return
+        if self.headers.get("Range") and self.send_range():
+            return
         super().do_GET()
 
+
+    def send_range(self):
+        """Answer a single-range request (bytes=a-b, a- or -n) for a media file with 206 Partial Content, or 416 when
+        it starts past the end, so a video can seek into a part it hasn't loaded yet. Returns False to serve the whole
+        file instead: not a media file, several ranges, an unreadable header, or an If-Range that doesn't match."""
+        path = self.translate_path(self.path)
+        if not type_of(path) or not os.path.isfile(path):
+            return False
+        spec = self.headers.get("Range", "").strip()
+        if not spec.startswith("bytes=") or "," in spec:
+            return False
+        first, _, last = spec[len("bytes="):].strip().partition("-")
+        try:
+            size = os.path.getsize(path)
+            mtime = os.path.getmtime(path)
+            if first == "":
+                start, end = max(0, size - int(last)), size - 1
+            else:
+                start, end = int(first), min(int(last), size - 1) if last else size - 1
+        except (ValueError, OSError):
+            return False
+        last_modified = self.date_time_string(int(mtime))
+        if self.headers.get("If-Range") and self.headers["If-Range"] != last_modified:
+            return False
+        if start >= size or start > end or start < 0:
+            self.send_response(416)
+            self.send_header("Content-Range", f"bytes */{size}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return True
+        length = end - start + 1
+        self.send_response(206)
+        self.send_header("Content-Type", self.guess_type(path))
+        self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.send_header("Content-Length", str(length))
+        self.send_header("Last-Modified", last_modified)
+        self.end_headers()
+        try:
+            with open(path, "rb") as f:
+                f.seek(start)
+                while length > 0:
+                    chunk = f.read(min(1 << 16, length))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    length -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # the player moved on (a seek, a closed window)
+        if length:
+            self.close_connection = True
+        return True
+
+    def thumb_fallback(self, route):
+        """A thumbnail that isn't made yet (a job that just finished, an upload): make it now; if that fails for an
+        image, redirect to the full image. Returns True when it answered the request itself."""
+        name = urllib.parse.unquote(route[len("/thumbs/"):-len(".jpg")])
+        if "/" in name or os.path.exists(os.path.join(THUMBS, name + ".jpg")):
+            return False
+        src = next((p for p in (os.path.join(ROOT, name), os.path.join(INPUTS, name)) if os.path.isfile(p)), None)
+        if not src or make_thumb(name, src) or type_of(name) != "image":
+            return False
+        self.send_response(302)
+        self.send_header("Location", ("/inputs/" if src.startswith(INPUTS + os.sep) else "/") + urllib.parse.quote(name))
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        return True
 
     def send_json(self, code, obj):
         body = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
@@ -1068,12 +1388,14 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         route = self.path.split("?")[0]
+        length = self.body_length()
         if route in ("/api/notes", "/api/notes/rename", "/api/notes/delete", "/api/notes/reveal"):
             if not self.same_origin():
+                self.drain(length)
                 self.send_error(403)
                 return
-            length = int(self.headers.get("Content-Length", 0) or 0)
             if length > NOTE_MAX * 2 + 4096:
+                self.drain(length)
                 self.send_json(413, {"error": "Notes can be up to 2 MB."})
                 return
             try:
@@ -1090,21 +1412,24 @@ class Handler(SimpleHTTPRequestHandler):
             return
         action = self.path.split("?")[0].rsplit("/", 1)[-1]
         if not self.path.startswith("/api/") or action not in ("reveal", "open", "generate", "cancel", "key", "upload", "price"):
+            self.drain(length)
             self.send_error(404)
             return
         if not self.same_origin():
+            self.drain(length)
             self.send_error(403)
             return
-        length = int(self.headers.get("Content-Length", 0) or 0)
         if action == "upload":
             try:
                 if length > 2 * 1024 ** 3:
                     raise ValueError("Files over 2 GB can't be used as inputs.")
                 self.send_json(200, save_upload(self, length))
             except ValueError as e:
+                self.drain(getattr(self, "upload_left", length))
                 self.send_json(400, {"error": str(e)})
             return
         if length > 12 * 1024 * 1024:
+            self.drain(length)
             self.send_json(413, {"error": "The request is too big. Start frames must be under 5 MB."})
             return
         if action == "price":
@@ -1124,6 +1449,7 @@ class Handler(SimpleHTTPRequestHandler):
         if action in ("generate", "cancel"):
             key = api_key()
             if not key:
+                self.drain(length)
                 self.send_json(400, {"error": "No Runway API key. Put it in .runway_key next to server.py."})
                 return
             try:
@@ -1170,6 +1496,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    threading.Thread(target=worker, daemon=True).start()
     threading.Thread(target=loop, daemon=True).start()
     print(f"Runway Dashboard on http://localhost:{PORT}  (API key: {'found' if api_key() else 'not set — balance/status update only from runs.json'})")
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    Server(("127.0.0.1", PORT), Handler).serve_forever()

@@ -91,6 +91,47 @@ P1="$(free_port)"; start_server "$FRESH" "$P1" "$TMP/fresh.log"
 P2="$(free_port)"; start_server "$DATAD" "$P2" "$TMP/data.log"
 wait_http "http://127.0.0.1:$P1/"; wait_http "http://127.0.0.1:$P2/"
 
+# Server checks, before the browser: a burst of parallel GETs (the page asks for dozens of thumbnails at once),
+# the /api/state ETag, and an early error reply to a POST with a body (it must answer, not reset the connection).
+server_checks() { # base-url
+  local B="$1" bad=0 tag code n
+  # 200 GETs, 64 in flight at once from one curl: /api/state, the page files, and every media file and thumbnail it names
+  python3 - "$B" >"$TMP/burst.cfg" <<'PY'
+import json, sys, urllib.parse, urllib.request
+b = sys.argv[1]
+d = json.load(urllib.request.urlopen(b + "api/state"))
+paths = ["api/state", "", "index.html", "app.js"]
+for r in d.get("runs", []):
+    for a in [r.get("asset")] + (r.get("assets") or []):
+        if a and r.get("type") in ("image", "video"):
+            paths.append(("thumbs/%s.jpg" if r["type"] == "video" else "%s") % urllib.parse.quote(a))
+for i in range(200):
+    print(f'url = "{b}{paths[i % len(paths)]}"\noutput = "/dev/null"')
+PY
+  n="$(curl -sS --parallel --parallel-immediate --parallel-max 64 --max-time 60 -w '%{http_code}\n' -K "$TMP/burst.cfg" 2>"$TMP/burst.err" | grep -c '^200$' || true)"
+  if [ "$n" != 200 ]; then echo "smoke: burst of 200 parallel GETs on $B: $((200 - n)) failed" >&2; sort -u "$TMP/burst.err" | head -5 >&2; bad=1; fi
+  tag="$(curl -sS -D - -o /dev/null "${B}api/state" | tr -d '\r' | sed -n 's/^[Ee][Tt][Aa][Gg]: //p')"
+  code="$(curl -sS -o /dev/null -w '%{http_code}' -H "If-None-Match: $tag" "${B}api/state")"
+  if [ -z "$tag" ] || [ "$code" != 304 ]; then echo "smoke: /api/state with If-None-Match $tag gave $code, not 304" >&2; bad=1; fi
+  # byte ranges on media (a video seeks into a part it hasn't loaded): 206 with just those bytes, 416 past the end
+  local media; media="$(sed -nE 's/^url = "(.*\.(mp4|mov|webm|mp3|png))"$/\1/p' "$TMP/burst.cfg" | head -1)"
+  if [ -n "$media" ]; then
+    code="$(curl -sS -r 10-109 -o "$TMP/range.bin" -w '%{http_code}' "$media")"
+    if [ "$code" != 206 ] || [ "$(wc -c <"$TMP/range.bin" | tr -d ' ')" != 100 ]; then echo "smoke: Range 10-109 on $media gave $code, $(wc -c <"$TMP/range.bin") bytes" >&2; bad=1; fi
+    code="$(curl -sS -r 999999999999- -o /dev/null -w '%{http_code}' "$media")"
+    if [ "$code" != 416 ]; then echo "smoke: a Range past the end of $media gave $code, not 416" >&2; bad=1; fi
+  fi
+  head -c 5000000 /dev/zero >"$TMP/post.bin"
+  for _ in 1 2 3 4 5; do
+    code="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Expect:' -H 'Content-Type: application/json' \
+      --data-binary @"$TMP/post.bin" "${B}api/nonexistent" 2>>"$TMP/post.err" || true)"
+    if [ "$code" != 404 ]; then echo "smoke: POST with a 5 MB body to /api/nonexistent gave '$code', not 404: $(tail -1 "$TMP/post.err")" >&2; bad=1; break; fi
+  done
+  return $bad
+}
+server_checks "http://127.0.0.1:$P1/" && server_checks "http://127.0.0.1:$P2/" || exit 1
+echo "smoke: server checks passed (parallel GET burst, ETag 304, byte ranges, POST error without reset)"
+
 mkdir -p "$OUT"; rm -f "$OUT"/*.png
 PROFILE="$TMP/chrome"; mkdir -p "$PROFILE"
 "$CHROME" --headless=new --user-data-dir="$PROFILE" --remote-debugging-port=0 --window-size=1440,900 \

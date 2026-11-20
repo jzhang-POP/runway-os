@@ -50,7 +50,7 @@
   const assetsOf = type => newestFirst().filter(r => r.type === type && r.asset).flatMap(r => filesOf(r).map((_, i) => fileItem(r, i)));
   const childrenOf = id => data.runs.filter(r => r.parent === id);
   const createdMs = r => tOf(r.createdAt) || tOf(r.date) || 0;
-  const thumbOf = r => (!r || !r.asset || r.type === "audio" ? null : r.type === "video" ? `thumbs/${encodeURIComponent(r.asset)}.jpg` : encodeURI(r.asset));
+  const thumbOf = r => (!r || !r.asset || r.type === "audio" ? null : `thumbs/${encodeURIComponent(r.asset)}.jpg`); // the server redirects to the original if it can't make one
   const typeIcon = t => (t === "video" ? "i-video" : t === "audio" ? "i-audio" : "i-picture");
   const plural = t => (t === "audio" ? "Audio" : cap(t) + "s");
   const nameOf = r => r.asset || r.prompt.slice(0, 48);
@@ -1211,7 +1211,7 @@
     });
     (data.inputs || []).forEach(i => {
       if (accept.includes(i.type)) out.push({ ref: { input: i.file }, name: i.file, type: i.type, title: `${i.file} (uploaded)`,
-        thumb: i.type === "image" ? `inputs/${encodeURIComponent(i.file)}` : i.type === "video" ? `thumbs/${encodeURIComponent(i.file)}.jpg` : null });
+        thumb: i.type !== "audio" ? `thumbs/${encodeURIComponent(i.file)}.jpg` : null });
     });
     return out;
   }
