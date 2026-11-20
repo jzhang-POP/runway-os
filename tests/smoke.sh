@@ -144,7 +144,7 @@ for _ in $(seq 1 100); do [ -s "$PROFILE/DevToolsActivePort" ] && break; sleep 0
 CDP="$(head -1 "$PROFILE/DevToolsActivePort")"
 
 set +e
-node "$HERE/smoke.mjs" --cdp "$CDP" --app "$REPO/js/main.js" --out "$OUT" \
+node "$HERE/smoke.mjs" --cdp "$CDP" --app "$REPO/js/wm/kinds.js" --out "$OUT" \
   --fresh "http://localhost:$P1/" --data "http://localhost:$P2/"
 code=$?
 set -e

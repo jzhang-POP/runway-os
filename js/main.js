@@ -5,66 +5,12 @@ import { FAV, R_BITS, ledHTML, logoSVG, spark } from "./core/graphics.js";
 import { morph } from "./core/morph.js";
 import { ACTIVE, QUEUED, assetsOf, childrenOf, costHTML, costOf, createdMs, fileItem, filesOf, miniThumb, nameOf, newestFirst, plural, relHTML, runOf, runSig, statusHTML, statusInfo, thumbInner, thumbOf, typeIcon, typicalMs } from "./core/status.js";
 import { absTime, ago, dur, sleep, tOf, upTo } from "./core/time.js";
+import { D, px } from "./wm/geometry.js";
+import { APP_KEYS, KINDS, RENDER, SIG } from "./wm/kinds.js";
 
 const KEY = "runway-os-layout-v3";
 const SNAP = 6;
-
-const D = () => ({ w: desk.clientWidth, h: desk.clientHeight });
-
-/* ---------- window kinds ---------- */
-// every size below is at scale 1 (11 px text) and grows with the Scale option
-const px = n => Math.round(n * S.scale);
-const box = (d, w, h) => ({ wd: Math.min(px(w), d.w - 24), ht: Math.min(px(h), d.h - 24) });
-const centered = (d, w, h, dx = 0, third = false) => { const b = box(d, w, h); return { ...b, x: Math.max(0, Math.round((d.w - b.wd) / 2) + px(dx)), y: Math.max(0, Math.round((d.h - b.ht) / (third ? 3 : 2))) }; };
-const cascade = (cw, ch) => d => {
-  const n = S.seqTop % 8, b = box(d, cw, ch);
-  // stay clear of the desktop icons when there's room
-  return { ...b, x: Math.max(Math.min(px(104), d.w - b.wd), Math.round((d.w - b.wd) / 2) + px(n * 26 - 80)), y: Math.max(0, Math.round((d.h - b.ht) / 2) + px(n * 26 - 80)) };
-};
 const minOf = (w, d) => [Math.min(Math.max(px(KINDS[w.kind].min[0]), w.minW || 0), d.w), Math.min(px(KINDS[w.kind].min[1]), d.h)];
-const KINDS = {
-  overview: {
-    icon: () => "i-logo", title: () => "System Properties", min: [420, 340],
-    geo: d => centered(d, 460, 360, 0, true),
-  },
-  jobs: {
-    icon: () => "i-folder", title: w => `Jobs — ${w.filter === "all" ? "All items" : plural(w.filter)}`, min: [420, 240],
-    geo: d => { const wd = Math.min(px(960), d.w - px(120)), y = Math.min(px(284), Math.round(d.h / 3)); return { wd, ht: d.h - y - 2, x: Math.max(px(104), Math.round((d.w - wd) / 2)), y }; },
-  },
-  terminal: {
-    icon: () => "i-term", title: w => `Terminal — ${w.term?.cwd ? "R:\\" + w.term.cwd.toUpperCase() : "R:\\"}`, min: [380, 240],
-    geo: d => { const g = centered(d, 680, 440, 40); return { ...g, y: Math.max(0, g.y - px(20)) }; },
-  },
-  options: {
-    icon: () => "i-gear", title: () => "Options", min: [380, 360],
-    geo: d => centered(d, 420, 470, 30, true),
-  },
-  usage: {
-    icon: () => "i-chart", title: w => `Usage — last ${w.days || 30} days`, min: [420, 360],
-    geo: d => centered(d, 760, 620, 20),
-  },
-  activity: {
-    icon: () => "i-hourglass", title: () => "Activity", min: [340, 240],
-    geo: d => { const wd = Math.min(px(420), d.w), ht = Math.min(px(520), d.h); return { wd, ht, x: d.w - wd - px(12), y: px(12) }; },
-  },
-  images: { icon: () => "i-picture", title: () => "Images", min: [300, 240], geo: cascade(720, 480) },
-  videos: { icon: () => "i-video", title: () => "Videos", min: [300, 240], geo: cascade(720, 480) },
-  audio: { icon: () => "i-audio", title: () => "Audio", min: [300, 240], geo: cascade(620, 440) },
-  viewer: { icon: w => typeIcon(runOf(w.arg)?.type), title: w => runOf(w.arg)?.asset || "Viewer", min: [300, 260], geo: cascade(660, 680) },
-  generate: {
-    icon: () => "i-wand", title: () => "Generate", min: [360, 420],
-    geo: d => centered(d, 560, 660, 60),
-  },
-  key: {
-    icon: () => "i-key", title: () => "Runway API key", min: [340, 330],
-    geo: d => centered(d, 460, 420, 0, true),
-  },
-  keys: { icon: () => "i-keys", title: () => "Keyboard shortcuts", min: [360, 300], geo: d => centered(d, 520, 600, 0, true) },
-  tree: { icon: () => "i-tree", title: () => "Job tree", min: [360, 300], geo: cascade(900, 620) },
-  props: { icon: () => "i-doc", title: w => `Properties — ${runOf(w.arg) ? nameOf(runOf(w.arg)) : w.arg.slice(0, 8)}`, min: [340, 320], geo: cascade(460, 600) },
-  compare: { icon: () => "i-compare", title: w => { const n = cmpIds(w.arg).length; return `Compare — ${n} item${n === 1 ? "" : "s"}`; }, min: [420, 320], geo: d => centered(d, 1040, 700, 0) },
-  notes: { icon: () => "i-notes", title: w => (noteTitle(w) ? `Notes — ${noteTitle(w)}` : "Notes"), min: [420, 300], geo: cascade(780, 540) },
-};
 
 /* ---------- window lifecycle ---------- */
 function make(kind, arg, g = {}) {
@@ -366,9 +312,6 @@ function jobsFor(w) {
     .filter(r => (w.filter === "all" || r.type === w.filter) && (!q || [r.prompt, r.model, r.taskId, r.asset, r.settings].some(v => String(v || "").toLowerCase().includes(q))))
     .sort((a, b) => { const x = col.get(a), y = col.get(b); return (x < y ? -1 : x > y ? 1 : 0) * w.sort.dir || createdMs(b) - createdMs(a); });
 }
-
-// every shortcut the app handles, shown in the Keyboard shortcuts window and as hints in the menus
-const APP_KEYS = { generate: "G", terminal: "T", jobs: "J", tree: "Shift+J", usage: "U", activity: "A", images: "I", videos: "V", audio: "M", options: "O", notes: "N", keys: "/" };
 const SHORTCUTS = [
   ["Windows", [
     ["Cmd+W or Alt+W", "Close the window (Cmd+W only in full screen)"],
@@ -416,7 +359,6 @@ const SHORTCUTS = [
     ["Enter", "Open the selected file"],
   ]],
 ];
-const RENDER = {};
 function keysRender(w) {
   if (w.shell) return;
   w.shell = true;
@@ -1840,7 +1782,7 @@ const langOfName = n => (NOTE_LANGS.find(l => l[2] === (/\.([^.]+)$/.exec(n || "
 const extOf = lang => (NOTE_LANGS.find(l => l[0] === lang) || NOTE_LANGS[0])[2];
 // a typed name keeps its own known extension, else gets the current language's
 const noteFileName = (v, lang) => (NOTE_LANGS.some(l => new RegExp(`\\.${l[2]}$`, "i").test(v.trim())) ? v.trim() : `${v.trim()}.${extOf(lang)}`);
-const noteTitle = w => w.ed?.name || (w.ed ? "From link" : "");
+export const noteTitle = w => w.ed?.name || (w.ed ? "From link" : "");
 const noteSize = n => (n < 1024 ? `${fmt(n)} bytes` : `${(n / 1024).toFixed(n < 10240 ? 1 : 0)} KB`);
 const noteTermLink = name => `<a class="t-file" data-note-open="${esc(name)}">${esc(name)}</a>`;
 // terminal: a name in notes/ (cd notes first, or write notes/<name>)
@@ -3039,7 +2981,7 @@ function cmpMenu(r, src) {
 }
 
 // the Compare window: arg is the item ids joined by commas ("taskId" or "taskId~n"); w.cmp holds its options
-const cmpIds = arg => [...new Set(String(arg || "").split(",").filter(Boolean))];
+export const cmpIds = arg => [...new Set(String(arg || "").split(",").filter(Boolean))];
 const cmpOpts = w => (w.cmp ||= { mode: "side", sync: true, actual: false, at: 0.5, swap: false });
 function cmpItems(w) {
   const ids = cmpIds(w.arg);
@@ -3857,7 +3799,6 @@ async function bootScreen(modelsLoaded) {
   $("button", act).focus();
   setHint(keyBtn ? "Press Enter to start, or Tab to choose the other button." : "Press Enter to start");
 }
-const SIG = {};
 // the server answers 304 when nothing changed, so an idle poll costs almost nothing
 function schedulePoll() {
   clearTimeout(S.pollT);
