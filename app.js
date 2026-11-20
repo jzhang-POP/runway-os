@@ -190,6 +190,7 @@
     keys: { icon: () => "i-keys", title: () => "Keyboard shortcuts", min: [360, 300], geo: d => centered(d, 520, 600, 0, true) },
     tree: { icon: () => "i-tree", title: () => "Job tree", min: [360, 300], geo: cascade(900, 620) },
     props: { icon: () => "i-doc", title: w => `Properties — ${runOf(w.arg) ? nameOf(runOf(w.arg)) : w.arg.slice(0, 8)}`, min: [340, 320], geo: cascade(460, 600) },
+    compare: { icon: () => "i-compare", title: w => { const n = cmpIds(w.arg).length; return `Compare — ${n} item${n === 1 ? "" : "s"}`; }, min: [420, 320], geo: d => centered(d, 1040, 700, 0) },
     notes: { icon: () => "i-notes", title: w => (noteTitle(w) ? `Notes — ${noteTitle(w)}` : "Notes"), min: [420, 300], geo: cascade(780, 540) },
   };
 
@@ -212,7 +213,7 @@
       id, kind, arg: arg || null, el, body: $(".wbody", el), prev: null, rendered: null, shell: false,
       x: num(g.x, 40), y: num(g.y, 40), wd: num(g.wd, 480), ht: num(g.ht, 320),
       max: !!g.max, minimized: !!g.minimized, snapped: !!g.snapped, pre: g.pre || null,
-      filter: g.filter || "all", q: g.q || "", sort: g.sort || { key: "created", dir: -1 }, size: num(g.size, 132), sel: g.sel || null, tab: g.tab || "general", days: [7, 30, 90].includes(g.days) ? g.days : undefined, act: g.act, solo: !!g.solo,
+      filter: g.filter || "all", q: g.q || "", sort: g.sort || { key: "created", dir: -1 }, size: num(g.size, 132), sel: g.sel || null, tab: g.tab || "general", days: [7, 30, 90].includes(g.days) ? g.days : undefined, act: g.act, solo: !!g.solo, cmp: g.cmp || null,
       gen: { cat: "Video", ep: {}, model: {}, vals: {}, media: {}, adv: false, pending: null, ...(g.gen || {}) },
     };
     w.seq = num(g.seq, ++seqTop); seqTop = Math.max(seqTop, w.seq);
@@ -541,7 +542,7 @@
       ["Ctrl+Cmd+F or F11", "Full screen, where Cmd+W reaches Runway OS"],
       ["Alt+Space", "Window menu (Move, Size…)"],
       ["Ctrl+Esc", "Start menu"],
-      ["Esc", "Close a menu, a viewer or Properties"],
+      ["Esc", "Close a menu, a viewer, Compare or Properties"],
       ["Cmd+,", "Options"],
       ["Cmd+?", "This list"],
     ]],
@@ -554,6 +555,10 @@
       ["Cmd+C", "Copy the selected job (its task ID)"],
       ["Cmd+V in Generate", "Use the copied job, or a copied image file, as an input"],
       ["Shift+F10 or right-click", "Job menu"],
+      ["Cmd+click, Shift+click", "Select several jobs or files"],
+      ["Shift+↑ ↓ ← →", "Extend the selection"],
+      ["Cmd+A", "Select all"],
+      ["Alt+C", "Compare the selected files"],
     ]],
     ["Text fields", [
       ["Cmd+X, Cmd+C, Cmd+V", "Cut, copy, paste"],
@@ -567,6 +572,11 @@
       ["Space", "Play or pause"],
       ["M", "Mute"],
       [", .", "Step one frame"],
+    ]],
+    ["Compare", [
+      ["← →", "Move the wipe divider (Shift: 10%)"],
+      ["Space", "Play or pause all"],
+      ["Enter", "Open the selected file"],
     ]],
   ];
   const RENDER = {
@@ -648,8 +658,9 @@
           <div class="toolbar">
             <div class="seg-tabs" role="group" aria-label="Filter by type"></div>
             <input class="field" type="search" placeholder="Search prompts, models, IDs" aria-label="Search jobs" value="${esc(w.q)}">
+            ${CMP_BTN}
           </div>
-          <div class="table sunken" tabindex="0" role="grid" aria-label="Jobs" data-keep="list">
+          <div class="table sunken" tabindex="0" role="grid" aria-multiselectable="true" aria-label="Jobs" data-keep="list">
             <div class="thead" role="row">${COLS.map(c => `<div class="th c-${c.key}${c.num ? " num" : ""}" role="columnheader" aria-sort="none"><button class="raised" data-sort="${c.key}">${c.label}<i class="arrow"></i></button></div>`).join("")}</div>
             <div class="rows"></div>
           </div>
@@ -665,7 +676,7 @@
       $(".seg-tabs", w.body).innerHTML = types.map(t => `<button class="raised" data-filter="${esc(t)}" aria-pressed="${t === w.filter}">${t === "all" ? "All" : esc(plural(t))}</button>`).join("");
       $$(".th [data-sort]", w.body).forEach(b => { b.parentElement.setAttribute("aria-sort", b.dataset.sort === w.sort.key ? (w.sort.dir > 0 ? "ascending" : "descending") : "none"); });
       morph($(".rows", w.body), list.length ? list.map(r => `
-        <div class="row${r.taskId === w.sel ? " sel" : ""}" role="row" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${r.taskId === w.sel}"${r.asset ? ' draggable="true"' : ""}>
+        <div class="row${isSel(w, r.taskId) ? " sel" : ""}" role="row" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${isSel(w, r.taskId)}"${r.asset ? ' draggable="true"' : ""}>
           <div class="c c-name" role="gridcell">${miniThumb(r)}<span class="nm"><b title="${esc(r.prompt)}">${esc(r.prompt)}</b><small>${esc(r.asset || r.settings)}${filesOf(r).length > 1 ? ` <span class="muted">· ${filesOf(r).length} files</span>` : ""}</small></span></div>
           <div class="c c-type" role="gridcell">${esc(cap(r.type))}</div>
           <div class="c c-model" role="gridcell" title="${esc(r.model)}">${esc(r.model)}</div>
@@ -673,7 +684,7 @@
           <div class="c c-cost num" role="gridcell">${costHTML(r)}</div>
           <div class="c c-created" role="gridcell">${relHTML(r.createdAt || r.date)}</div>
         </div>${filesOf(r).slice(1).map((_, k) => { const f = fileItem(r, k + 1); return `
-        <div class="row kid${f.taskId === w.sel ? " sel" : ""}" role="row" id="${itemId(w, f.taskId)}" data-id="${esc(f.taskId)}" aria-selected="${f.taskId === w.sel}" draggable="true">
+        <div class="row kid${isSel(w, f.taskId) ? " sel" : ""}" role="row" id="${itemId(w, f.taskId)}" data-id="${esc(f.taskId)}" aria-selected="${isSel(w, f.taskId)}" draggable="true">
           <div class="c c-name" role="gridcell">${miniThumb(f)}<span class="nm"><b title="${esc(f.asset)}">${esc(f.asset)}</b><small>File ${k + 2} of ${filesOf(r).length}</small></span></div>
           <div class="c c-type" role="gridcell">${esc(cap(r.type))}</div>
           <div class="c c-model" role="gridcell"></div><div class="c c-status" role="gridcell"></div><div class="c c-cost num" role="gridcell"></div><div class="c c-created" role="gridcell"></div>
@@ -681,8 +692,9 @@
         : `<div role="row"><div role="gridcell">${loadingOr(w.q ? `No jobs match “${esc(w.q)}”.${emptyAct('<button class="raised btn-s" data-clearq>Clear search</button>')}`
           : `No jobs yet. Jobs show up here as soon as they're submitted.${emptyAct(GEN_BTN)}`)}</div></div>`);
       activeSync(w);
-      const segs = $$(".statusbar .seg", w.body), selRun = runOf(w.sel);
-      segs[0].textContent = `${list.length} object${list.length === 1 ? "" : "s"}${selRun ? ` · ${selRun.asset || selRun.taskId} selected` : ""}`;
+      const segs = $$(".statusbar .seg", w.body);
+      segs[0].textContent = `${list.length} object${list.length === 1 ? "" : "s"}${selNote(w)}`;
+      cmpBtnSync(w);
       segs[1].textContent = `${fmt(list.reduce((s, r) => s + (r.credits || 0), 0))} credits`;
       segs[2].textContent = "Double-click or Enter to open";
     },
@@ -740,7 +752,7 @@
         ["Model", esc(r.model)], ["Settings", esc(r.settings)],
         ...(r.failure ? [["Failure", `<span class="bad">${esc(r.failure)}</span>${r.failureCode ? ` <code>${esc(r.failureCode)}</code>` : ""}`]] : []),
         ["Task ID", `<code>${esc(r._of || r.taskId)}</code>`], ["File", r.asset ? esc(r.asset) + (filesOf(r).length > 1 ? ` <span class="muted">(file ${r._n || 1} of ${filesOf(r).length})</span>` : "") : "Not saved yet"],
-        ...(parent ? [["Made from", chip(parent)]] : []),
+        ...(parent ? [["Made from", parent.asset && r.asset ? `<span class="chips">${chip(parent)}<button class="raised btn-s" data-compare="${esc(parent.taskId + "," + r.taskId)}" title="This file and its source side by side">${icoLabel("i-compare", "Compare")}</button></span>` : chip(parent)]] : []),
         ...(kids.length ? [["Used in", `<span class="chips">${kids.map(chip).join("")}</span>`]] : []),
       ];
       morph(w.body, `
@@ -774,15 +786,15 @@
     if (!w.shell) {
       w.shell = true;
       w.body.innerHTML = `
-        <div class="toolbar"><label class="sizer">Size <input type="range" min="84" max="260" step="4" value="${w.size}" aria-label="Thumbnail size" aria-valuetext="${w.size} px thumbnails"></label></div>
-        <div class="gridwrap sunken" data-keep="grid" tabindex="0" role="listbox" aria-label="${plural(type)}"><div class="grid"></div></div>
+        <div class="toolbar"><label class="sizer">Size <input type="range" min="84" max="260" step="4" value="${w.size}" aria-label="Thumbnail size" aria-valuetext="${w.size} px thumbnails"></label>${CMP_BTN}</div>
+        <div class="gridwrap sunken" data-keep="grid" tabindex="0" role="listbox" aria-multiselectable="true" aria-label="${plural(type)}"><div class="grid"></div></div>
         <div class="statusbar"><span class="sunken seg grow"></span><span class="sunken seg">${type === "video" ? "Hover to preview · " : ""}Double-click or Enter to open</span></div>`;
       $("input", w.body).addEventListener("input", e => { w.size = +e.target.value; e.target.setAttribute("aria-valuetext", `${w.size} px thumbnails`); $(".grid", w.body).style.setProperty("--tile", w.size + "px"); save(); });
     }
     const items = assetsOf(type), grid = $(".grid", w.body), wrap = $(".gridwrap", w.body);
     grid.style.setProperty("--tile", w.size + "px");
     morph(grid, items.length ? items.map(r => `
-      <div class="tile${r.taskId === w.sel ? " sel" : ""}" role="option" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${r.taskId === w.sel}" aria-label="${esc(r.asset)}" title="${esc(r.prompt)}" draggable="true">
+      <div class="tile${isSel(w, r.taskId) ? " sel" : ""}" role="option" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${isSel(w, r.taskId)}" aria-label="${esc(r.asset)}" title="${esc(r.prompt)}" draggable="true">
         <span class="thumb sunken">${thumbInner(thumbOf(r), type)}${type === "video" ? '<span class="play"></span>' : ""}</span>
         <span class="cap">${esc(r.asset)}</span>
       </div>`).join("") : loadingOr(`No ${type === "audio" ? "audio" : type + "s"} yet. Finished ${type === "audio" ? "audio files are" : type + "s are"} saved here automatically.${emptyAct(GEN_BTN)}`));
@@ -790,8 +802,8 @@
     wrap.setAttribute("role", items.length ? "listbox" : "group");
     items.length ? wrap.setAttribute("tabindex", "0") : wrap.removeAttribute("tabindex");
     activeSync(w);
-    const selRun = runOf(w.sel);
-    $(".statusbar .seg", w.body).textContent = `${items.length} object${items.length === 1 ? "" : "s"}${selRun && selRun.type === type ? ` · ${selRun.asset} selected` : ""}`;
+    $(".statusbar .seg", w.body).textContent = `${items.length} object${items.length === 1 ? "" : "s"}${selNote(w)}`;
+    cmpBtnSync(w);
     if (type === "video" && !w.hoverBound) {
       w.hoverBound = true;
       grid.addEventListener("pointerover", e => {
@@ -2979,12 +2991,15 @@
   function keyMsg(w, text) { const m = $(".kmsg", w.body); if (m) { m.hidden = !text; m.textContent = text || ""; } }
 
   /* ---------- selection in lists and galleries ---------- */
-  function select(w, id, scroll) {
+  // keep: leave a multi-selection (Cmd+click, Shift+click) as it is and only move the focused item
+  function select(w, id, scroll, keep) {
     w.sel = id;
-    $$("[data-id].row, [data-id].tile, [data-id].tnode", w.body).forEach(el => { const on = el.dataset.id === id; el.classList.toggle("sel", on); el.setAttribute("aria-selected", on); if (on && scroll) el.scrollIntoView({ block: "nearest" }); });
+    if (!keep) { w.multi = null; w.anchor = id; }
+    $$("[data-id].row, [data-id].tile, [data-id].tnode", w.body).forEach(el => { const on = isSel(w, el.dataset.id); el.classList.toggle("sel", on); el.setAttribute("aria-selected", on); if (el.dataset.id === id && scroll) el.scrollIntoView({ block: "nearest" }); });
     activeSync(w);
-    const r = runOf(id), seg = $(".statusbar .seg", w.body);
-    if (seg && r) seg.textContent = seg.textContent.replace(/ · .* selected$/, "") + ` · ${r.asset || r.taskId} selected`;
+    const seg = $(".statusbar .seg", w.body);
+    if (seg) seg.textContent = seg.textContent.replace(/ · .* selected$/, "") + selNote(w);
+    cmpBtnSync(w);
     save();
   }
   // the focusable list (.table grid or .gridwrap listbox) names the selected row or tile as its active descendant
@@ -3006,6 +3021,395 @@
     } else n = i < 0 ? 0 : i + delta;
     select(w, items[clampN(n, 0, items.length - 1)].dataset.id, true);
   }
+
+  /* ---------- multi-select (Jobs, Images, Videos, Audio) and the Compare window ---------- */
+  // w.sel stays the focused item (Enter, Cmd+I, the job menu); w.multi, when set, is the whole selection and w.anchor where Shift ranges start
+  const MULTI = new Set(["jobs", "images", "videos", "audio"]);
+  const CMP_MAX = 12;
+  const CMP_BTN = `<button type="button" class="raised btn-s" data-compare-sel disabled title="Pick two or more with Cmd+click or Shift+click, then see them side by side (Alt+C)">${icoLabel("i-compare", "Compare")}</button>`;
+  const cmpBase = id => String(id ?? "").split("~")[0];
+  const isSel = (w, id) => (w.multi ? w.multi.has(id) : id != null && id === w.sel);
+  const listIds = w => $$("[data-id].row, [data-id].tile", w.body).map(el => el.dataset.id);
+  // the selected items in list order (only the ones the list shows)
+  function selIds(w) {
+    if (!w.multi) return w.sel && runOf(w.sel) ? [w.sel] : [];
+    return listIds(w).filter(id => w.multi.has(id));
+  }
+  function selNote(w) {
+    const n = MULTI.has(w.kind) ? selIds(w).length : 0;
+    if (n > 1) return ` · ${n} selected`;
+    const r = runOf(w.sel);
+    return r ? ` · ${r.asset || r.taskId} selected` : "";
+  }
+  function cmpBtnSync(w) {
+    const b = $("[data-compare-sel]", w.body); if (!b) return;
+    const n = selIds(w).length, t = n > 1 ? `Compare (${n})` : "Compare", s = $("span", b);
+    b.disabled = n < 2;
+    if (s.textContent !== t) s.textContent = t;
+  }
+  // Cmd+click adds or removes one item, Shift+click selects the range from the anchor (with Cmd, adds it); true when handled
+  function multiClick(w, id, e) {
+    const add = MAC ? e.metaKey : e.ctrlKey;
+    if (!w || !MULTI.has(w.kind) || (!add && !e.shiftKey)) return false;
+    if (e.shiftKey) {
+      const ids = listIds(w), b = ids.indexOf(id);
+      let a = ids.indexOf(w.anchor ?? w.sel);
+      if (a < 0) { a = b; w.anchor = id; }
+      const range = ids.slice(Math.min(a, b), Math.max(a, b) + 1);
+      w.multi = new Set(add ? [...selIds(w), ...range] : range);
+      select(w, id, false, true);
+    } else {
+      const m = new Set(selIds(w));
+      m.has(id) ? m.delete(id) : m.add(id);
+      w.multi = m; w.anchor = id;
+      select(w, m.has(id) ? id : [...m].pop() ?? null, false, true);
+    }
+    getSelection()?.removeAllRanges();
+    return true;
+  }
+  // right-click on an item of a multi-selection keeps the selection (the menu then offers Compare)
+  function menuSelect(w, id) {
+    if (w && MULTI.has(w.kind) && isSel(w, id) && selIds(w).length > 1) select(w, id, false, true);
+    else select(w, id);
+  }
+  function selectAll(w) {
+    const ids = listIds(w); if (!ids.length) return;
+    w.multi = new Set(ids);
+    select(w, w.multi.has(w.sel) ? w.sel : ids[0], false, true);
+  }
+  // Shift+arrow keys: move like the arrow keys, then select from the anchor to there
+  function extendSel(w, delta) {
+    const anchor = w.anchor ?? w.sel;
+    moveSel(w, delta);
+    const ids = listIds(w), a = ids.indexOf(anchor), b = ids.indexOf(w.sel);
+    if (a < 0 || b < 0) return;
+    w.multi = new Set(ids.slice(Math.min(a, b), Math.max(a, b) + 1)); w.anchor = anchor;
+    select(w, w.sel, false, true);
+  }
+  function compare(ids, src) {
+    ids = [...new Set(ids)].filter(id => runOf(id));
+    if (ids.length < 2) return null;
+    if (ids.length > CMP_MAX) { balloon({ title: "Compare", text: `Showing the first ${CMP_MAX} of ${ids.length} files.`, icon: "i-compare", ms: 5000 }); ids = ids.slice(0, CMP_MAX); }
+    return open("compare", ids.join(","), src);
+  }
+  function compareSel(w, src) {
+    if (compare(selIds(w), src)) return;
+    balloon({ title: "Compare", text: "Pick two or more first: Cmd+click or Shift+click them.", icon: "i-compare", ms: 5000 });
+  }
+  // job menu entries: the selection, the files of a multi-output job, the job and its source, the jobs made from the same source
+  function cmpMenu(r, src) {
+    const w = src && winOf(src), ids = w && MULTI.has(w.kind) && isSel(w, r.taskId) ? selIds(w) : [];
+    const base = cmpBase(r.taskId), job = runOf(base), files = job ? filesOf(job) : [];
+    const parent = r.parent ? runOf(r.parent) : null;
+    const sibs = r.parent ? data.runs.filter(x => x.parent && cmpBase(x.parent) === cmpBase(r.parent) && x.asset).sort((a, b) => createdMs(a) - createdMs(b)) : [];
+    return [
+      ids.length > 1 && { label: `Compare (${ids.length})`, icon: "i-compare", hint: "Alt+C", act: () => compare(ids, src) },
+      files.length > 1 && { label: `Compare outputs (${files.length})`, icon: "i-compare", act: () => compare(files.map((_, i) => (i ? `${base}~${i + 1}` : base)), src) },
+      parent?.asset && r.asset && { label: "Compare with source", icon: "i-compare", act: () => compare([parent.taskId, r.taskId], src) },
+      sibs.length > 1 && { label: `Compare with siblings (${sibs.length})`, icon: "i-compare", act: () => compare(sibs.map(x => x.taskId), src) },
+    ];
+  }
+
+  // the Compare window: arg is the item ids joined by commas ("taskId" or "taskId~n"); w.cmp holds its options
+  const cmpIds = arg => [...new Set(String(arg || "").split(",").filter(Boolean))];
+  const cmpOpts = w => (w.cmp ||= { mode: "side", sync: true, actual: false, at: 0.5, swap: false });
+  function cmpItems(w) {
+    const ids = cmpIds(w.arg);
+    if (cmpOpts(w).swap && ids.length === 2) ids.reverse();
+    return ids.map((id, i) => ({ id, r: runOf(id), letter: i < 26 ? String.fromCharCode(65 + i) : String(i + 1) }));
+  }
+  // "diff" when the known values don't all match, "same" when they do, "" with fewer than two
+  const diffCls = vals => { const k = vals.filter(v => v != null); return k.length < 2 ? "" : k.every(v => v === k[0]) ? "same" : "diff"; };
+  function cmpInfo(w, items) {
+    const rs = items.map(x => x.r), live = rs.filter(Boolean);
+    const cls = get => diffCls(rs.map(r => (r ? get(r) : null)));
+    const pkeys = [...new Set(live.flatMap(r => Object.keys(r.params || {}).filter(k => k !== "promptText")))];
+    const pval = (r, k) => { const v = r.params?.[k]; return v == null ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v); };
+    const words = s => new Set(String(s || "").toLowerCase().match(/[\p{L}\p{N}']+/gu) || []);
+    const sets = rs.map(r => (r ? words(r.prompt) : null));
+    const size = x => (x.r?.asset ? w.sizes[x.id] ?? null : null);
+    const C = {
+      status: cls(r => statusInfo(r).label), type: cls(r => r.type), model: cls(r => r.model), settings: cls(r => r.settings || ""),
+      credits: cls(r => costOf(r)), parent: cls(r => (r.parent ? cmpBase(r.parent) : "")), prompt: cls(r => r.prompt || ""),
+      size: diffCls(items.map(size)), params: Object.fromEntries(pkeys.map(k => [k, cls(r => pval(r, k))])),
+    };
+    const showStatus = live.some(r => r.status !== "succeeded"), showParent = live.some(r => r.parent), showSize = live.some(r => r.asset);
+    return items.map((x, i) => {
+      const r = x.r;
+      if (!r) return `<p class="muted">This job is no longer in runs.json.</p>`;
+      const files = filesOf(runOf(cmpBase(r.taskId)) || r).length, parent = r.parent ? runOf(r.parent) : null;
+      const prompt = C.prompt !== "diff" ? esc(r.prompt) : String(r.prompt || "").split(/([\p{L}\p{N}']+)/u)
+        .map((t, k) => (k % 2 && sets.some((s, j) => s && j !== i && !s.has(t.toLowerCase())) ? `<b>${esc(t)}</b>` : esc(t))).join("");
+      const rows = [
+        showStatus && ["Status", C.status, statusHTML(r, false)],
+        ["Type", C.type, esc(cap(r.type))],
+        ["Model", C.model, esc(r.model)],
+        ["Settings", C.settings, esc(r.settings || "—")],
+        pkeys.length && ["Parameters", "", pkeys.map(k => `<span class="${C.params[k]}">${esc(k)} ${esc(pval(r, k))}</span>`).join("<br>")],
+        showSize && ["Size", C.size, esc(size(x) ?? "—")],
+        ["Credits", C.credits, `${costHTML(r)}${files > 1 ? ` <span class="muted">for all ${files} files</span>` : ""}`],
+        ["Task ID", "", `<code>${esc(r._of || r.taskId)}</code>${files > 1 ? ` <span class="muted">file ${r._n || 1} of ${files}</span>` : ""}`],
+        ["Created", "", r.createdAt ? esc(absTime(tOf(r.createdAt))) : esc(r.date || "—")],
+        showParent && ["Made from", C.parent, parent ? esc(nameOf(parent)) : r.parent ? `<code>${esc(cmpBase(r.parent).slice(0, 8))}</code>` : "—"],
+      ].filter(Boolean);
+      return `<dl class="cmp-dl">${rows.map(([k, c, v]) => `<dt>${k}</dt><dd class="${c}">${v}</dd>`).join("")}</dl>
+        <div class="plabel">Prompt</div><div class="promptbox sunken cmp-prompt ${C.prompt}">${prompt || '<span class="muted">No prompt</span>'}</div>`;
+    });
+  }
+  function cmpFrameHTML(x, o) {
+    const r = x.r, id = esc(x.id);
+    if (!r) return `<div class="cmp-frame sunken none">This job is no longer in runs.json.</div>`;
+    if (!r.asset) return `<div class="cmp-frame sunken none"><span><svg class="ico big" aria-hidden="true"><use href="#${typeIcon(r.type)}"/></svg>${ACTIVE.has(r.status) ? "The file shows here when the job finishes." : "No file"}</span></div>`;
+    const src = encodeURI(r.asset);
+    if (r.type === "audio") return `<div class="cmp-frame sunken audio" data-id="${id}"><svg class="aud-ico" aria-hidden="true"><use href="#i-audio"/></svg><audio src="${src}" controls preload="metadata" data-size-of="${id}"></audio></div>`;
+    if (r.type === "video") return `<div class="cmp-frame sunken checker" data-id="${id}" draggable="true"><video src="${src}" poster="${thumbOf(r)}" controls muted playsinline preload="auto"${o.sync ? "" : " loop"} data-size-of="${id}"></video></div>`;
+    return `<div class="cmp-frame sunken checker${o.actual ? " actual" : ""}" data-id="${id}"${o.actual ? "" : ' draggable="true"'} title="${o.actual ? "Drag to look around: all the images follow" : ""}"><img src="${src}" alt="${esc(r.prompt)}" draggable="false" data-size-of="${id}"></div>`;
+  }
+  const cmpColHTML = (w, x, frame) => `
+    <div class="cmp-col" data-col="${esc(x.id)}">
+      <div class="cmp-head" data-id="${esc(x.id)}"${x.r?.asset ? ' draggable="true"' : ""} title="${esc(x.r?.prompt || "")}"><b class="cmp-letter">${x.letter}</b><span class="nm1">${esc(x.r ? nameOf(x.r) : x.id)}</span></div>
+      ${frame ? cmpFrameHTML(x, cmpOpts(w)) : ""}
+      <div class="cmp-info"></div>
+    </div>`;
+  function cmpWipeHTML(w, [a, b]) {
+    const o = cmpOpts(w), pct = Math.round(o.at * 100);
+    return `<div class="cmp-wipe sunken checker${o.actual ? " actual" : ""}">
+      <div class="cw-scroll"><div class="cw-canvas"><img class="cw-a" src="${encodeURI(a.r.asset)}" alt="${esc(a.r.prompt)}" draggable="false" data-size-of="${esc(a.id)}"><img class="cw-b" src="${encodeURI(b.r.asset)}" alt="${esc(b.r.prompt)}" draggable="false" data-size-of="${esc(b.id)}"></div></div>
+      <span class="cw-tag a">A · ${esc(nameOf(a.r))}</span><span class="cw-tag b">B · ${esc(nameOf(b.r))}</span>
+      <div class="cw-line" role="slider" tabindex="0" aria-label="Wipe divider, A on the left and B on the right" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" style="left:${o.at * 100}%"><span class="cw-grip raised"></span></div>
+    </div>`;
+  }
+
+  function cmpRender(w) {
+    const o = cmpOpts(w), items = cmpItems(w), live = items.filter(x => x.r), shown = items.filter(x => x.r?.asset);
+    const imgs = shown.filter(x => x.r.type === "image"), media = shown.filter(x => x.r.type !== "image");
+    const canWipe = items.length === 2 && imgs.length === 2, wipe = canWipe && o.mode === "wipe";
+    const n = items.length, cols = n <= 4 ? Math.max(1, n) : n <= 6 ? 3 : 4;
+    if (!w.shell) {
+      w.shell = true; w.sizes = {};
+      w.body.innerHTML = `<div class="toolbar cmp-bar"></div><div class="cmp-main" data-keep="cmp"></div>
+        <div class="statusbar"><span class="sunken seg grow"></span><span class="sunken seg"></span><span class="sunken seg"></span></div>`;
+      cmpBind(w);
+    }
+    morph($(".cmp-bar", w.body), `${canWipe ? `<div class="seg-tabs" role="group" aria-label="Layout"><button class="raised" data-cmp-mode="side" aria-pressed="${!wipe}">Side by side</button><button class="raised" data-cmp-mode="wipe" aria-pressed="${wipe}">Wipe</button></div>` : ""}${imgs.length ? `<label class="check"><input type="checkbox" data-cmp-opt="actual"${o.actual ? " checked" : ""}><span>Actual size</span></label>` : ""}${media.length > 1 ? `<label class="check"><input type="checkbox" data-cmp-opt="sync"${o.sync ? " checked" : ""}><span>Sync playback</span></label>` : ""}${media.length ? `<button class="raised btn-s" data-cmp-play title="Space">Play all</button>` : ""}${wipe ? `<button class="raised btn-s" data-cmp-swap title="Put ${esc(nameOf(items[1].r))} on the left">Swap sides</button>` : ""}`);
+    $$("[data-cmp-opt]", w.body).forEach(c => { c.checked = !!o[c.dataset.cmpOpt]; });
+    const main = $(".cmp-main", w.body), key = [wipe, o.actual, cols, ...items.map(x => `${x.id}:${x.r?.asset || ""}`)].join("|");
+    if (w.rendered !== key) {
+      w.rendered = key;
+      w.cmpRO?.disconnect(); w.cmpRO = null; w.cmpPaint = null;
+      main.innerHTML = !items.length ? loadingOr("Nothing to compare.")
+        : wipe ? `${cmpWipeHTML(w, items)}<div class="cmp-grid infos" style="--cmp-cols:2">${items.map(x => cmpColHTML(w, x, false)).join("")}</div>`
+        : `<div class="cmp-grid${n <= cols ? " one" : ""}" style="--cmp-cols:${cols}">${items.map(x => cmpColHTML(w, x, true)).join("")}</div>`;
+      cmpMediaBind(w);
+      if (wipe) cmpWipe(w);
+    }
+    const infos = cmpInfo(w, items);
+    $$(".cmp-info", main).forEach((el, i) => morph(el, infos[i]));
+    $$(".cmp-col", main).forEach(el => el.classList.toggle("sel", el.dataset.col === w.sel));
+    cmpPlayLabel(w);
+    // credits once per job: the files of a multi-output job share its charge
+    const jobs = new Map(live.map(x => [cmpBase(x.id), runOf(cmpBase(x.id)) || x.r]));
+    const total = [...jobs.values()].reduce((s, r) => s + (costOf(r) || 0), 0), est = [...jobs.values()].some(r => r.credits == null && r.estimatedCredits != null);
+    const segs = $$(".statusbar .seg", w.body), gone = n - live.length;
+    segs[0].textContent = `${n} item${n === 1 ? "" : "s"} from ${jobs.size} job${jobs.size === 1 ? "" : "s"}${gone ? ` · ${gone} no longer in runs.json` : ""}`;
+    segs[1].textContent = `${est ? "~" : ""}${fmt(total)} credits in total`;
+    segs[2].textContent = wipe ? "Drag the divider or press ← →" : "Double-click to open";
+  }
+  RENDER.compare = cmpRender;
+
+  // sizes and durations once the files load (shown and compared in the Size row); sync and panning
+  function cmpMediaBind(w) {
+    const main = $(".cmp-main", w.body);
+    $$("[data-size-of]", main).forEach(m => {
+      const id = m.dataset.sizeOf, set = v => { if (w.sizes[id] !== v) { w.sizes[id] = v; renderWin(w); } };
+      if (m.tagName === "IMG") { const f = () => m.naturalWidth && set(`${m.naturalWidth}×${m.naturalHeight}`); m.complete ? f() : m.addEventListener("load", f, { once: true }); }
+      else { const f = () => set(m.tagName === "VIDEO" ? `${m.videoWidth}×${m.videoHeight} · ${m.duration.toFixed(1)}s` : `${m.duration.toFixed(1)}s`); m.readyState >= 1 ? f() : m.addEventListener("loadedmetadata", f, { once: true }); }
+    });
+    cmpSync(w);
+    // actual size side by side: drag to pan, and every image follows to the same spot
+    const frames = $$(".cmp-frame.actual", main);
+    let quiet = false;
+    frames.forEach(f => {
+      const img = $("img", f), center = () => { f.scrollLeft = (f.scrollWidth - f.clientWidth) / 2; f.scrollTop = (f.scrollHeight - f.clientHeight) / 2; };
+      img.complete ? center() : img.addEventListener("load", center, { once: true });
+      f.addEventListener("scroll", () => {
+        if (quiet) return;
+        const fx = f.scrollLeft / Math.max(1, f.scrollWidth - f.clientWidth), fy = f.scrollTop / Math.max(1, f.scrollHeight - f.clientHeight);
+        quiet = true;
+        frames.forEach(g => { if (g !== f) { g.scrollLeft = fx * (g.scrollWidth - g.clientWidth); g.scrollTop = fy * (g.scrollHeight - g.clientHeight); } });
+        requestAnimationFrame(() => { quiet = false; });
+      });
+      cmpPan(f, f);
+    });
+  }
+  // drag inside el to scroll sc
+  function cmpPan(el, sc, when = () => true) {
+    el.addEventListener("pointerdown", e => {
+      if (e.button !== 0 || !when(e)) return;
+      const sx = e.clientX, sy = e.clientY, sl = sc.scrollLeft, st = sc.scrollTop;
+      e.preventDefault(); el.setPointerCapture(e.pointerId); el.classList.add("panning");
+      const mv = ev => { sc.scrollLeft = sl - (ev.clientX - sx); sc.scrollTop = st - (ev.clientY - sy); };
+      const up = () => { el.removeEventListener("pointermove", mv); el.classList.remove("panning"); };
+      el.addEventListener("pointermove", mv);
+      el.addEventListener("pointerup", up, { once: true }); el.addEventListener("pointercancel", up, { once: true });
+    });
+  }
+
+  // two images, B over A and cut off left of the divider; in actual size both are drawn at the larger one's pixel size, so they stay aligned
+  function cmpWipe(w) {
+    const box = $(".cmp-wipe", w.body), o = cmpOpts(w); if (!box) return;
+    const sc = $(".cw-scroll", box), cv = $(".cw-canvas", box), [ia, ib] = $$(".cw-canvas img", box), line = $(".cw-line", box);
+    const paint = () => {
+      line.style.left = o.at * 100 + "%";
+      const p = Math.round(o.at * 100), lr = line.getBoundingClientRect(), cr = cv.getBoundingClientRect();
+      ib.style.clipPath = `inset(0 0 0 ${Math.max(0, lr.left + lr.width / 2 - cr.left)}px)`;
+      line.setAttribute("aria-valuenow", p);
+      line.setAttribute("aria-valuetext", `${p}% A, ${100 - p}% B`);
+    };
+    const layout = () => {
+      const big = [ia, ib].sort((x, y) => y.naturalWidth * y.naturalHeight - x.naturalWidth * x.naturalHeight)[0];
+      const on = o.actual && big.naturalWidth > 0;
+      cv.style.width = on ? big.naturalWidth + "px" : ""; cv.style.height = on ? big.naturalHeight + "px" : "";
+      if (on && !box.dataset.centered) { box.dataset.centered = "1"; sc.scrollLeft = (sc.scrollWidth - sc.clientWidth) / 2; sc.scrollTop = (sc.scrollHeight - sc.clientHeight) / 2; }
+      paint();
+    };
+    [ia, ib].forEach(i => (i.complete ? null : i.addEventListener("load", layout, { once: true })));
+    layout();
+    sc.addEventListener("scroll", paint);
+    w.cmpRO = new ResizeObserver(paint); w.cmpRO.observe(box);
+    w.cmpPaint = paint;
+    // the divider follows the pointer from a press anywhere (in actual size, from the divider only; elsewhere the press pans)
+    box.addEventListener("pointerdown", e => {
+      if (e.button !== 0 || (o.actual && !e.target.closest(".cw-line"))) return;
+      e.preventDefault(); line.focus({ preventScroll: true });
+      box.setPointerCapture(e.pointerId);
+      const at = ev => { const br = sc.getBoundingClientRect(); o.at = clampN((ev.clientX - br.left) / br.width, 0, 1); paint(); };
+      if (!e.target.closest(".cw-line")) at(e);
+      const up = () => { box.removeEventListener("pointermove", at); save(); };
+      box.addEventListener("pointermove", at);
+      box.addEventListener("pointerup", up, { once: true }); box.addEventListener("pointercancel", up, { once: true });
+    });
+    cmpPan(box, sc, e => o.actual && !e.target.closest(".cw-line"));
+  }
+  function cmpWipeMove(w, to) {
+    const o = cmpOpts(w); if (!w.cmpPaint) return;
+    o.at = clampN(to, 0, 1); w.cmpPaint(); save();
+  }
+  // which side of the divider a point is on: the item shown there
+  function cmpWipeItem(w, x) {
+    const line = $(".cw-line", w.body), items = cmpItems(w); if (!line) return null;
+    const lr = line.getBoundingClientRect();
+    return items[x < lr.left + lr.width / 2 ? 0 : 1];
+  }
+
+  // Sync playback: play, pause, seek and speed on one file go to all; when every file has ended they start over together
+  function cmpSync(w) {
+    const els = $$(".cmp-frame video, .cmp-frame audio", w.body), o = cmpOpts(w);
+    if (!els.length) return;
+    // changes made here fire the same events as the user's: ignore those for a moment
+    const quiet = new Map(els.map(m => [m, {}]));
+    const hush = (m, ev, fn) => { quiet.get(m)[ev] = performance.now() + 400; fn(); };
+    const mine = (m, ev) => performance.now() < (quiet.get(m)[ev] || 0);
+    let lead = els[0];
+    const follow = (m, fn) => { if (!o.sync || els.length < 2) return; els.forEach(x => { if (x !== m) fn(x); }); };
+    const seekTo = (x, t) => { const tt = Math.min(t, x.duration || t); if (Math.abs(x.currentTime - tt) > 0.04) hush(x, "seeking", () => { x.currentTime = tt; }); };
+    els.forEach(m => {
+      m.addEventListener("play", () => {
+        cmpPlayLabel(w);
+        if (mine(m, "play")) return;
+        lead = m;
+        follow(m, x => { seekTo(x, m.currentTime); if (x.paused && m.currentTime < (x.duration || Infinity) - 0.05) hush(x, "play", () => x.play().catch(() => {})); });
+      });
+      m.addEventListener("pause", () => {
+        cmpPlayLabel(w);
+        if (mine(m, "pause") || m.ended) return;
+        follow(m, x => { if (!x.paused) hush(x, "pause", () => x.pause()); });
+      });
+      m.addEventListener("seeking", () => { if (!mine(m, "seeking")) { lead = m; follow(m, x => seekTo(x, m.currentTime)); } });
+      m.addEventListener("ratechange", () => { if (!mine(m, "ratechange")) follow(m, x => { if (x.playbackRate !== m.playbackRate) hush(x, "ratechange", () => { x.playbackRate = m.playbackRate; }); }); });
+      m.addEventListener("ended", () => {
+        cmpPlayLabel(w);
+        if (!o.sync || els.length < 2 || !els.every(x => x.ended)) return;
+        els.forEach(x => { hush(x, "seeking", () => { x.currentTime = 0; }); hush(x, "play", () => x.play().catch(() => {})); });
+      });
+      // keep the others on the leader's clock (files of different lengths stop at their end)
+      m.addEventListener("timeupdate", () => {
+        if (m !== lead || m.paused || !o.sync) return;
+        follow(m, x => { if (!x.paused && m.currentTime < (x.duration || 0) && Math.abs(x.currentTime - m.currentTime) > 0.15) hush(x, "seeking", () => { x.currentTime = m.currentTime; }); });
+      });
+    });
+    w.cmpMedia = { els, setSync: on => { els.forEach(x => { x.loop = !on; }); if (on) els.forEach(x => x !== lead && seekTo(x, lead.currentTime)); } };
+  }
+  function cmpPlayAll(w) {
+    const els = w.cmpMedia?.els.filter(x => x.isConnected) || []; if (!els.length) return;
+    const playing = els.some(x => !x.paused);
+    els.forEach(x => { if (playing) x.pause(); else x.play().catch(() => {}); });
+  }
+  function cmpPlayLabel(w) {
+    const b = $("[data-cmp-play]", w.body); if (!b) return;
+    const t = (w.cmpMedia?.els || []).some(x => x.isConnected && !x.paused) ? "Pause all" : "Play all";
+    if (b.textContent !== t) b.textContent = t;
+  }
+
+  function cmpBind(w) {
+    const b = w.body, o = cmpOpts(w);
+    const colOf = (e, t = e.target) => {
+      const c = t.closest("[data-col]"); if (c) return { id: c.dataset.col, el: $(".cmp-head", c) };
+      const x = t.closest(".cmp-wipe") && cmpWipeItem(w, e.clientX); return x ? { id: x.id, el: t.closest(".cmp-wipe") } : null;
+    };
+    const pick = id => { w.sel = id; $$(".cmp-col", b).forEach(el => el.classList.toggle("sel", el.dataset.col === id)); save(); };
+    b.addEventListener("click", e => {
+      const m = e.target.closest("[data-cmp-mode]"); if (m) { o.mode = m.dataset.cmpMode; renderWin(w); save(); return; }
+      if (e.target.closest("[data-cmp-swap]")) { o.swap = !o.swap; w.rendered = null; renderWin(w); save(); return; }
+      if (e.target.closest("[data-cmp-play]")) { cmpPlayAll(w); return; }
+      const c = e.target.closest("[data-col]"); if (c) pick(c.dataset.col);
+    });
+    b.addEventListener("change", e => {
+      const c = e.target.closest("[data-cmp-opt]"); if (!c) return;
+      o[c.dataset.cmpOpt] = c.checked; save();
+      if (c.dataset.cmpOpt === "sync") w.cmpMedia?.setSync(c.checked); else renderWin(w);
+    });
+    b.addEventListener("dblclick", e => {
+      if (e.target.closest(".cmp-bar, video, audio, .cmp-info")) return;
+      const c = colOf(e), r = c && runOf(c.id); if (r) defaultOpen(r, c.el);
+    });
+    b.addEventListener("contextmenu", e => {
+      if (e.shiftKey || e.target.closest(".cmp-bar, .promptbox")) return;
+      const c = colOf(e), r = c && runOf(c.id); if (!r) return;
+      e.preventDefault(); pick(c.id);
+      runMenu(r, e.clientX, e.clientY, c.el);
+    });
+    // the keyboard while the window is in front
+    b.addEventListener("keydown", e => {
+      if (e.altKey || e.metaKey || e.ctrlKey || e.target.closest("input, textarea, select, video, audio")) return;
+      if ((e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "Home" || e.key === "End") && w.cmpPaint) {
+        e.preventDefault();
+        const d = (e.shiftKey ? 0.1 : 0.01) * (e.key === "ArrowLeft" ? -1 : 1);
+        cmpWipeMove(w, e.key === "Home" ? 0 : e.key === "End" ? 1 : o.at + d);
+      } else if (e.key === " " && !e.target.closest("button") && w.cmpMedia) { e.preventDefault(); cmpPlayAll(w); }
+      else if (e.key === "Enter" && !e.target.closest("button") && runOf(w.sel)) { e.preventDefault(); defaultOpen(runOf(w.sel)); }
+    });
+  }
+
+  // Alt+C compares the selection, Cmd+A selects everything in the list; Shift+arrows extend the selection (capture: before the plain arrow keys)
+  addEventListener("keydown", ev => {
+    if (kb || !menuEl.hidden || !startMenu.hidden) return;
+    const f = frontWin(), t = ev.target instanceof Element ? ev.target : document.body;
+    if (!f || !MULTI.has(f.kind) || t.closest("input, textarea, select, [contenteditable], .dicon")) return;
+    const cmd = MAC ? ev.metaKey && !ev.ctrlKey : ev.ctrlKey && !ev.metaKey, L = letterOf(ev);
+    if (ev.altKey && !cmd && !ev.shiftKey && !ev.metaKey && !ev.ctrlKey && L === "c") { ev.preventDefault(); ev.stopPropagation(); compareSel(f); return; }
+    if (cmd && !ev.altKey && !ev.shiftKey && L === "a") { ev.preventDefault(); ev.stopPropagation(); selectAll(f); return; }
+    if (!ev.shiftKey || ev.altKey || ev.metaKey || ev.ctrlKey) return;
+    const grid = f.kind !== "jobs";
+    const d = { ArrowDown: grid ? 2 : 1, ArrowUp: grid ? -2 : -1, ArrowRight: grid ? 1 : 0, ArrowLeft: grid ? -1 : 0, Home: -1e6, End: 1e6 }[ev.key];
+    if (!d) return;
+    ev.preventDefault(); ev.stopPropagation();
+    extendSel(f, d);
+  }, true);
+  desk.addEventListener("click", e => {
+    const s = e.target.closest("[data-compare-sel]"); if (s) { compareSel(winOf(s), s); return; }
+    const c = e.target.closest("[data-compare]"); if (c) compare(c.dataset.compare.split(","), c);
+  });
 
   /* ---------- context menus ---------- */
   let menuItems = [], menuReturn = null;
@@ -3039,6 +3443,7 @@
       { label: r.asset ? "Open" : "Properties", icon: r.asset ? typeIcon(r.type) : "i-doc", bold: true, hint: "Enter", act: () => defaultOpen(r, src) },
       r.asset && { label: "Properties", icon: "i-doc", hint: "Cmd+I", act: () => open("props", r.taskId, src) },
       r.parent && runOf(r.parent) && { label: "Go to source", act: () => open("props", r.parent, src) },
+      ...cmpMenu(r, src),
       { sep: true },
       r.type === "image" && r.asset && { label: "Animate into video…", icon: "i-animate", act: () => genFrom(r, "animate", src) },
       (r.type === "image" || r.type === "video") && r.asset && { label: "Upscale…", icon: "i-upscale", act: () => genFrom(r, "upscale", src) },
@@ -3599,7 +4004,8 @@
     const o = e.target.closest("[data-open]"); if (o) { open(o.dataset.open, o.dataset.id || null, o); return; }
     const it = e.target.closest(".row[data-id], .tile[data-id], .tnode[data-id]");
     if (it) {
-      const w = winOf(it); select(w, it.dataset.id);
+      const w = winOf(it); if (multiClick(w, it.dataset.id, e)) return;
+      select(w, it.dataset.id);
       if (lastPointer === "touch" && runOf(it.dataset.id)) defaultOpen(runOf(it.dataset.id), it);
     }
   });
@@ -3612,7 +4018,7 @@
     const r = it ? runOf(it.dataset.id) : st ? runOf(winOf(st)?.arg) : null;
     if (!r) return;
     e.preventDefault();
-    if (it) select(winOf(it), it.dataset.id);
+    if (it) menuSelect(winOf(it), it.dataset.id);
     runMenu(r, e.clientX, e.clientY, it || st);
   });
 
@@ -3625,7 +4031,7 @@
       if (!menuEl.hidden) { hideMenu(); return; }
       if (!startMenu.hidden) { setStart(false); startBtn.focus(); return; }
       const f = frontWin();
-      if (f && (f.kind === "viewer" || f.kind === "props") && !e.target.closest("input")) close(f);
+      if (f && (f.kind === "viewer" || f.kind === "props" || f.kind === "compare") && !e.target.closest("input")) close(f);
       return;
     }
     if (!menuEl.hidden || !startMenu.hidden) return;
@@ -3713,7 +4119,7 @@
     clearTimeout(saveT);
     if (resetting) return;
     saveT = setTimeout(() => {
-      const list = [...wins.values()].map(w => ({ kind: w.kind, arg: w.arg, x: w.x, y: w.y, wd: w.wd, ht: w.ht, max: w.max, minimized: w.minimized, snapped: w.snapped, pre: w.pre, z: w.z, seq: w.seq, filter: w.filter, q: w.q, sort: w.sort, size: w.size, sel: w.sel, tab: w.tab, days: w.days, act: w.kind === "activity" ? w.act : undefined, solo: w.kind === "tree" ? !!w.solo : undefined, gen: w.kind === "generate" ? w.gen : undefined }));
+      const list = [...wins.values()].map(w => ({ kind: w.kind, arg: w.arg, x: w.x, y: w.y, wd: w.wd, ht: w.ht, max: w.max, minimized: w.minimized, snapped: w.snapped, pre: w.pre, z: w.z, seq: w.seq, filter: w.filter, q: w.q, sort: w.sort, size: w.size, sel: w.sel, tab: w.tab, days: w.days, act: w.kind === "activity" ? w.act : undefined, solo: w.kind === "tree" ? !!w.solo : undefined, gen: w.kind === "generate" ? w.gen : undefined, cmp: w.kind === "compare" ? w.cmp : undefined }));
       try { localStorage.setItem(KEY, JSON.stringify(list)); } catch {}
     }, 150);
   }
@@ -3721,7 +4127,7 @@
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(KEY)); } catch {}
     if (!Array.isArray(saved)) { open("terminal"); return; } // first launch: just the terminal
-    saved.filter(s => KINDS[s.kind] && (s.kind === "viewer" || s.kind === "props" ? s.arg : true)).sort((a, b) => a.z - b.z).forEach(s => make(s.kind, s.arg, s));
+    saved.filter(s => KINDS[s.kind] && (s.kind === "viewer" || s.kind === "props" || s.kind === "compare" ? s.arg : true)).sort((a, b) => a.z - b.z).forEach(s => make(s.kind, s.arg, s));
     refreshFront();
   }
   // first launch (no saved layout, so restoreLayout opens just the terminal): once the first state poll answers
