@@ -96,8 +96,6 @@ button.thumb { cursor: pointer; }
 .thumb img, .thumb video { position: absolute; inset: 3px; width: calc(100% - 6px); height: calc(100% - 6px); object-fit: cover; }
 .thumb .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
 .thumb .empty .ico.big { opacity: .85; }
-.thumb img + .empty { display: none; }
-.thumb img[hidden] + .empty { display: grid; }
 .empty.plus { font-size: var(--fsL); }
 .mini { position: relative; width: var(--ico-xl); height: var(--ico-xl); flex: none; display: grid; place-items: center; overflow: hidden; }
 .mini img { position: absolute; inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); object-fit: cover; }
