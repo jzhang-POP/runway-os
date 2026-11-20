@@ -1,6 +1,6 @@
 import { S, wins } from "../core/state.js";
 import { $, $$, esc, fmt } from "../core/dom.js";
-import { api } from "../core/api.js";
+import { postJSON as api } from "../core/api.js";
 import { fileItem, filesOf, newestFirst, runOf, thumbInner, thumbOf } from "../core/status.js";
 import { balloon } from "../core/ui.js";
 import { px } from "../wm/geometry.js";
