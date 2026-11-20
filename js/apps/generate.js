@@ -304,7 +304,7 @@ export function genMatchAspect(w, ref) {
   const apply = asp => { const r = closestRatio(f.options, asp); if (!r || mkey(w) !== key) return; vals(w).ratio = r; const sel = $('select[data-f="ratio"]', w.body); if (sel) sel.value = r; genRatioPreview(w); genRefresh(w); save(); };
   if (aspectCache.has(k)) return apply(aspectCache.get(k));
   const im = new Image();
-  im.onload = () => { aspectCache.set(k, im.naturalWidth / im.naturalHeight); apply(im.naturalWidth / im.naturalHeight); };
+  im.onload = () => { if (aspectCache.size >= 500) aspectCache.delete(aspectCache.keys().next().value); aspectCache.set(k, im.naturalWidth / im.naturalHeight); apply(im.naturalWidth / im.naturalHeight); };
   im.src = item.ref.run ? encodeURI(item.name) : `inputs/${encodeURIComponent(item.name)}`;
 }
 

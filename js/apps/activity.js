@@ -19,7 +19,9 @@ export const etaText = end => (end > Date.now() ? `~${dur(end - Date.now())} lef
 export function activityList(w) {
   const since = Math.max(Date.now() - 86400000, w.act?.clearedAt || 0), hide = new Set(w.act?.hide || []);
   const ids = new Set(S.data.runs.map(r => r.taskId));
-  const rows = [...S.data.runs, ...Object.values(fresh).filter(r => !ids.has(r.taskId))];
+  // a sent row is dropped once runs.json has it (or after a day, if it never shows up)
+  for (const id in fresh) if (ids.has(id) || (createdMs(fresh[id]) || Date.now()) < Date.now() - 86400000) delete fresh[id];
+  const rows = [...S.data.runs, ...Object.values(fresh)];
   return rows.filter(r => !hide.has(r.taskId) && (ACTIVE.has(r.status) || createdMs(r) >= since))
     .sort((a, b) => (ACTIVE.has(b.status) - ACTIVE.has(a.status)) || createdMs(b) - createdMs(a)).slice(0, 20);
 }
