@@ -8,8 +8,10 @@ import { RENDER } from "../wm/kinds.js";
 import { save } from "../wm/persist.js";
 import { focus, frontWin, open } from "../wm/windows.js";
 import { activityShow } from "./activity.js";
+import { genLibBar } from "./promptlib.js";
 import { spendCheck, spendHint } from "./spend.js";
-import { DRAG_TYPE, genLibBar, poll } from "../main.js";
+import { DRAG_TYPE } from "../dnd.js";
+import { poll } from "../main.js";
 
 /* ---------- generate: every Runway task and model, as forms built from Runway's API spec ---------- */
 export const aspectCache = new Map();

@@ -9,7 +9,7 @@ import { KINDS, RENDER, SIG } from "../wm/kinds.js";
 import { save } from "../wm/persist.js";
 import { renderTasks } from "../wm/taskbar.js";
 import { frontWin, open, retitle } from "../wm/windows.js";
-import { noteUseAsPrompt } from "../main.js";
+import { noteUseAsPrompt } from "./promptlib.js";
 
 /* ---------- notes: plain-text files in notes/, a NoPaste-style editor, and links that carry a whole note ----------
    A link is the text, deflate-raw compressed and base64url encoded into the fragment (#note=…&l=…), as in Blender's
