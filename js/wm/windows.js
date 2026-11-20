@@ -103,8 +103,8 @@ export function focusInto(w) {
 export const refocus = none => queueMicrotask(() => { const f = frontWin(); f ? focusInto(f) : none()?.focus(); });
 
 /* ---------- geometry ---------- */
-export function fit(w) {
-  const d = D(), [mw, mh] = minOf(w, d);
+export function fit(w, d = D()) {
+  const [mw, mh] = minOf(w, d);
   w.wd = Math.round(clampN(w.wd, mw, d.w));
   w.ht = Math.round(clampN(w.ht, mh, d.h));
   w.x = Math.round(clampN(w.x, 0, d.w - w.wd));
@@ -119,8 +119,8 @@ export function fitActions(w) {
   rows.forEach(a => a.classList.toggle("wrap", w.minW > D().w)); // at large Scale sizes the icon buttons wrap instead of running off screen
   if (!w.max && w.wd < w.minW) { fit(w); place(w); }
 }
-export function place(w) {
-  const d = D(), s = w.el.style, g = w.max ? { x: 0, y: 0, wd: d.w, ht: d.h } : w;
+export function place(w, d = D()) {
+  const s = w.el.style, g = w.max ? { x: 0, y: 0, wd: d.w, ht: d.h } : w;
   s.left = g.x + "px"; s.top = g.y + "px"; s.width = g.wd + "px"; s.height = g.ht + "px"; s.zIndex = w.z;
   w.el.classList.toggle("max", w.max);
   w.el.hidden = w.minimized;
@@ -286,5 +286,10 @@ export function init() {
   // true while a Tab keypress moves focus
   addEventListener("keydown", e => { S.tabbing = e.key === "Tab"; }, true);
   addEventListener("keyup", () => { S.tabbing = false; }, true);
-  addEventListener("resize", () => { wins.forEach(w => { fit(w); place(w); }); layoutIcons(); });
+  // once per frame however many resize events arrive, measuring the desktop once
+  let resizeRaf = 0;
+  addEventListener("resize", () => {
+    if (resizeRaf) return;
+    resizeRaf = requestAnimationFrame(() => { resizeRaf = 0; const d = D(); wins.forEach(w => { fit(w, d); place(w, d); }); layoutIcons(); });
+  });
 }
