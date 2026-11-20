@@ -630,6 +630,16 @@
   .sd-note { margin: var(--s2) 0 0; }
   .sd-win .sheet-foot { padding: var(--s2) var(--s4) var(--s4); }
 
+  /* ---------- spending guard: daily credit limit (Options → Spending, Generate's confirm, tray) ---------- */
+  .sg-text { min-width: 0; }
+  .sg-text p { margin: 0 0 var(--s2); }
+  .opt-limit { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+  .opt-limit input.field { flex: none; min-width: 0; width: round(calc(120 * var(--u)), 1px); }
+  .opt-limit-h { margin: var(--s2) 0 0; }
+  .spent-today { margin: var(--s3) 0 0; font-variant-numeric: tabular-nums; }
+  #tray-bal.spend-near { color: var(--run); font-weight: 700; }
+  #tray-bal.spend-over { color: var(--bad); font-weight: 700; }
+
   /* ---------- menus, balloon ---------- */
   /* screen-reader support: live region, balloon Open button, blocked Generate, Jobs and gallery extras */
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
