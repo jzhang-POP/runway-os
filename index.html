@@ -488,6 +488,16 @@
   .nt-item.sel { background: var(--sel); color: #fff; }
   .nt-item.sel small { color: #fff; }
   .window:not(.front) .nt-item.sel { background: var(--sel-off); }
+  /* notes as a prompt library: Prompts… and Save to Notes… under Generate's prompt (left), the counter stays right;
+     the field help, when there is one, takes its own line above them. Menus list notes with a preview of the first line. */
+  .gtfoot:has(.gplib) { flex-wrap: wrap; align-items: center; row-gap: var(--s2); }
+  .gtfoot:has(.gplib) .ghelp { flex: 1 1 100%; }
+  .gplib { flex: none; display: flex; flex-wrap: wrap; gap: var(--s2); order: 1; }
+  .gtfoot .gcount { order: 2; }
+  .menu { max-height: 100dvh; overflow-y: auto; }
+  .menu .msub { min-width: 0; max-width: 24em; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: inherit; }
+  .menu button:not(:disabled):hover .msub, .menu button:focus-visible .msub { color: #c9d4ff; }
+  .nt-item[draggable="true"] { -webkit-user-drag: element; }
   /* the bevel is on a frame around the scroller, so text scrolling sideways or up never paints over it */
   .nt-frame { min-height: 0; min-width: 0; padding: 2px; display: flex; }
   .nt-scroll { --nt-lh: round(calc(var(--fs) * 1.5), 1px); --nt-g: calc(var(--nt-d, 2) * 1ch + 2 * var(--s2));
