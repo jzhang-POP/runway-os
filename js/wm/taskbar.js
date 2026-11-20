@@ -1,6 +1,7 @@
 import { S, wins } from "../core/state.js";
 import { $, $$, esc, fmt, menuEl, startBtn, startMenu, tasksEl } from "../core/dom.js";
 import { FAV } from "../core/graphics.js";
+import { morph } from "../core/morph.js";
 import { ACTIVE } from "../core/status.js";
 import { fileAction } from "../core/ui.js";
 import { APP_KEYS, KINDS } from "./kinds.js";
@@ -19,12 +20,17 @@ export function setTitle() {
 
 /* ---------- taskbar, tray, start menu ---------- */
 export const taskBtn = w => $(`[data-task="${CSS.escape(w.id)}"]`, tasksEl);
+// the buttons are rebuilt (morphed, keyed by data-task) only when the windows, their order, titles or icons change;
+// a change of front window just moves aria-pressed
+const tasksLast = { html: "" };
 export function renderTasks() {
-  const f = frontWin();
-  tasksEl.innerHTML = [...wins.values()].sort((a, b) => a.seq - b.seq).map(w => {
+  const f = frontWin(), list = [...wins.values()].sort((a, b) => a.seq - b.seq);
+  const html = list.map(w => {
     const K = KINDS[w.kind], title = K.title(w);
-    return `<button class="task raised" data-task="${esc(w.id)}" aria-pressed="${w === f}" title="${esc(title)}"><svg class="ico"><use href="#${K.icon(w)}"/></svg><span>${esc(title)}</span></button>`;
+    return `<button class="task raised" data-task="${esc(w.id)}" aria-pressed="false" title="${esc(title)}"><svg class="ico"><use href="#${K.icon(w)}"/></svg><span>${esc(title)}</span></button>`;
   }).join("");
+  if (html !== tasksLast.html || tasksEl.childElementCount !== list.length) { tasksLast.html = html; morph(tasksEl, html); }
+  [...tasksEl.children].forEach((b, i) => { const on = String(list[i] === f); if (b.getAttribute("aria-pressed") !== on) b.setAttribute("aria-pressed", on); });
 }
 
 export function renderTray() {

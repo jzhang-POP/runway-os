@@ -78,6 +78,8 @@ export function unsnap(w) {
 
 export const frontWin = () => [...wins.values()].filter(w => !w.minimized).sort((a, b) => b.z - a.z)[0] || null;
 export function focus(w) {
+  // a click inside the window that is already in front: nothing to change (this runs on every pointerdown)
+  if (w.z === S.zTop && !w.minimized && w.el.classList.contains("front")) return;
   if (w.z !== S.zTop) { w.z = ++S.zTop; w.el.style.zIndex = w.z; }
   refreshFront();
 }

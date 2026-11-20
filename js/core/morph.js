@@ -11,7 +11,7 @@ const isLive = n => n.nodeType === 1 && n.hasAttribute("data-live");
 // the rest are paired by position among the unkeyed ones
 const keyOf = n => {
   if (n.nodeType !== 1) return null;
-  const k = n.getAttribute("data-id") ?? n.getAttribute("data-nt-item") ?? n.getAttribute("data-mref") ?? n.getAttribute("data-col") ?? n.getAttribute("data-key") ?? (n.id || null);
+  const k = n.getAttribute("data-id") ?? n.getAttribute("data-nt-item") ?? n.getAttribute("data-mref") ?? n.getAttribute("data-col") ?? n.getAttribute("data-task") ?? n.getAttribute("data-key") ?? (n.id || null);
   return k == null ? null : n.nodeName + "#" + k;
 };
 // move a node that is already in the page: moveBefore keeps focus, playing media and running animations where it can
