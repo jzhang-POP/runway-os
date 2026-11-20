@@ -610,31 +610,32 @@ const SHORTCUTS = [
     ["Enter", "Open the selected file"],
   ]],
 ];
-const RENDER = {
-  keys(w) {
-    if (w.shell) return;
-    w.shell = true;
-    w.body.innerHTML = `
+const RENDER = {};
+function keysRender(w) {
+  if (w.shell) return;
+  w.shell = true;
+  w.body.innerHTML = `
         <div class="pwrap keys" data-keep="keys">
           ${SHORTCUTS.filter(([, rows]) => rows.length).map(([title, rows]) => `<fieldset class="group"><legend>${esc(title)}</legend>
             <dl class="ptbl keytbl">${rows.map(([k, v]) => `<dt>${k.split(/( or |, | \/ )/).map(part => /^( or |, | \/ )$/.test(part) ? `<span class="muted">${part}</span>` : `<kbd>${esc(part)}</kbd>`).join("")}</dt><dd>${esc(v)}</dd>`).join("")}</dl></fieldset>`).join("")}
           <p class="muted">Chrome keeps Cmd+W, Cmd+T, Cmd+N and Cmd+Q for itself, except in full screen, where Runway OS gets Cmd+W. The Alt shortcuts work everywhere.</p>
         </div>`;
-  },
-  // "System Properties": a Win95 property sheet with General, Usage and Connection tabs
-  overview(w) {
-    const runs = S.data.runs, running = runs.filter(r => r.status === "running"), queued = runs.filter(r => QUEUED.has(r.status));
-    const v = { balance: S.data.balance };
-    const fl = "";
-    const delta = S.sessionStart != null && S.data.balance != null ? S.sessionStart.balance - S.data.balance : 0;
-    const ps = running.map(r => r.progress).filter(p => p != null);
-    const det = running.length && ps.length === running.length ? Math.round((ps.reduce((a, b) => a + b, 0) / ps.length) * 100) : null;
-    const checked = S.data.balanceAt ? new Date(S.data.balanceAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : null;
-    const count = t => runs.filter(r => r.type === t && r.asset).length;
-    const tab = w.tab || "general", T = [["general", "General"], ["usage", "Usage"], ["connection", "Connection"]];
-    let panel = "";
-    if (tab === "general") {
-      panel = `
+}
+RENDER.keys = keysRender;
+// "System Properties": a Win95 property sheet with General, Usage and Connection tabs
+function overviewRender(w) {
+  const runs = S.data.runs, running = runs.filter(r => r.status === "running"), queued = runs.filter(r => QUEUED.has(r.status));
+  const v = { balance: S.data.balance };
+  const fl = "";
+  const delta = S.sessionStart != null && S.data.balance != null ? S.sessionStart.balance - S.data.balance : 0;
+  const ps = running.map(r => r.progress).filter(p => p != null);
+  const det = running.length && ps.length === running.length ? Math.round((ps.reduce((a, b) => a + b, 0) / ps.length) * 100) : null;
+  const checked = S.data.balanceAt ? new Date(S.data.balanceAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : null;
+  const count = t => runs.filter(r => r.type === t && r.asset).length;
+  const tab = w.tab || "general", T = [["general", "General"], ["usage", "Usage"], ["connection", "Connection"]];
+  let panel = "";
+  if (tab === "general") {
+    panel = `
           <div class="sp-gen">
             <div class="sp-logo">${logoSVG("#ffffff")}</div>
             <dl class="sp-facts">
@@ -645,10 +646,10 @@ const RENDER = {
                 <div class="prog sunken${running.length + queued.length && det == null ? " busy" : ""}"><i style="${det != null ? `width:${det}%;opacity:1` : ""}"></i></div></dd>
             </dl>
           </div>`;
-    } else if (tab === "usage") {
-      const sp = spark(S.data.history, 480, 120, true);
-      const row = (label, val, open) => `<button class="sp-row" data-open="${open}"><span>${label}</span><b>${val}</b></button>`;
-      panel = `
+  } else if (tab === "usage") {
+    const sp = spark(S.data.history, 480, 120, true);
+    const row = (label, val, open) => `<button class="sp-row" data-open="${open}"><span>${label}</span><b>${val}</b></button>`;
+    panel = `
           <fieldset class="group"><legend>Your jobs</legend>
             <div class="sp-rows">
               ${row("Jobs logged", fmt(runs.length), "jobs")}
@@ -663,9 +664,9 @@ const RENDER = {
             ${sp.svg || '<div class="spark-empty big">Collecting balance history. The chart fills in as the server checks every 20 s.</div>'}
             <div class="muted">${sp.spent != null ? `Your org spent ${fmt(sp.spent)} credits in the last 24 h.` : ""}</div>
           </fieldset>`;
-    } else {
-      const where = S.data.keySource === "file" ? "saved in .runway_key" : S.data.keySource === "env" ? "from RUNWAYML_API_SECRET" : "none";
-      panel = `
+  } else {
+    const where = S.data.keySource === "file" ? "saved in .runway_key" : S.data.keySource === "env" ? "from RUNWAYML_API_SECRET" : "none";
+    panel = `
           <fieldset class="group"><legend>Runway API</legend>
             <dl class="sp-facts tight">
               <dt>Status:</dt><dd><span class="live ${S.conn.cls}">${esc(S.conn.text)}</span></dd>
@@ -676,16 +677,16 @@ const RENDER = {
             </dl>
             <div class="actions"><button class="raised btn-s" data-open="key">${icoLabel("i-key", "Change key…")}</button></div>
           </fieldset>`;
-    }
-    morph(w.body, sheetHTML(T, tab, panel));
-    sheetKeys(w);
-    w.prev = v;
-  },
-
-  jobs(w) {
-    if (!w.shell) {
-      w.shell = true;
-      w.body.innerHTML = `
+  }
+  morph(w.body, sheetHTML(T, tab, panel));
+  sheetKeys(w);
+  w.prev = v;
+}
+RENDER.overview = overviewRender;
+function jobsRender(w) {
+  if (!w.shell) {
+    w.shell = true;
+    w.body.innerHTML = `
           <div class="toolbar">
             <div class="seg-tabs" role="group" aria-label="Filter by type"></div>
             <input class="field" type="search" placeholder="Search prompts, models, IDs" aria-label="Search jobs" value="${esc(w.q)}">
@@ -696,17 +697,17 @@ const RENDER = {
             <div class="rows"></div>
           </div>
           <div class="statusbar"><span class="sunken seg grow"></span><span class="sunken seg"></span><span class="sunken seg"></span></div>`;
-      $(".field", w.body).addEventListener("input", e => { w.q = e.target.value; RENDER.jobs(w); save(); });
-      // empty list: "Clear search" empties the search box and puts the cursor back in it
-      $(".rows", w.body).addEventListener("click", e => {
-        if (!e.target.closest("[data-clearq]")) return;
-        const f = $(".field", w.body); f.value = w.q = ""; RENDER.jobs(w); save(); f.focus();
-      });
-    }
-    const list = jobsFor(w), types = ["all", ...new Set(S.data.runs.map(r => r.type))];
-    $(".seg-tabs", w.body).innerHTML = types.map(t => `<button class="raised" data-filter="${esc(t)}" aria-pressed="${t === w.filter}">${t === "all" ? "All" : esc(plural(t))}</button>`).join("");
-    $$(".th [data-sort]", w.body).forEach(b => { b.parentElement.setAttribute("aria-sort", b.dataset.sort === w.sort.key ? (w.sort.dir > 0 ? "ascending" : "descending") : "none"); });
-    morph($(".rows", w.body), list.length ? list.map(r => `
+    $(".field", w.body).addEventListener("input", e => { w.q = e.target.value; RENDER.jobs(w); save(); });
+    // empty list: "Clear search" empties the search box and puts the cursor back in it
+    $(".rows", w.body).addEventListener("click", e => {
+      if (!e.target.closest("[data-clearq]")) return;
+      const f = $(".field", w.body); f.value = w.q = ""; RENDER.jobs(w); save(); f.focus();
+    });
+  }
+  const list = jobsFor(w), types = ["all", ...new Set(S.data.runs.map(r => r.type))];
+  $(".seg-tabs", w.body).innerHTML = types.map(t => `<button class="raised" data-filter="${esc(t)}" aria-pressed="${t === w.filter}">${t === "all" ? "All" : esc(plural(t))}</button>`).join("");
+  $$(".th [data-sort]", w.body).forEach(b => { b.parentElement.setAttribute("aria-sort", b.dataset.sort === w.sort.key ? (w.sort.dir > 0 ? "ascending" : "descending") : "none"); });
+  morph($(".rows", w.body), list.length ? list.map(r => `
         <div class="row${isSel(w, r.taskId) ? " sel" : ""}" role="row" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${isSel(w, r.taskId)}"${r.asset ? ' draggable="true"' : ""}>
           <div class="c c-name" role="gridcell">${miniThumb(r)}<span class="nm"><b title="${esc(r.prompt)}">${esc(r.prompt)}</b><small>${esc(r.asset || r.settings)}${filesOf(r).length > 1 ? ` <span class="muted">· ${filesOf(r).length} files</span>` : ""}</small></span></div>
           <div class="c c-type" role="gridcell">${esc(cap(r.type))}</div>
@@ -720,41 +721,40 @@ const RENDER = {
           <div class="c c-type" role="gridcell">${esc(cap(r.type))}</div>
           <div class="c c-model" role="gridcell"></div><div class="c c-status" role="gridcell"></div><div class="c c-cost num" role="gridcell"></div><div class="c c-created" role="gridcell"></div>
         </div>`; }).join("")}`).join("")
-      : `<div role="row"><div role="gridcell">${loadingOr(w.q ? `No jobs match “${esc(w.q)}”.${emptyAct('<button class="raised btn-s" data-clearq>Clear search</button>')}`
-        : `No jobs yet. Jobs show up here as soon as they're submitted.${emptyAct(GEN_BTN)}`)}</div></div>`);
-    activeSync(w);
-    const segs = $$(".statusbar .seg", w.body);
-    segs[0].textContent = `${list.length} object${list.length === 1 ? "" : "s"}${selNote(w)}`;
-    cmpBtnSync(w);
-    segs[1].textContent = `${fmt(list.reduce((s, r) => s + (r.credits || 0), 0))} credits`;
-    segs[2].textContent = "Double-click or Enter to open";
-  },
-
-  generate: w => genRender(w),
-  key: w => keyRender(w),
-  terminal: w => termRender(w),
-  options: w => optionsRender(w),
-  usage: w => usageRender(w),
-  activity: w => activityRender(w),
-  images: w => gallery(w, "image"),
-  audio: w => gallery(w, "audio"),
-  videos: w => gallery(w, "video"),
-  tree: w => treeRender(w),
-  notes: w => notesRender(w),
-
-  viewer(w) {
-    const r = runOf(w.arg);
-    if (!r || !r.asset) { w.rendered = null; w.body.innerHTML = loadingOr(r ? "This file isn't saved yet. It opens here when the job finishes." : "This job is no longer in runs.json."); return; }
-    const list = assetsOf(r.type), i = list.findIndex(x => x.taskId === r.taskId);
-    const nav = `<button class="raised btn-s" data-step="-1" ${i <= 0 ? "disabled" : ""} title="Newer (←)">◀</button><span class="sunken seg">${i + 1} / ${list.length}</span><button class="raised btn-s" data-step="1" ${i >= list.length - 1 ? "disabled" : ""} title="Older (→)">▶</button>`;
-    if (w.rendered === r.asset) { $(".nav", w.body).innerHTML = nav; return; }
-    w.rendered = r.asset;
-    const src = encodeURI(r.asset), audio = r.type === "audio", video = r.type === "video" || audio;
-    w.body.innerHTML = `
+    : `<div role="row"><div role="gridcell">${loadingOr(w.q ? `No jobs match “${esc(w.q)}”.${emptyAct('<button class="raised btn-s" data-clearq>Clear search</button>')}`
+      : `No jobs yet. Jobs show up here as soon as they're submitted.${emptyAct(GEN_BTN)}`)}</div></div>`);
+  activeSync(w);
+  const segs = $$(".statusbar .seg", w.body);
+  segs[0].textContent = `${list.length} object${list.length === 1 ? "" : "s"}${selNote(w)}`;
+  cmpBtnSync(w);
+  segs[1].textContent = `${fmt(list.reduce((s, r) => s + (r.credits || 0), 0))} credits`;
+  segs[2].textContent = "Double-click or Enter to open";
+}
+RENDER.jobs = jobsRender;
+RENDER.generate = w => genRender(w);
+RENDER.key = w => keyRender(w);
+RENDER.terminal = w => termRender(w);
+RENDER.options = w => optionsRender(w);
+RENDER.usage = w => usageRender(w);
+RENDER.activity = w => activityRender(w);
+RENDER.images = w => gallery(w, "image");
+RENDER.audio = w => gallery(w, "audio");
+RENDER.videos = w => gallery(w, "video");
+RENDER.tree = w => treeRender(w);
+RENDER.notes = w => notesRender(w);
+function viewerRender(w) {
+  const r = runOf(w.arg);
+  if (!r || !r.asset) { w.rendered = null; w.body.innerHTML = loadingOr(r ? "This file isn't saved yet. It opens here when the job finishes." : "This job is no longer in runs.json."); return; }
+  const list = assetsOf(r.type), i = list.findIndex(x => x.taskId === r.taskId);
+  const nav = `<button class="raised btn-s" data-step="-1" ${i <= 0 ? "disabled" : ""} title="Newer (←)">◀</button><span class="sunken seg">${i + 1} / ${list.length}</span><button class="raised btn-s" data-step="1" ${i >= list.length - 1 ? "disabled" : ""} title="Older (→)">▶</button>`;
+  if (w.rendered === r.asset) { $(".nav", w.body).innerHTML = nav; return; }
+  w.rendered = r.asset;
+  const src = encodeURI(r.asset), audio = r.type === "audio", video = r.type === "video" || audio;
+  w.body.innerHTML = `
         <div class="stage sunken${audio ? " audio" : ""}" data-keep="stage" data-id="${esc(r.taskId)}" draggable="true" title="${video ? "" : "Click to toggle actual size"}">${audio
-        ? `<svg class="aud-ico" aria-hidden="true"><use href="#i-audio"/></svg><div class="aud-txt">${esc(r.prompt)}</div><audio src="${src}" controls autoplay></audio>`
-        : video ? `<video src="${src}" poster="${thumbOf(r)}" controls autoplay muted loop playsinline></video>`
-        : `<img src="${src}" alt="${esc(r.prompt)}" draggable="false">`}</div>
+      ? `<svg class="aud-ico" aria-hidden="true"><use href="#i-audio"/></svg><div class="aud-txt">${esc(r.prompt)}</div><audio src="${src}" controls autoplay></audio>`
+      : video ? `<video src="${src}" poster="${thumbOf(r)}" controls autoplay muted loop playsinline></video>`
+      : `<img src="${src}" alt="${esc(r.prompt)}" draggable="false">`}</div>
         <div class="footbar">
           <span class="nav">${nav}</span>
           <span class="sunken seg grow info" title="${esc(r.prompt)}">${esc(r.model)} · ${esc(r.settings)} · ${costHTML(r)} cr</span>
@@ -762,31 +762,31 @@ const RENDER = {
           <button class="raised btn-s" data-open="props" data-id="${esc(r.taskId)}" title="Alt+Enter">${icoLabel("i-doc", "Properties")}</button>
           <button class="raised btn-s" data-file="reveal" data-name="${esc(r.asset)}">${icoLabel("i-finder", "Show in Finder")}</button>
         </div>`;
-    const media = $(audio ? "audio" : video ? "video" : "img", w.body), info = $(".info", w.body);
-    const addDims = (wd, ht, extra = "") => { info.innerHTML += ` · ${wd}×${ht}${extra}`; };
-    if (audio) media.addEventListener("loadedmetadata", () => { info.innerHTML += ` · ${media.duration.toFixed(1)}s`; }, { once: true });
-    else if (video) media.addEventListener("loadedmetadata", () => addDims(media.videoWidth, media.videoHeight, ` · ${media.duration.toFixed(1)}s`), { once: true });
-    else { media.complete && media.naturalWidth ? addDims(media.naturalWidth, media.naturalHeight) : media.addEventListener("load", () => addDims(media.naturalWidth, media.naturalHeight), { once: true }); bindZoom(w); }
-  },
-
-  props(w) {
-    const r = runOf(w.arg);
-    if (!r) { morph(w.body, loadingOr("This job is no longer in runs.json.")); return; }
-    const parent = r.parent ? runOf(r.parent) : null, kids = childrenOf(r.taskId), took = r.finishedAt && r.createdAt ? tOf(r.finishedAt) - tOf(r.createdAt) : null;
-    const chip = x => `<button class="chip raised" data-open="props" data-id="${esc(x.taskId)}" title="${esc(x.prompt)}">${miniThumb(x)}<span>${esc(nameOf(x))}</span></button>`;
-    const rows = [
-      ["Status", statusHTML(r)],
-      ["Credits", r.credits != null ? `${fmt(r.credits)}${r.costSource === "runway" ? ' <span class="muted">reported by Runway</span>' : ""}` : r.estimatedCredits != null ? `~${fmt(r.estimatedCredits)} <span class="muted">estimate</span>` : "—"],
-      ...(r.quotedCredits != null ? [["Quoted", `${r.quoteExact ? "" : "≈ "}${fmt(r.quotedCredits)}${r.credits != null ? (r.credits === r.quotedCredits ? ' <span class="muted">matches the charge</span>' : ` <span class="bad">charge differs by ${fmt(r.credits - r.quotedCredits)}</span>`) : ' <span class="muted">before submitting</span>'}`]] : []),
-      ["Created", r.createdAt ? `${esc(absTime(tOf(r.createdAt)))} <span class="muted">(${relHTML(r.createdAt)})</span>` : esc(r.date)],
-      ...(took ? [["Took", dur(took)]] : []),
-      ["Model", esc(r.model)], ["Settings", esc(r.settings)],
-      ...(r.failure ? [["Failure", `<span class="bad">${esc(r.failure)}</span>${r.failureCode ? ` <code>${esc(r.failureCode)}</code>` : ""}`]] : []),
-      ["Task ID", `<code>${esc(r._of || r.taskId)}</code>`], ["File", r.asset ? esc(r.asset) + (filesOf(r).length > 1 ? ` <span class="muted">(file ${r._n || 1} of ${filesOf(r).length})</span>` : "") : "Not saved yet"],
-      ...(parent ? [["Made from", parent.asset && r.asset ? `<span class="chips">${chip(parent)}<button class="raised btn-s" data-compare="${esc(parent.taskId + "," + r.taskId)}" title="This file and its source side by side">${icoLabel("i-compare", "Compare")}</button></span>` : chip(parent)]] : []),
-      ...(kids.length ? [["Used in", `<span class="chips">${kids.map(chip).join("")}</span>`]] : []),
-    ];
-    morph(w.body, `
+  const media = $(audio ? "audio" : video ? "video" : "img", w.body), info = $(".info", w.body);
+  const addDims = (wd, ht, extra = "") => { info.innerHTML += ` · ${wd}×${ht}${extra}`; };
+  if (audio) media.addEventListener("loadedmetadata", () => { info.innerHTML += ` · ${media.duration.toFixed(1)}s`; }, { once: true });
+  else if (video) media.addEventListener("loadedmetadata", () => addDims(media.videoWidth, media.videoHeight, ` · ${media.duration.toFixed(1)}s`), { once: true });
+  else { media.complete && media.naturalWidth ? addDims(media.naturalWidth, media.naturalHeight) : media.addEventListener("load", () => addDims(media.naturalWidth, media.naturalHeight), { once: true }); bindZoom(w); }
+}
+RENDER.viewer = viewerRender;
+function propsRender(w) {
+  const r = runOf(w.arg);
+  if (!r) { morph(w.body, loadingOr("This job is no longer in runs.json.")); return; }
+  const parent = r.parent ? runOf(r.parent) : null, kids = childrenOf(r.taskId), took = r.finishedAt && r.createdAt ? tOf(r.finishedAt) - tOf(r.createdAt) : null;
+  const chip = x => `<button class="chip raised" data-open="props" data-id="${esc(x.taskId)}" title="${esc(x.prompt)}">${miniThumb(x)}<span>${esc(nameOf(x))}</span></button>`;
+  const rows = [
+    ["Status", statusHTML(r)],
+    ["Credits", r.credits != null ? `${fmt(r.credits)}${r.costSource === "runway" ? ' <span class="muted">reported by Runway</span>' : ""}` : r.estimatedCredits != null ? `~${fmt(r.estimatedCredits)} <span class="muted">estimate</span>` : "—"],
+    ...(r.quotedCredits != null ? [["Quoted", `${r.quoteExact ? "" : "≈ "}${fmt(r.quotedCredits)}${r.credits != null ? (r.credits === r.quotedCredits ? ' <span class="muted">matches the charge</span>' : ` <span class="bad">charge differs by ${fmt(r.credits - r.quotedCredits)}</span>`) : ' <span class="muted">before submitting</span>'}`]] : []),
+    ["Created", r.createdAt ? `${esc(absTime(tOf(r.createdAt)))} <span class="muted">(${relHTML(r.createdAt)})</span>` : esc(r.date)],
+    ...(took ? [["Took", dur(took)]] : []),
+    ["Model", esc(r.model)], ["Settings", esc(r.settings)],
+    ...(r.failure ? [["Failure", `<span class="bad">${esc(r.failure)}</span>${r.failureCode ? ` <code>${esc(r.failureCode)}</code>` : ""}`]] : []),
+    ["Task ID", `<code>${esc(r._of || r.taskId)}</code>`], ["File", r.asset ? esc(r.asset) + (filesOf(r).length > 1 ? ` <span class="muted">(file ${r._n || 1} of ${filesOf(r).length})</span>` : "") : "Not saved yet"],
+    ...(parent ? [["Made from", parent.asset && r.asset ? `<span class="chips">${chip(parent)}<button class="raised btn-s" data-compare="${esc(parent.taskId + "," + r.taskId)}" title="This file and its source side by side">${icoLabel("i-compare", "Compare")}</button></span>` : chip(parent)]] : []),
+    ...(kids.length ? [["Used in", `<span class="chips">${kids.map(chip).join("")}</span>`]] : []),
+  ];
+  morph(w.body, `
         <div class="pwrap" data-keep="p">
           <div class="ptop">${r.asset ? `<button class="thumb sunken" data-open="viewer" data-id="${esc(r.taskId)}" title="Open">${thumbInner(thumbOf(r), r.type)}</button>` : `<span class="thumb sunken">${thumbInner(null, r.type)}</span>`}
             <div><b>${esc(nameOf(r))}</b><div class="muted">${esc(cap(r.type))} · ${esc(r.model)}</div></div></div>
@@ -809,9 +809,9 @@ const RENDER = {
             <button class="raised btn-s${r.asset || ACTIVE.has(r.status) ? "" : " b-default"}" data-gen="again" data-id="${esc(r.taskId)}">${icoLabel("i-again", "Generate again…")}</button>
           </div>
         </div>`);
-    fitActions(w);
-  },
-};
+  fitActions(w);
+}
+RENDER.props = propsRender;
 
 function gallery(w, type) {
   if (!w.shell) {
@@ -2792,7 +2792,7 @@ function applyOptions() {
   root.classList.toggle("dot", S.opts.font === "dot");
   root.classList.toggle("contrast", !!S.opts.contrast);
   root.classList.toggle("calm", calm());
-  if (typeof S.iconSlots !== "undefined") requestAnimationFrame(() => layoutIcons()); // icon sizes follow Scale
+  requestAnimationFrame(() => layoutIcons()); // icon sizes follow Scale
   root.dataset.term = S.opts.termScheme;
   // scale open windows along with the interface, then keep them on screen
   if (was !== S.scale) wins.forEach(w => {
@@ -4334,7 +4334,7 @@ if (firstLaunch) ready.then(() => { if (!S.data.live) $(".kin", open("key").body
 ready.then(() => {
   if (wins.has("activity") || !S.data.runs.some(r => ACTIVE.has(r.status))) return;
   const prev = frontWin(), aw = open("activity");
-  if (prev && prev !== aw) { focus(prev); focusInto?.(prev); }
+  if (prev && prev !== aw) { focus(prev); focusInto(prev); }
 });
 addEventListener("resize", () => { wins.forEach(w => { fit(w); place(w); }); layoutIcons(); });
 
@@ -4448,16 +4448,15 @@ async function bootScreen(modelsLoaded) {
 /* ---------- live data ---------- */
 // what each window shows from the job log; poll skips windows whose signature didn't change
 const runSig = r => r && JSON.stringify(r);
-const SIG = {
-  options: () => "",
-  terminal: () => "",
-  usage: () => "",
-  notes: () => "",
-  images: w => JSON.stringify(assetsOf("image").map(r => [r.taskId, r.asset, r.prompt])),
-  videos: w => JSON.stringify(assetsOf("video").map(r => [r.taskId, r.asset, r.prompt])),
-  audio: w => JSON.stringify(assetsOf("audio").map(r => [r.taskId, r.asset, r.prompt])),
-  props: w => { const r = runOf(w.arg); return r ? [runSig(r), runSig(runOf(r.parent)), ...childrenOf(r.taskId).map(runSig)].join("|") : "-"; },
-};
+const SIG = {};
+SIG.options = () => "";
+SIG.terminal = () => "";
+SIG.usage = () => "";
+SIG.notes = () => "";
+SIG.images = w => JSON.stringify(assetsOf("image").map(r => [r.taskId, r.asset, r.prompt]));
+SIG.videos = w => JSON.stringify(assetsOf("video").map(r => [r.taskId, r.asset, r.prompt]));
+SIG.audio = w => JSON.stringify(assetsOf("audio").map(r => [r.taskId, r.asset, r.prompt]));
+SIG.props = w => { const r = runOf(w.arg); return r ? [runSig(r), runSig(runOf(r.parent)), ...childrenOf(r.taskId).map(runSig)].join("|") : "-"; };
 // the server answers 304 when nothing changed, so an idle poll costs almost nothing
 function schedulePoll() {
   clearTimeout(S.pollT);
