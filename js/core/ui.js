@@ -1,7 +1,7 @@
 import { S } from "./state.js";
 import { $, cap, esc, fmt } from "./dom.js";
 import { postJSON } from "./api.js";
-import { nameOf, typeIcon } from "./status.js";
+import { badThumbs, nameOf, thumbIcon, typeIcon } from "./status.js";
 import { setTitle } from "../wm/taskbar.js";
 import { open } from "../wm/windows.js";
 import { chime } from "../apps/options.js";
@@ -73,4 +73,12 @@ export function init() {
   balloonEl.addEventListener("focusin", balloonPause);
   balloonEl.addEventListener("focusout", e => { if (!balloonEl.contains(e.relatedTarget) && !balloonEl.matches(":hover")) balloonResume(); });
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { S.unseen = 0; setTitle(); } });
+  // a thumbnail that can't load becomes its type icon (error events don't bubble, so listen in the capture phase)
+  document.addEventListener("error", e => {
+    const img = e.target;
+    if (img.tagName !== "IMG" || !img.hasAttribute("data-thumb")) return;
+    if (badThumbs.size > 500) badThumbs.clear();
+    badThumbs.add(img.getAttribute("src"));
+    img.outerHTML = thumbIcon(img.dataset.thumb);
+  }, true);
 }

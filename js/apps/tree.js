@@ -254,7 +254,7 @@ export function treeBranchHTML(w, b, by, total) {
   const name = by.get(b.head)?.prompt || "Untitled";
   const nw = px(TR.nw);
   return `
-      <section class="tbranch" aria-label="${esc(name)}">
+      <section class="tbranch" data-key="${esc(b.head)}" aria-label="${esc(name)}">
         <div class="tb-head"><b title="${esc(name)}">${esc(name)}</b><span class="tb-sum">${b.jobs.length} job${b.jobs.length === 1 ? "" : "s"} · <b>${fmt(total)}</b> credits</span></div>
         <div class="tb-canvas" style="width:${b.W}px;height:${b.H}px">
           <svg class="tb-lines" width="${b.W}" height="${b.H}" viewBox="0 0 ${b.W} ${b.H}" shape-rendering="crispEdges" aria-hidden="true">${lines}${knots}</svg>

@@ -26,7 +26,8 @@ export async function noteTextOf(key) {
   const info = (notesSt.list || []).find(n => n.name === key), stamp = info ? `${info.modified}|${info.size}` : null, hit = noteCache.get(key);
   if (hit && stamp && hit.stamp === stamp) return hit.text;
   const d = await noteGet(key);
-  noteCache.set(key, { stamp, text: d.text });
+  noteCache.delete(key); noteCache.set(key, { stamp, text: d.text }); // newest last
+  if (noteCache.size > 100) noteCache.delete(noteCache.keys().next().value);
   return d.text;
 }
 // the notes for a menu, newest first, with their text (null when a file can't be read)

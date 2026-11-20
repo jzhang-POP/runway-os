@@ -78,8 +78,11 @@ export function statusHTML(r, withBar = true) {
   const s = statusInfo(r);
   return `<span class="st ${s.cls}"><i class="dot"></i>${esc(s.label)}</span>${withBar && s.cls === "running" ? progressHTML(r, s) : ""}`;
 }
-// thumbnail contents: the picture when there is one, the type icon underneath as a fallback
-export const thumbInner = (src, type) => `${src ? `<img src="${src}" alt="" loading="lazy" onerror="this.hidden=true">` : ""}<span class="empty"><svg class="ico big"><use href="#${typeIcon(type)}"/></svg></span>`;
+// thumbnail contents: the picture, or the type icon when there is none or it failed to load (ui.js swaps it in on error
+// and remembers the address, so a later re-render draws the icon straight away)
+export const badThumbs = new Set();
+export const thumbIcon = type => `<span class="empty"><svg class="ico big"><use href="#${typeIcon(type)}"/></svg></span>`;
+export const thumbInner = (src, type) => (src && !badThumbs.has(src) ? `<img src="${src}" alt="" loading="lazy" data-thumb="${type || ""}">` : thumbIcon(type));
 export const miniThumb = r => `<span class="mini sunken">${thumbOf(r) ? `<img src="${thumbOf(r)}" alt="" loading="lazy" onerror="this.hidden=true">` : `<svg class="ico"><use href="#${typeIcon(r.type)}"/></svg>`}</span>`;
 
 // a job as a signature string: SIG functions compare these between polls and skip windows whose signature did not change

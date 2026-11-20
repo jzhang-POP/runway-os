@@ -1,3 +1,4 @@
+import { morph } from "../core/morph.js";
 import { S, wins } from "../core/state.js";
 import { $, $$, esc, fmt } from "../core/dom.js";
 import { postJSON as api } from "../core/api.js";
@@ -49,19 +50,24 @@ export const mkey = w => { const t = curTask(w), m = curModel(w); return t && m 
 export const vals = w => (w.gen.vals[mkey(w)] ||= {});
 export const picks = w => (w.gen.media[mkey(w)] ||= {});
 
-// everything that can feed a media field: finished jobs plus files uploaded into inputs/
-export function library(accept) {
+// everything that can feed a media field: finished jobs plus files uploaded into inputs/. Built once per change of
+// the job log or the inputs (each poll that brings new data replaces those arrays), then filtered per field.
+const libMemo = { runs: null, inputs: null, all: [] };
+function libraryAll() {
+  if (libMemo.runs === S.data.runs && libMemo.inputs === S.data.inputs) return libMemo.all;
   const out = [];
   newestFirst().flatMap(r => filesOf(r).map((_, i) => fileItem(r, i))).forEach(r => {
     const t = r.asset && (kindOfName(r.asset) || r.type);
-    if (r.asset && accept.includes(t)) out.push({ ref: { run: r.taskId }, name: r.asset, type: t, thumb: thumbOf(r), title: r.prompt });
+    if (r.asset) out.push({ ref: { run: r.taskId }, name: r.asset, type: t, thumb: thumbOf(r), title: r.prompt });
   });
   (S.data.inputs || []).forEach(i => {
-    if (accept.includes(i.type)) out.push({ ref: { input: i.file }, name: i.file, type: i.type, title: `${i.file} (uploaded)`,
+    out.push({ ref: { input: i.file }, name: i.file, type: i.type, title: `${i.file} (uploaded)`,
       thumb: i.type !== "audio" ? `thumbs/${encodeURIComponent(i.file)}.jpg` : null });
   });
+  Object.assign(libMemo, { runs: S.data.runs, inputs: S.data.inputs, all: out });
   return out;
 }
+export const library = accept => libraryAll().filter(x => accept.includes(x.type));
 
 export const shownVal = (f, v) => (v !== undefined ? v : f.default ?? (f.kind === "select" && f.required ? f.options[0] : f.kind === "bool" ? !!f.default : ""));
 // why Generate can't run yet, or null
@@ -287,12 +293,12 @@ export function genStrips(w, force) {
     strip.dataset.sig = sig;
     const item = (key, thumb, cap, title, sel) => `<button type="button" class="sframe" data-field="${esc(f.name)}" data-mref="${esc(key)}"${sel == null ? "" : ` aria-pressed="${sel}"`} title="${esc(title)}"><span class="thumb sunken">${thumb}</span><span class="cap">${esc(cap)}</span></button>`;
     const had = strip.contains(document.activeElement) ? document.activeElement.dataset.mref : null; // keep focus on the frame that was used
-    strip.innerHTML = [
+    morph(strip, [
       !f.required && !f.array && item("none", '<span class="empty">None</span>', "None", "Don't use one", !on.size),
       ...lib.map(x => item(JSON.stringify(x.ref), thumbInner(x.thumb, x.type), x.name, x.title, on.has(refKey(x.ref)))),
       item("file", '<span class="empty plus">+</span>', "Choose file…", `Choose a ${f.accept.join(" or ")} file from your Mac, or drop one on this window`, null),
-    ].filter(Boolean).join("");
-    if (had != null) [...strip.children].find(b => b.dataset.mref === had)?.focus({ preventScroll: true });
+    ].filter(Boolean).join(""));
+    if (had != null && !strip.contains(document.activeElement)) [...strip.children].find(b => b.dataset.mref === had)?.focus({ preventScroll: true });
   });
 }
 
@@ -304,7 +310,7 @@ export function genMatchAspect(w, ref) {
   const apply = asp => { const r = closestRatio(f.options, asp); if (!r || mkey(w) !== key) return; vals(w).ratio = r; const sel = $('select[data-f="ratio"]', w.body); if (sel) sel.value = r; genRatioPreview(w); genRefresh(w); save(); };
   if (aspectCache.has(k)) return apply(aspectCache.get(k));
   const im = new Image();
-  im.onload = () => { aspectCache.set(k, im.naturalWidth / im.naturalHeight); apply(im.naturalWidth / im.naturalHeight); };
+  im.onload = () => { if (aspectCache.size >= 500) aspectCache.delete(aspectCache.keys().next().value); aspectCache.set(k, im.naturalWidth / im.naturalHeight); apply(im.naturalWidth / im.naturalHeight); };
   im.src = item.ref.run ? encodeURI(item.name) : `inputs/${encodeURIComponent(item.name)}`;
 }
 
@@ -357,8 +363,8 @@ export function genAddExtra(w, name) {
 export function genRefresh(w, fromPrice) {
   const f = w.body, hint = $(".ghint", f); if (!hint) return;
   const why = genBlock(w), btn = $(".btn-go", f);
-  const key = !why && curModel(w) ? JSON.stringify(genBody(w)) : "";
-  if (!fromPrice && key) genPrice(w, key);
+  const body = !why && curModel(w) ? genBody(w) : null, key = body ? priceKey(body) : "";
+  if (!fromPrice && key) genPrice(w, key, body);
   const fresh = !!key && w.priceFor === key, pr = fresh ? w.price : null;
   let text = why;
   if (!why) {
@@ -396,9 +402,11 @@ export function genBody(w) {
   Object.keys(extra).forEach(k => { delete values[k]; delete media[k]; });
   return { endpoint: t.endpoint, model: m.id, values, media, extra };
 }
-// exact price from the server's pricing table, refreshed shortly after each change
+// exact price from the server's pricing table, asked for 400 ms after the last change. Pricing only ever looks at the
+// length of a text (per-character models), so the cache key holds long texts as their length.
+export const priceKey = body => JSON.stringify(body, (k, v) => (typeof v === "string" && v.length > 40 ? `\u0000${v.length} chars` : v));
 export const priceCache = new Map();
-export function genPrice(w, key) {
+export function genPrice(w, key, body) {
   clearTimeout(w.priceT);
   if (!key || key === w.priceFor || key === w.priceKey) return;
   if (priceCache.has(key)) { w.price = priceCache.get(key); w.priceFor = key; w.priceKey = key; genRefresh(w, true); return; }
@@ -407,11 +415,11 @@ export function genPrice(w, key) {
     w.priceKey = key;
     w.priceCtl?.abort(); const ctl = w.priceCtl = new AbortController();
     let out = null;
-    try { out = await api("/api/price", JSON.parse(key), { signal: ctl.signal }); } catch (e) { if (e.name === "AbortError") return; }
-    if (out) priceCache.set(key, out);
+    try { out = await api("/api/price", body, { signal: ctl.signal }); } catch (e) { if (e.name === "AbortError") return; }
+    if (out) { priceCache.set(key, out); if (priceCache.size > 200) priceCache.delete(priceCache.keys().next().value); }
     if (w.priceKey !== key) return;
     w.price = out; w.priceFor = key; genRefresh(w, true);
-  }, 200);
+  }, 400);
 }
 
 export async function genSubmit(w) {

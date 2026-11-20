@@ -96,8 +96,6 @@ button.thumb { cursor: pointer; }
 .thumb img, .thumb video { position: absolute; inset: 3px; width: calc(100% - 6px); height: calc(100% - 6px); object-fit: cover; }
 .thumb .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); }
 .thumb .empty .ico.big { opacity: .85; }
-.thumb img + .empty { display: none; }
-.thumb img[hidden] + .empty { display: grid; }
 .empty.plus { font-size: var(--fsL); }
 .mini { position: relative; width: var(--ico-xl); height: var(--ico-xl); flex: none; display: grid; place-items: center; overflow: hidden; }
 .mini img { position: absolute; inset: 2px; width: calc(100% - 4px); height: calc(100% - 4px); object-fit: cover; }
@@ -212,7 +210,9 @@ html[data-term="blue"] .term { background: #0000a8; color: #fff; } html[data-ter
 .nt-hl { min-height: 100%; pointer-events: none; user-select: none; -webkit-user-select: none; }
 .nt-ta { position: absolute; inset: 0; width: 100%; height: 100%; resize: none; overflow: hidden; background: transparent; color: transparent; -webkit-text-fill-color: transparent; caret-color: var(--fg); outline: none; user-select: text; -webkit-user-select: text; }
 .nt-ta::selection { background: color-mix(in srgb, var(--sel) 55%, transparent); }
-.nl { min-height: var(--nt-lh); }
+.nt-hl { counter-reset: nl; }
+.nl { min-height: var(--nt-lh); counter-increment: nl; }
+.nn::before { content: counter(nl); }
 .nn { position: sticky; left: 0; display: inline-block; width: var(--nt-g); margin-left: calc(-1 * (var(--nt-g) + var(--s2))); margin-right: var(--s2); padding-right: var(--s2); text-align: right; color: var(--muted); background: var(--face); box-shadow: inset -1px 0 0 var(--deep); }
 /* token colors: dark themes, then the light ones, then high contrast */
 .nt-scroll { --tk-c: #8d93a0; --tk-s: #9fdc7a; --tk-k: #7fb0ff; --tk-n: #ffb46a; --tk-p: #e0a8ff; }

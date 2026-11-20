@@ -17,7 +17,9 @@ export const sentRun = (w, id) => runOf(id) || fresh[id];
 export function activityList(w) {
   const since = Math.max(Date.now() - 86400000, w.act?.clearedAt || 0), hide = new Set(w.act?.hide || []);
   const ids = new Set(S.data.runs.map(r => r.taskId));
-  const rows = [...S.data.runs, ...Object.values(fresh).filter(r => !ids.has(r.taskId))];
+  // a sent row is dropped once runs.json has it (or after a day, if it never shows up)
+  for (const id in fresh) if (ids.has(id) || (createdMs(fresh[id]) || Date.now()) < Date.now() - 86400000) delete fresh[id];
+  const rows = [...S.data.runs, ...Object.values(fresh)];
   return rows.filter(r => !hide.has(r.taskId) && (ACTIVE.has(r.status) || createdMs(r) >= since))
     .sort((a, b) => (ACTIVE.has(b.status) - ACTIVE.has(a.status)) || createdMs(b) - createdMs(a)).slice(0, 20);
 }
@@ -94,7 +96,9 @@ export function activityShow(gw, row) {
   activityRender(aw);
 }
 
+// time left on running jobs (Activity, Jobs), refreshed by the clock tick (live.js)
+export const activityTick = () => $$("[data-eta]").forEach(e => { e.textContent = etaText(+e.dataset.eta); });
+
 export function init() {
   RENDER.activity = w => activityRender(w);
-  setInterval(() => $$(".act [data-eta]").forEach(e => { e.textContent = etaText(+e.dataset.eta); }), 5000);
 }

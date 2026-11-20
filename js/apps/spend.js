@@ -1,7 +1,7 @@
 import { S, wins } from "../core/state.js";
 import { $, $$, esc, fmt } from "../core/dom.js";
 import { modal } from "../core/modal.js";
-import { curModel, genBody, genRefresh, lastCostFor } from "./generate.js";
+import { curModel, genBody, genRefresh, lastCostFor, priceKey } from "./generate.js";
 import { setOpt } from "./options.js";
 
 /* ---------- spending guard: a daily credit limit for the whole org (Options → Spending) ----------
@@ -35,7 +35,7 @@ export function spendTray() {
 }
 // this job's price: the server's quote, else the same estimate the hint shows (from your last job with this model)
 export function spendQuote(w) {
-  const key = JSON.stringify(genBody(w)), pr = w.priceFor === key ? w.price : null;
+  const key = priceKey(genBody(w)), pr = w.priceFor === key ? w.price : null;
   if (pr?.credits != null) return { credits: pr.credits, exact: !!pr.exact };
   const c = lastCostFor(w);
   return { credits: c?.last ? c.credits : null, exact: false };
