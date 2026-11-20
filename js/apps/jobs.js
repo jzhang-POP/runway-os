@@ -36,15 +36,19 @@ export function jobsRender(w) {
             <div class="rows"></div>
           </div>
           <div class="statusbar"><span class="sunken seg grow"></span><span class="sunken seg"></span><span class="sunken seg"></span></div>`;
-    $(".field", w.body).addEventListener("input", e => { w.q = e.target.value; RENDER.jobs(w); save(); });
+    // typing: filter once the keys pause for a moment, not on every key
+    $(".field", w.body).addEventListener("input", e => {
+      w.q = e.target.value; clearTimeout(w.qT);
+      w.qT = setTimeout(() => { RENDER.jobs(w); save(); }, 120);
+    });
     // empty list: "Clear search" empties the search box and puts the cursor back in it
     $(".rows", w.body).addEventListener("click", e => {
       if (!e.target.closest("[data-clearq]")) return;
-      const f = $(".field", w.body); f.value = w.q = ""; RENDER.jobs(w); save(); f.focus();
+      const f = $(".field", w.body); clearTimeout(w.qT); f.value = w.q = ""; RENDER.jobs(w); save(); f.focus();
     });
   }
   const list = jobsFor(w), types = ["all", ...new Set(S.data.runs.map(r => r.type))];
-  $(".seg-tabs", w.body).innerHTML = types.map(t => `<button class="raised" data-filter="${esc(t)}" aria-pressed="${t === w.filter}">${t === "all" ? "All" : esc(plural(t))}</button>`).join("");
+  morph($(".seg-tabs", w.body), types.map(t => `<button class="raised" data-filter="${esc(t)}" aria-pressed="${t === w.filter}">${t === "all" ? "All" : esc(plural(t))}</button>`).join(""));
   $$(".th [data-sort]", w.body).forEach(b => { b.parentElement.setAttribute("aria-sort", b.dataset.sort === w.sort.key ? (w.sort.dir > 0 ? "ascending" : "descending") : "none"); });
   morph($(".rows", w.body), list.length ? list.map(r => `
         <div class="row${isSel(w, r.taskId) ? " sel" : ""}" role="row" id="${itemId(w, r.taskId)}" data-id="${esc(r.taskId)}" aria-selected="${isSel(w, r.taskId)}"${r.asset ? ' draggable="true"' : ""}>
