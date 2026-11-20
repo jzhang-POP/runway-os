@@ -113,6 +113,14 @@ PY
   tag="$(curl -sS -D - -o /dev/null "${B}api/state" | tr -d '\r' | sed -n 's/^[Ee][Tt][Aa][Gg]: //p')"
   code="$(curl -sS -o /dev/null -w '%{http_code}' -H "If-None-Match: $tag" "${B}api/state")"
   if [ -z "$tag" ] || [ "$code" != 304 ]; then echo "smoke: /api/state with If-None-Match $tag gave $code, not 304" >&2; bad=1; fi
+  # byte ranges on media (a video seeks into a part it hasn't loaded): 206 with just those bytes, 416 past the end
+  local media; media="$(sed -nE 's/^url = "(.*\.(mp4|mov|webm|mp3|png))"$/\1/p' "$TMP/burst.cfg" | head -1)"
+  if [ -n "$media" ]; then
+    code="$(curl -sS -r 10-109 -o "$TMP/range.bin" -w '%{http_code}' "$media")"
+    if [ "$code" != 206 ] || [ "$(wc -c <"$TMP/range.bin" | tr -d ' ')" != 100 ]; then echo "smoke: Range 10-109 on $media gave $code, $(wc -c <"$TMP/range.bin") bytes" >&2; bad=1; fi
+    code="$(curl -sS -r 999999999999- -o /dev/null -w '%{http_code}' "$media")"
+    if [ "$code" != 416 ]; then echo "smoke: a Range past the end of $media gave $code, not 416" >&2; bad=1; fi
+  fi
   head -c 5000000 /dev/zero >"$TMP/post.bin"
   for _ in 1 2 3 4 5; do
     code="$(curl -sS -o /dev/null -w '%{http_code}' -H 'Expect:' -H 'Content-Type: application/json' \
@@ -122,7 +130,7 @@ PY
   return $bad
 }
 server_checks "http://127.0.0.1:$P1/" && server_checks "http://127.0.0.1:$P2/" || exit 1
-echo "smoke: server checks passed (parallel GET burst, ETag 304, POST error without reset)"
+echo "smoke: server checks passed (parallel GET burst, ETag 304, byte ranges, POST error without reset)"
 
 mkdir -p "$OUT"; rm -f "$OUT"/*.png
 PROFILE="$TMP/chrome"; mkdir -p "$PROFILE"

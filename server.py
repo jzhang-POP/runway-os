@@ -1141,11 +1141,13 @@ class Handler(SimpleHTTPRequestHandler):
     def end_headers(self):
         # static files: the page's own code revalidates every load (so an edit shows up on reload), while thumbnails
         # and media, whose names never get reused for other content, are cached for a day
-        if not getattr(self, "_cache_set", True) and getattr(self, "_code", 0) in (200, 304):
+        if not getattr(self, "_cache_set", True) and getattr(self, "_code", 0) in (200, 206, 304):
             path = urllib.parse.unquote(self.path.split("?")[0]).lower()
             media = path.startswith(("/thumbs/", "/inputs/")) or (path.count("/") == 1 and type_of(path))
             if media:
                 self.send_header("Cache-Control", "max-age=86400")
+                if self._code != 304:
+                    self.send_header("Accept-Ranges", "bytes")
             elif path.endswith(("/", ".js", ".mjs", ".css", ".html", ".svg")):
                 self.send_header("Cache-Control", "no-cache")
         super().end_headers()
@@ -1223,8 +1225,61 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if route.startswith("/thumbs/") and route.endswith(".jpg") and self.thumb_fallback(route):
             return
+        if self.headers.get("Range") and self.send_range():
+            return
         super().do_GET()
 
+
+    def send_range(self):
+        """Answer a single-range request (bytes=a-b, a- or -n) for a media file with 206 Partial Content, or 416 when
+        it starts past the end, so a video can seek into a part it hasn't loaded yet. Returns False to serve the whole
+        file instead: not a media file, several ranges, an unreadable header, or an If-Range that doesn't match."""
+        path = self.translate_path(self.path)
+        if not type_of(path) or not os.path.isfile(path):
+            return False
+        spec = self.headers.get("Range", "").strip()
+        if not spec.startswith("bytes=") or "," in spec:
+            return False
+        first, _, last = spec[len("bytes="):].strip().partition("-")
+        try:
+            size = os.path.getsize(path)
+            mtime = os.path.getmtime(path)
+            if first == "":
+                start, end = max(0, size - int(last)), size - 1
+            else:
+                start, end = int(first), min(int(last), size - 1) if last else size - 1
+        except (ValueError, OSError):
+            return False
+        last_modified = self.date_time_string(int(mtime))
+        if self.headers.get("If-Range") and self.headers["If-Range"] != last_modified:
+            return False
+        if start >= size or start > end or start < 0:
+            self.send_response(416)
+            self.send_header("Content-Range", f"bytes */{size}")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return True
+        length = end - start + 1
+        self.send_response(206)
+        self.send_header("Content-Type", self.guess_type(path))
+        self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.send_header("Content-Length", str(length))
+        self.send_header("Last-Modified", last_modified)
+        self.end_headers()
+        try:
+            with open(path, "rb") as f:
+                f.seek(start)
+                while length > 0:
+                    chunk = f.read(min(1 << 16, length))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    length -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # the player moved on (a seek, a closed window)
+        if length:
+            self.close_connection = True
+        return True
 
     def thumb_fallback(self, route):
         """A thumbnail that isn't made yet (a job that just finished, an upload): make it now; if that fails for an
