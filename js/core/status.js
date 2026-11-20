@@ -16,6 +16,10 @@ export const assetsOf = type => newestFirst().filter(r => r.type === type && r.a
 export const childrenOf = id => S.data.runs.filter(r => r.parent === id);
 export const createdMs = r => tOf(r.createdAt) || tOf(r.date) || 0;
 export const thumbOf = r => (!r || !r.asset || r.type === "audio" ? null : `thumbs/${encodeURIComponent(r.asset)}.jpg`); // the server redirects to the original if it can't make one
+// image, video or audio from a file name's extension, as server.py's EXT_TYPE does; undefined for anything else
+const EXT_TYPE = { image: "png jpg jpeg webp gif svg", video: "mp4 mov webm m4v", audio: "mp3 wav flac ogg m4a aac opus" };
+const EXT_OF = new Map(Object.entries(EXT_TYPE).flatMap(([t, l]) => l.split(" ").map(e => [e, t])));
+export const kindOfName = name => EXT_OF.get(/\.([^./]+)$/.exec(name || "")?.[1].toLowerCase());
 export const typeIcon = t => (t === "video" ? "i-video" : t === "audio" ? "i-audio" : "i-picture");
 export const plural = t => (t === "audio" ? "Audio" : cap(t) + "s");
 export const nameOf = r => r.asset || r.prompt.slice(0, 48);

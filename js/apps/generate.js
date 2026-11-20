@@ -1,7 +1,7 @@
 import { S, wins } from "../core/state.js";
 import { $, $$, esc, fmt } from "../core/dom.js";
 import { postJSON as api } from "../core/api.js";
-import { fileItem, filesOf, newestFirst, runOf, thumbInner, thumbOf } from "../core/status.js";
+import { fileItem, filesOf, kindOfName, newestFirst, runOf, thumbInner, thumbOf } from "../core/status.js";
 import { balloon } from "../core/ui.js";
 import { px } from "../wm/geometry.js";
 import { RENDER } from "../wm/kinds.js";
@@ -53,7 +53,7 @@ export const picks = w => (w.gen.media[mkey(w)] ||= {});
 export function library(accept) {
   const out = [];
   newestFirst().flatMap(r => filesOf(r).map((_, i) => fileItem(r, i))).forEach(r => {
-    const t = r.asset && (/\.(png|jpe?g|webp|gif|svg)$/i.test(r.asset) ? "image" : /\.(mp4|mov|webm|m4v)$/i.test(r.asset) ? "video" : /\.(mp3|wav|flac|ogg|m4a|aac|opus)$/i.test(r.asset) ? "audio" : r.type);
+    const t = r.asset && (kindOfName(r.asset) || r.type);
     if (r.asset && accept.includes(t)) out.push({ ref: { run: r.taskId }, name: r.asset, type: t, thumb: thumbOf(r), title: r.prompt });
   });
   (S.data.inputs || []).forEach(i => {
@@ -305,7 +305,7 @@ export function genMatchAspect(w, ref) {
 // a job or file dragged from Jobs, a gallery or the viewer: put it in the field it was dropped on, or the first field that takes its type
 export function genDropRun(w, id, fieldName) {
   const r = runOf(id), m = curModel(w); if (!r || !r.asset || !m) return;
-  const kind = /\.(png|jpe?g|webp|gif|svg)$/i.test(r.asset) ? "image" : /\.(mp4|mov|webm|m4v)$/i.test(r.asset) ? "video" : /\.(mp3|wav|flac|ogg|m4a|aac|opus)$/i.test(r.asset) ? "audio" : r.type;
+  const kind = kindOfName(r.asset) || r.type;
   const media = m.fields.filter(x => x.kind === "media");
   const f = media.find(x => x.name === fieldName && x.accept.includes(kind)) || media.find(x => x.accept.includes(kind));
   if (!f) { genMsg(w, media.length ? `${m.id} has no ${kind} input here. ${media.map(x => `${x.label} takes ${x.accept.join(" or ")}`).join("; ")}.` : `${m.id} doesn't take files. Pick a task with an input, e.g. Image to video.`); return; }
