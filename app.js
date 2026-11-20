@@ -292,12 +292,11 @@
   }
   // Properties: measure the one-line button row and keep the window at least that wide
   function fitActions(w) {
-    const a = $(".pwrap .actions", w.body), p = a?.parentElement;
-    if (!a || !p.clientWidth) return;
-    const kids = [...a.children], gap = parseFloat(getComputedStyle(a).columnGap) || 0, ps = getComputedStyle(p);
-    const row = kids.reduce((s, b) => s + b.getBoundingClientRect().width, 0) + gap * Math.max(0, kids.length - 1);
-    w.minW = Math.ceil(row + parseFloat(ps.paddingLeft) + parseFloat(ps.paddingRight) + w.el.offsetWidth - p.clientWidth);
-    a.classList.toggle("wrap", w.minW > D().w); // at large Scale sizes the icon buttons wrap instead of running off screen
+    const rows = $$(".pwrap .actions", w.body), p = rows[0]?.parentElement;
+    if (!p || !p.clientWidth) return;
+    const ps = getComputedStyle(p), width = a => { const kids = [...a.children], gap = parseFloat(getComputedStyle(a).columnGap) || 0; return kids.reduce((s, b) => s + b.getBoundingClientRect().width, 0) + gap * Math.max(0, kids.length - 1); };
+    w.minW = Math.ceil(Math.max(...rows.map(width)) + parseFloat(ps.paddingLeft) + parseFloat(ps.paddingRight) + w.el.offsetWidth - p.clientWidth);
+    rows.forEach(a => a.classList.toggle("wrap", w.minW > D().w)); // at large Scale sizes the icon buttons wrap instead of running off screen
     if (!w.max && w.wd < w.minW) { fit(w); place(w); }
   }
   function place(w) {
@@ -698,15 +697,18 @@
           <hr class="etch">
           <div class="plabel">Prompt</div>
           <div class="promptbox sunken">${esc(r.prompt)}</div>
-          <div class="actions">
+          <div class="actions" role="group" aria-label="This file">
             ${r.asset ? `<button class="raised btn-s b-default" data-open="viewer" data-id="${esc(r.taskId)}">${icoLabel(typeIcon(r.type), "Open")}</button><button class="raised btn-s" data-file="reveal" data-name="${esc(r.asset)}">${icoLabel("i-finder", "Show in Finder")}</button>` : ""}
-            ${r.type === "image" && r.asset ? `<button class="raised btn-s" data-gen="animate" data-id="${esc(r.taskId)}">${icoLabel("i-animate", "Animate…")}</button>` : ""}
-            ${(r.type === "image" || r.type === "video") && r.asset ? `<button class="raised btn-s" data-gen="upscale" data-id="${esc(r.taskId)}">${icoLabel("i-upscale", "Upscale…")}</button>` : ""}
-            <button class="raised btn-s${r.asset || ACTIVE.has(r.status) ? "" : " b-default"}" data-gen="again" data-id="${esc(r.taskId)}">${icoLabel("i-again", "Generate again…")}</button>
             ${ACTIVE.has(r.status) ? `<button class="raised btn-s b-danger" data-cancel="${esc(r.taskId)}">${icoLabel("i-stop", "Cancel job")}</button>` : ""}
             <button class="raised btn-s" data-copy="${esc(r.prompt)}" data-done="Prompt copied">${icoLabel("i-copy", "Copy prompt")}</button>
             <button class="raised btn-s" data-copy="${esc(r._of || r.taskId)}" data-done="ID copied">${icoLabel("i-copy", "Copy task ID")}</button>
             ${r.failure ? `<button class="raised btn-s" data-copy="${esc(r.failure)}" data-done="Error copied">${icoLabel("i-copy", "Copy error")}</button>` : ""}
+          </div>
+          <div class="actions" role="group" aria-label="Make from this">
+            ${r.type === "image" && r.asset ? `<button class="raised btn-s" data-gen="animate" data-id="${esc(r.taskId)}">${icoLabel("i-animate", "Animate…")}</button>` : ""}
+            ${(r.type === "image" || r.type === "video") && r.asset ? `<button class="raised btn-s" data-gen="upscale" data-id="${esc(r.taskId)}">${icoLabel("i-upscale", "Upscale…")}</button>` : ""}
+            ${r.type === "video" && r.asset ? `<button class="raised btn-s" data-gen="sound" data-id="${esc(r.taskId)}">${icoLabel("i-sound", "Add sound…")}</button><button class="raised btn-s" data-gen="hdr" data-id="${esc(r.taskId)}">${icoLabel("i-hdr", "Convert to HDR…")}</button>` : ""}
+            <button class="raised btn-s${r.asset || ACTIVE.has(r.status) ? "" : " b-default"}" data-gen="again" data-id="${esc(r.taskId)}">${icoLabel("i-again", "Generate again…")}</button>
           </div>
         </div>`);
       fitActions(w);

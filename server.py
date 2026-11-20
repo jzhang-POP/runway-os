@@ -343,6 +343,12 @@ class Normalizer:
         return None
 
 
+# in the spec but rejected by Runway's API ("Unknown task type"), so not offered
+HIDDEN_MODELS = {"gemini_3.8_flash_tts", "gemini_3.8_flash_lite_tts"}
+# Runway prices these per job from the actual output, so the quote is a floor, not a promise
+DYNAMIC_PRICE = ("magnific_",)
+
+
 def build_catalog():
     if catalog_cache["data"] and time.time() - catalog_cache["at"] < 86400:
         return catalog_cache["data"]
@@ -360,7 +366,7 @@ def build_catalog():
             a = N.R(a)
             props, req = a.get("properties", {}), set(a.get("required", []))
             mid = N.R(props.get("model", {})).get("const")
-            if not mid:
+            if not mid or mid in HIDDEN_MODELS:
                 continue
             fields, missing, extra = [], [], []
             for k, v in props.items():
@@ -637,7 +643,11 @@ def quote(body):
             inputs["inputAudioSeconds"] = info[0][1].get("seconds")
     inputs = {k: v for k, v in inputs.items() if v not in (None, [])}
     try:
-        return estimate(task["endpoint"], m["id"], params, inputs)
+        q = estimate(task["endpoint"], m["id"], params, inputs)
+        if m["id"].startswith(DYNAMIC_PRICE) and q.get("credits") is not None:
+            q["exact"] = False
+            q["note"] = "Magnific prices vary per job. Runway reports the real cost when it finishes."
+        return q
     except Exception as e:
         return {"credits": None, "exact": False, "note": f"couldn't price this ({type(e).__name__}: {e})"}
 
