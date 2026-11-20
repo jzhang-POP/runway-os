@@ -1325,6 +1325,7 @@
     }
     hint.classList.toggle("stale", !why && !fresh);
     hint.textContent = text; hint.title = text; hint.classList.toggle("why", !!why);
+    if (!why && fresh) spendHint(w, hint, pr);
     if (!w.busy && (why || fresh)) $("span", btn).textContent = !why && pr?.credits != null ? `Generate · ${pr.exact ? "" : "≈"}${fmt(pr.credits)} cr` : "Generate";
     // blocked: aria-disabled keeps it focusable with the reason (.ghint) as its description; genSubmit refuses and shows the reason.
     // Only sending uses real disabled.
@@ -1373,6 +1374,7 @@
   async function genSubmit(w) {
     const why = genBlock(w); if (why) { genMsg(w, why + "."); return; }
     if (w.busy) return;
+    if (!(await spendCheck(w)) || w.busy) return;
     const t = curTask(w), m = curModel(w), btn = $(".btn-go", w.body), label = $("span", btn);
     const { values, media, extra: ex } = genBody(w);
     w.busy = true; btn.disabled = true; label.textContent = Object.keys(media).length ? "Uploading…" : "Sending…"; genMsg(w, null);
@@ -1534,7 +1536,7 @@
     ["open, start <name>", "open a file or job in its window"],
     ["cat, type <name>", "show a job's details, or a note's text"],
     ["ps", "jobs rendering or queued"],
-    ["balance", "credits left"],
+    ["balance", "credits left and spent today"],
     ["cost [days]", "credits spent per model (org) and per task (yours), default 30 days"],
     ["gen [prompt]", "open Generate, with the prompt filled in"],
     ["finder", "show the Runway folder in Finder"],
@@ -1690,6 +1692,7 @@
         break;
       }
       case "cost": case "usage": {
+        say(spendTerm());
         const days = Math.max(1, Math.min(90, parseInt(args[0], 10) || 30));
         say(`asking Runway for ${days} days of usage…`, "t-dim"); t.lines.push(...out.splice(0)); termPaint(w);
         usageLoad(days).then(u => {
@@ -1704,7 +1707,7 @@
         }).catch(err => { t.lines.push(`<span class="t-err">cost: ${esc(err.message)}</span>`); termPaint(w); });
         break;
       }
-      case "balance": case "credits": say(data.balance == null ? "balance unknown" : `<span class="t-red">${fmt(data.balance)}</span> credits left`); break;
+      case "balance": case "credits": say(data.balance == null ? "balance unknown" : `<span class="t-red">${fmt(data.balance)}</span> credits left`); say(spendTerm()); break;
       case "gen": case "generate": {
         const gw = open("generate", null, w.el);
         if (arg && CAT && gw.shell) { vals(gw).promptText = arg; genFields(gw); genRefresh(gw); save(); }
@@ -2432,7 +2435,7 @@
     $$("[data-tsz]", w.body).forEach(b => b.setAttribute("aria-pressed", +b.dataset.tsz === fs));
   }
   function optionsRender(w) {
-    const tab = w.tab && w.tab !== "general" ? w.tab : "access", T = [["access", "Accessibility"], ["look", "Appearance"], ["alerts", "Alerts"]];
+    const tab = w.tab && w.tab !== "general" ? w.tab : "access", T = [["access", "Accessibility"], ["look", "Appearance"], ["alerts", "Alerts"], ["spend", "Spending"]];
     const ts = textSizes(), pixel = opts.font === "pixel";
     const radio = (k, v, label, hint) => `<label class="opt-radio"><input type="radio" name="o-${k}" data-opt="${k}" value="${esc(v)}" ${String(opts[k]) === String(v) ? "checked" : ""}><span>${label}${hint ? ` <span class="muted">${hint}</span>` : ""}</span></label>`;
     const check = (k, label, hint) => `<label class="check opt-check"><input type="checkbox" data-opt="${k}" ${opts[k] ? "checked" : ""}><span>${label}${hint ? `<br><span class="muted">${hint}</span>` : ""}</span></label>`;
@@ -2483,6 +2486,7 @@
       <fieldset class="group"><legend>Terminal colors</legend>
         ${TERMS.map(([v, n]) => radio("termScheme", v, n)).join("")}
       </fieldset>`;
+    else if (tab === "spend") panel = spendPanel();
     else panel = `
       <fieldset class="group"><legend>When a job finishes</legend>
         ${check("balloons", "Show a balloon above the clock")}
@@ -3093,6 +3097,118 @@
     if (b.dataset.cmd === "shutdown") shutdownDialog();
   });
 
+  /* ---------- spending guard: a daily credit limit for the whole org (Options → Spending) ----------
+     The server works out data.spent.today from balance_history.json: every drop in the org balance since local midnight,
+     so jobs from Claude, this app and other tools all count. Generate asks before a job that would go over the limit. */
+  const spendLimit = () => { const n = Math.round(+opts.dailyLimit); return opts.dailyLimit != null && opts.dailyLimit !== "" && n >= 1 ? n : null; };
+  // the server's spending fields from /api/state; repaint what shows them when they change
+  function spendUpdate(d) {
+    const s = { today: typeof d.spentToday === "number" ? d.spentToday : null, source: d.spentSource || null, since: d.spentSince || null };
+    const same = data.spent && data.spent.today === s.today && data.spent.source === s.source;
+    data.spent = s;
+    if (!same) spendRefresh();
+  }
+  function spendRefresh() {
+    spendTray();
+    $$(".spent-today").forEach(el => { el.textContent = spendText(); });
+    wins.forEach(w => w.kind === "generate" && w.shell && CAT && curModel(w) && genRefresh(w));
+  }
+  function spendText() {
+    const s = data.spent?.today, lim = spendLimit();
+    if (s == null) return "Spent today: unknown until the server answers.";
+    return `Spent today: ${fmt(s)} credits${lim ? ` of ${fmt(lim)} (${Math.round(s / lim * 100)}%)` : ""}.`;
+  }
+  // tray: the balance turns amber at 80% of the limit and red at 100%
+  function spendTray() {
+    const bal = $("#tray-bal"); if (!bal) return;
+    const s = data.spent?.today, lim = spendLimit(), r = lim && s != null ? s / lim : 0;
+    bal.classList.toggle("spend-near", r >= 0.8 && r < 1);
+    bal.classList.toggle("spend-over", r >= 1);
+    bal.title = lim && s != null ? `Spent today: ${fmt(s)} of ${fmt(lim)} credits. Open Dashboard` : "Credits left. Open Dashboard";
+  }
+  // this job's price: the server's quote, else the same estimate the hint shows (from your last job with this model)
+  function spendQuote(w) {
+    const key = JSON.stringify(genBody(w)), pr = w.priceFor === key ? w.price : null;
+    if (pr?.credits != null) return { credits: pr.credits, exact: !!pr.exact };
+    const m = curModel(w), t = curTask(w);
+    const last = m && newestFirst().find(r => r.model === m.id && r.credits != null && r.costSource === "runway" && (!r.endpoint || r.endpoint === t.endpoint));
+    if (!last) return { credits: null, exact: false };
+    const d = +shownVal(m.fields.find(f => f.name === "duration") || {}, vals(w).duration), sec = secondsOf(last);
+    return { credits: d && sec ? Math.round(last.credits / sec * d) : last.credits, exact: false };
+  }
+  // a quiet note after the price in Generate's footer, only when this job takes today's spending to 80% of the limit or more
+  function spendHint(w, hint, pr) {
+    const lim = spendLimit(), s = data.spent?.today; if (!lim || s == null) return;
+    const after = s + (pr?.credits ?? 0);
+    if (after < lim * 0.8) return;
+    hint.textContent += after > lim ? ` · over today's limit: ${fmt(after)} of ${fmt(lim)}` : ` · today ${fmt(after)} of ${fmt(lim)} limit`;
+    hint.title = hint.textContent;
+  }
+  // before Generate sends a job: resolves true to go ahead
+  function spendCheck(w) {
+    const lim = spendLimit(), s = data.spent?.today;
+    if (!lim || s == null) return Promise.resolve(true);
+    const q = spendQuote(w), after = s + (q.credits ?? 0);
+    if (q.credits == null ? s < lim : after <= lim) return Promise.resolve(true);
+    const lead = q.credits == null
+      ? `Today's spending is already ${fmt(s)} of your ${fmt(lim)} credit limit, and this job's price is unknown.`
+      : `This job would take today's spending to ${q.exact ? "" : "about "}${fmt(after)} of your ${fmt(lim)} credit limit.`;
+    const job = q.credits == null ? "This job has no price quote, so it isn't counted here."
+      : q.exact ? `This job: ${fmt(q.credits)} credits.` : `This job: about ${fmt(q.credits)} credits. That's an estimate, the final cost can differ.`;
+    return spendDialog(lead, `Spent today: ${fmt(s)} credits, by the whole Runway org since midnight. ${job}`);
+  }
+  function spendDialog(lead, detail) {
+    return new Promise(resolve => {
+      $("#spendguard")?.remove();
+      const back = document.activeElement, d = document.createElement("div");
+      d.id = "spendguard"; d.className = "shutdown";
+      d.innerHTML = `
+        <div class="sd-win window front raised" role="alertdialog" aria-modal="true" aria-labelledby="sg-t" aria-describedby="sg-lead sg-detail">
+          <div class="titlebar"><span class="t"><svg class="ico ticon" aria-hidden="true"><use href="#i-coin"/></svg><span class="tt" id="sg-t">Daily credit limit</span></span></div>
+          <div class="sd-body">
+            <svg class="sd-ico" aria-hidden="true"><use href="#i-coin"/></svg>
+            <div class="sg-text"><p id="sg-lead">${esc(lead)}</p><p class="muted" id="sg-detail">${esc(detail)}</p></div>
+          </div>
+          <div class="sheet-foot"><span class="grow"></span><button class="raised btn-ok" data-sg="go">Generate anyway</button><button class="raised btn-ok b-default" data-sg="cancel">Cancel</button></div>
+        </div>`;
+      document.body.append(d);
+      const done = ok => { removeEventListener("keydown", onKey, true); d.remove(); back?.focus?.(); resolve(ok); };
+      // modal: it takes every key while open; Esc cancels, Tab stays on the two buttons, Enter presses the focused one
+      const onKey = e => {
+        e.stopPropagation();
+        if (e.key === "Escape") { e.preventDefault(); done(false); return; }
+        if (e.key === "Tab") { const f = $$("button", d), i = f.indexOf(document.activeElement); e.preventDefault(); f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus(); }
+      };
+      addEventListener("keydown", onKey, true);
+      d.addEventListener("click", e => { const b = e.target.closest("[data-sg]"); if (b) done(b.dataset.sg === "go"); });
+      $('[data-sg="cancel"]', d).focus();
+    });
+  }
+  // terminal: one line for balance and cost
+  function spendTerm() {
+    const s = data.spent?.today, lim = spendLimit();
+    if (s == null) return `<b class="t-acc">today</b>: spending unknown`;
+    return `<b class="t-acc">today, whole org</b>: <span class="t-red">${fmt(s)}</span> credits spent${lim ? ` of a ${fmt(lim)} daily limit (${Math.round(s / lim * 100)}%)` : ", no daily limit (set one in Options, Spending)"}`;
+  }
+  // Options → Spending: the limit field saves on change (Enter or leaving the field)
+  document.addEventListener("change", e => {
+    const el = e.target.closest?.("[data-limit]"); if (!el) return;
+    const v = el.value.trim(), n = Math.round(+v), had = document.activeElement === el;
+    setOpt("dailyLimit", v === "" || !(n >= 1) ? null : n);
+    if (had) $("[data-limit]")?.focus({ preventScroll: true });
+    spendRefresh();
+  });
+  function spendPanel() {
+    const lim = spendLimit(), src = data.spent?.source;
+    return `
+      <fieldset class="group"><legend>Daily credit limit</legend>
+        <div class="opt-limit"><label for="o-limit">Limit</label><input type="number" class="field" id="o-limit" data-limit min="1" step="1" inputmode="numeric" value="${lim ?? ""}" placeholder="No limit" aria-describedby="o-limit-h"><span>credits a day</span></div>
+        <p class="muted opt-limit-h" id="o-limit-h">Counts every credit the Runway org spends from midnight, local time, so jobs from Claude, this app and other tools all count. Top-ups don't lower it. Generate asks before a job that would go over the limit. Leave empty for no limit.</p>
+        <p class="spent-today" aria-live="polite">${esc(spendText())}</p>
+        ${src === "jobs" ? '<p class="muted opt-limit-h">No balance history for today yet, so this adds up today\'s jobs in runs.json instead.</p>' : ""}
+      </fieldset>`;
+  }
+
   /* ---------- Shut down: restart, optionally forgetting the window layout or every setting ---------- */
   let resetting = false; // set just before a reload, so nothing writes the forgotten state back
   function restart(mode) {
@@ -3562,6 +3678,7 @@
       const connChanged = c.text !== conn.text || c.cls !== conn.cls;
       const keySig = [d.live, d.keySource, d.keyHint, d.error].join("|"), keyChanged = keySig !== data.keySig;
       data = { runs, balance: d.balance, balanceAt: d.balanceAt, history: d.history || [], live: !!d.live, keySource: d.keySource, keyHint: d.keyHint, error: d.error, keySig, inputs: d.inputs || [] };
+      spendUpdate(d);
       if (sessionStart == null && d.balance != null) sessionStart = { balance: d.balance, at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
       runsSig = rs; stateSig = ss; conn = c; lastConn = c; loaded = true; markReady();
       if (!first) runs.forEach(r => { const was = prevStatus.get(r.taskId); if (was && ACTIVE.has(was) && !ACTIVE.has(r.status)) announce(r); });

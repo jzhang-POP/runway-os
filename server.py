@@ -777,6 +777,35 @@ def record_balance(balance):
         os.replace(tmp, HISTORY)
 
 
+def spent_today(runs):
+    """Credits the whole org spent since local midnight, for the daily limit in Options.
+    From balance_history.json: start at the last balance at or before midnight and add up every drop
+    after it (a rise is a top-up, not spending), so jobs from Claude, this app and other tools all count.
+    The credits of today's jobs in runs.json are the fallback when there is no history, and the floor
+    when the history only starts after midnight."""
+    midnight = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    m = midnight.timestamp()
+    jobs = 0
+    for r in runs:
+        try:
+            t = datetime.fromisoformat((r.get("createdAt") or "").replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if t.tzinfo and t.timestamp() >= m and isinstance(r.get("credits"), (int, float)):
+            jobs += r["credits"]
+    try:
+        hist = json.load(open(HISTORY))
+    except Exception:
+        hist = []
+    pts = [h for h in hist if h[0] <= m][-1:] + [h for h in hist if h[0] > m]
+    out = {"spentToday": jobs, "spentSource": "jobs", "spentSince": midnight.isoformat(timespec="seconds")}
+    if pts:
+        drops = sum(max(0, a[1] - b[1]) for a, b in zip(pts, pts[1:]))
+        if pts[0][0] <= m or drops >= jobs:
+            out.update(spentToday=drops, spentSource="balance")
+    return out
+
+
 def tick(key):
     with lock:
         data = load()
@@ -1000,6 +1029,7 @@ class Handler(SimpleHTTPRequestHandler):
                 data["history"] = before + [h for h in hist if h[0] >= cutoff]
             except Exception:
                 data["history"] = []
+            data.update(spent_today(data.get("runs", [])))
             body = json.dumps(data).encode()
             tag = '"' + hashlib.sha1(body).hexdigest()[:20] + '"'
             if self.headers.get("If-None-Match") == tag:  # nothing changed since the page's last poll
