@@ -1,6 +1,6 @@
 import { S } from "../core/state.js";
 import { $, fmt, icoLabel } from "../core/dom.js";
-import { api } from "../core/api.js";
+import { postJSON } from "../core/api.js";
 import { balloon } from "../core/ui.js";
 import { RENDER } from "../wm/kinds.js";
 import { poll } from "../live.js";
@@ -55,7 +55,7 @@ export function keyRender(w) {
   $(".kleg", w.body).textContent = S.data.live ? "Replace key" : "Add key";
   $(".krm", w.body).hidden = S.data.keySource !== "file";
 }
-export const keyPost = body => api("/api/key", body).catch(err => ({ error: err.message }));
+export const keyPost = body => postJSON("/api/key", body).catch(err => ({ error: err.message }));
 export function keyMsg(w, text) { const m = $(".kmsg", w.body); if (m) { m.hidden = !text; m.textContent = text || ""; } }
 
 export function init() {

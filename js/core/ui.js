@@ -1,6 +1,6 @@
 import { S } from "./state.js";
 import { $, cap, esc, fmt } from "./dom.js";
-import { api } from "./api.js";
+import { postJSON } from "./api.js";
 import { badThumbs, nameOf, thumbIcon, typeIcon } from "./status.js";
 import { setTitle } from "../wm/taskbar.js";
 import { open } from "../wm/windows.js";
@@ -26,7 +26,7 @@ export function copyText(text, done = "Copied") {
     .catch(() => balloon({ title: "Couldn't copy", text: "The browser blocked clipboard access.", ms: 3000 }));
 }
 export async function fileAction(action, name) {
-  try { await api(`/api/${action}`, { file: name }); }
+  try { await postJSON(`/api/${action}`, { file: name }); }
   catch {
     balloon({ title: "Couldn't open the file", text: `${name} isn't in the Runway folder, or the server is offline.`, ms: 4000 });
   }

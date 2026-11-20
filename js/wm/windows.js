@@ -129,10 +129,10 @@ export function place(w, d = D()) {
 }
 
 export const preview = $("#snap");
-export function snapZone(px, py, d) {
-  if (py <= SNAP) return { x: 0, y: 0, wd: d.w, ht: d.h, max: true };
-  if (px <= SNAP) return { x: 0, y: 0, wd: Math.round(d.w / 2), ht: d.h };
-  if (px >= d.w - SNAP) return { x: d.w - Math.round(d.w / 2), y: 0, wd: Math.round(d.w / 2), ht: d.h };
+export function snapZone(cx, cy, d) {
+  if (cy <= SNAP) return { x: 0, y: 0, wd: d.w, ht: d.h, max: true };
+  if (cx <= SNAP) return { x: 0, y: 0, wd: Math.round(d.w / 2), ht: d.h };
+  if (cx >= d.w - SNAP) return { x: d.w - Math.round(d.w / 2), y: 0, wd: Math.round(d.w / 2), ht: d.h };
   return null;
 }
 

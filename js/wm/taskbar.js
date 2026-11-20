@@ -2,7 +2,7 @@ import { S, wins } from "../core/state.js";
 import { $, $$, esc, fmt, menuEl, startBtn, startMenu, tasksEl } from "../core/dom.js";
 import { FAV } from "../core/graphics.js";
 import { morph } from "../core/morph.js";
-import { ACTIVE } from "../core/status.js";
+import { counts } from "../core/status.js";
 import { fileAction } from "../core/ui.js";
 import { APP_KEYS, KINDS } from "./kinds.js";
 import { save } from "./persist.js";
@@ -12,8 +12,9 @@ import { deskMenu, hideMenu, menuKeys, windowMenu } from "../menus.js";
 import { toggleFullScreen } from "../shortcuts.js";
 
 export function setTitle() {
-  const active = S.data.runs.filter(r => ACTIVE.has(r.status)).length;
-  document.title = "[POP] Runway OS";
+  const active = counts().active;
+  // jobs that finished while the tab was hidden, until you come back to it
+  document.title = `${S.unseen ? `(${S.unseen}) ` : ""}[POP] Runway OS`;
   const want = active ? "busy" : "idle";
   if (want !== S.favState) { S.favState = want; $("#favicon").href = "data:image/svg+xml," + encodeURIComponent(FAV[want]); }
 }
@@ -35,7 +36,7 @@ export function renderTasks() {
 
 export function renderTray() {
   setTitle();
-  const active = S.data.runs.filter(r => ACTIVE.has(r.status)).length, run = $("#tray-run"), bal = $("#tray-bal");
+  const active = counts().active, run = $("#tray-run"), bal = $("#tray-bal");
   run.hidden = !active;
   $("span", run).textContent = active;
   run.title = `${active} job${active === 1 ? "" : "s"} rendering or queued. Open Jobs`;

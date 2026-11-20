@@ -1,11 +1,12 @@
 import { S, wins } from "../core/state.js";
 import { $, $$, clampN, desk, esc, fmt, icoLabel } from "../core/dom.js";
-import { OFFLINE, api } from "../core/api.js";
+import { getJSON, postJSON } from "../core/api.js";
+import { modal } from "../core/modal.js";
 import { morph } from "../core/morph.js";
 import { relHTML } from "../core/status.js";
 import { sleep } from "../core/time.js";
 import { balloon, emptyAct, itemId } from "../core/ui.js";
-import { KINDS, RENDER, SIG } from "../wm/kinds.js";
+import { KINDS, RENDER } from "../wm/kinds.js";
 import { save } from "../wm/persist.js";
 import { renderTasks } from "../wm/taskbar.js";
 import { frontWin, open, retitle } from "../wm/windows.js";
@@ -87,18 +88,11 @@ export async function noteDecode(data) {
 }
 
 /* server calls */
-export async function noteFetch(path) {
-  let res;
-  try { res = await fetch(path, { cache: "no-store" }); } catch { throw new Error(OFFLINE); }
-  const out = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(out.error || `The server answered ${res.status}.`);
-  return out;
-}
-export const noteGet = name => noteFetch(`/api/notes/${encodeURIComponent(name)}`);
+export const noteGet = name => getJSON(`/api/notes/${encodeURIComponent(name)}`);
 export const notesEach = fn => wins.forEach(w => { if (w.kind === "notes" && w.shell) fn(w); });
 export async function notesLoad() {
   notesSt.at = Date.now();
-  try { notesSt.list = (await noteFetch("/api/notes")).notes || []; notesSt.err = ""; }
+  try { notesSt.list = (await getJSON("/api/notes")).notes || []; notesSt.err = ""; }
   catch (e) { notesSt.err = e.message; }
   notesEach(notesPaint);
 }
@@ -118,7 +112,7 @@ export async function noteSave(ed) {
   const text = ed.text, w = ed.w;
   // "Saving…" only shows when the server is slow, so a quick save goes straight from Unsaved to Saved
   const slow = setTimeout(() => { if (ed.busy) { ed.state = "saving"; noteStatus(w); } }, 400);
-  ed.busy = api("/api/notes", { name: ed.name, text }).then(info => {
+  ed.busy = postJSON("/api/notes", { name: ed.name, text }).then(info => {
     ed.saved = text; noteListPut(info);
     ed.state = ed.text === text ? "saved" : "unsaved";
     if (ed.state === "saved") notesSt.dirty.delete(ed);
@@ -300,46 +294,34 @@ export function noteIndent(ta, out) {
    act runs on OK; when it throws, its message shows in the dialog and the dialog stays open. */
 export function noteDialog({ title, msg, value, ok, danger, act }) {
   if ($("#notedlg")) return Promise.resolve(false);
-  return new Promise(resolve => {
-    const back = document.activeElement, ask = value != null, d = document.createElement("div");
-    d.id = "notedlg"; d.className = "shutdown";
-    d.innerHTML = `
-        <div class="sd-win window front raised" role="${ask ? "dialog" : "alertdialog"}" aria-modal="true" aria-labelledby="nd-t" aria-describedby="nd-m">
-          <div class="titlebar"><span class="t"><svg class="ico ticon" aria-hidden="true"><use href="#i-notes"/></svg><span class="tt" id="nd-t">${esc(title)}</span></span></div>
-          <div class="sd-body">
-            <svg class="sd-ico" aria-hidden="true"><use href="#${danger ? "i-remove" : "i-notes"}"/></svg>
-            <div class="nd-col">
-              ${ask ? `<label for="nd-in" id="nd-m">${esc(msg)}</label><input class="field" id="nd-in" spellcheck="false" autocomplete="off" maxlength="100">` : `<p id="nd-m">${esc(msg)}</p>`}
-              <div class="gmsg" role="alert" hidden></div>
-            </div>
+  const ask = value != null;
+  let busy = false;
+  return modal({
+    id: "notedlg", noMenu: true, html: `
+      <div class="sd-win window front raised" role="${ask ? "dialog" : "alertdialog"}" aria-modal="true" aria-labelledby="nd-t" aria-describedby="nd-m">
+        <div class="titlebar"><span class="t"><svg class="ico ticon" aria-hidden="true"><use href="#i-notes"/></svg><span class="tt" id="nd-t">${esc(title)}</span></span></div>
+        <div class="sd-body">
+          <svg class="sd-ico" aria-hidden="true"><use href="#${danger ? "i-remove" : "i-notes"}"/></svg>
+          <div class="nd-col">
+            ${ask ? `<label for="nd-in" id="nd-m">${esc(msg)}</label><input class="field" id="nd-in" spellcheck="false" autocomplete="off" maxlength="100">` : `<p id="nd-m">${esc(msg)}</p>`}
+            <div class="gmsg" role="alert" hidden></div>
           </div>
-          <div class="sheet-foot"><span class="grow"></span><button class="raised btn-ok b-default" data-nd="ok">${esc(ok)}</button><button class="raised btn-ok" data-nd="cancel">Cancel</button></div>
-        </div>`;
-    document.body.append(d);
-    const inp = $("#nd-in", d), err = $(".gmsg", d), okBtn = $('[data-nd="ok"]', d);
-    if (inp) { inp.value = value; const dot = value.lastIndexOf("."); inp.focus(); inp.setSelectionRange(0, dot > 0 ? dot : value.length); } else okBtn.focus();
-    let busy = false;
-    const finish = res => { removeEventListener("keydown", onKey, true); d.remove(); back?.focus?.({ preventScroll: true }); resolve(res); };
-    const submit = async () => {
+        </div>
+        <div class="sheet-foot"><span class="grow"></span><button class="raised btn-ok b-default" data-m="ok">${esc(ok)}</button><button class="raised btn-ok" data-m="cancel">Cancel</button></div>
+      </div>`,
+    focus: d => {
+      const inp = $("#nd-in", d); if (!inp) return $('[data-m="ok"]', d);
+      inp.value = value; const dot = value.lastIndexOf("."); inp.focus(); inp.setSelectionRange(0, dot > 0 ? dot : value.length);
+    },
+    // OK runs act; the dialog stays open with its message if that throws
+    onPress: async (v, close) => {
       if (busy) return;
+      const d = $("#notedlg"), inp = $("#nd-in", d), err = $(".gmsg", d), okBtn = $('[data-m="ok"]', d);
       busy = true; okBtn.disabled = true; err.hidden = true;
-      try { await act(inp ? inp.value : true); finish(true); }
+      try { await act(inp ? inp.value : true); close("ok"); }
       catch (e) { err.textContent = e.message; err.hidden = false; busy = false; okBtn.disabled = false; (inp || okBtn).focus(); }
-    };
-    // modal: takes every key while open; Tab stays inside
-    const onKey = e => {
-      e.stopPropagation();
-      if (e.key === "Escape") { e.preventDefault(); finish(false); return; }
-      if (e.key === "Enter" && !e.target.closest('[data-nd="cancel"]')) { e.preventDefault(); submit(); return; }
-      if (e.key === "Tab") {
-        const f = $$("input, button:not(:disabled)", d), i = f.indexOf(document.activeElement);
-        e.preventDefault(); f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();
-      }
-    };
-    addEventListener("keydown", onKey, true);
-    d.addEventListener("click", e => { const b = e.target.closest("[data-nd]"); if (b) b.dataset.nd === "ok" ? submit() : finish(false); });
-    d.addEventListener("contextmenu", e => { if (!e.shiftKey) e.preventDefault(); }); // the in-app menu would open under the dialog
-  });
+    },
+  }).then(v => v === "ok");
 }
 
 /* toolbar actions */
@@ -349,7 +331,7 @@ export async function noteNew(w) {
   let i = 1, name = "Untitled.txt";
   while (taken.has(name.toLowerCase())) name = `Untitled ${++i}.txt`;
   try {
-    const info = await api("/api/notes", { name, text: "", create: true });
+    const info = await postJSON("/api/notes", { name, text: "", create: true });
     noteListPut(info);
     await noteShow(w, info.name, true);
     w.ntMsg = { text: `Created ${info.name}. Rename it with Rename… or F2 in the list.` }; noteStatus(w);
@@ -365,7 +347,7 @@ export async function noteRename(w) {
   const ed = w.ed; if (!ed?.name) return;
   await notesFlush();
   await noteDialog({ title: "Rename note", msg: "New name:", value: ed.name, ok: "Rename", act: async v => {
-    const was = ed.name, info = await api("/api/notes/rename", { name: was, to: noteFileName(v, ed.lang) });
+    const was = ed.name, info = await postJSON("/api/notes/rename", { name: was, to: noteFileName(v, ed.lang) });
     noteRenamed(w, ed, info, was);
   } });
 }
@@ -374,7 +356,7 @@ export async function noteLang(w, lang) {
   if (!ed.name) { ed.lang = notesSt.draft.lang = lang; notePaint(w); notesPaint(w); return; }
   await notesFlush();
   const was = ed.name;
-  try { noteRenamed(w, ed, await api("/api/notes/rename", { name: was, to: was.replace(/\.[^.]*$/, "") + "." + extOf(lang) }), was); w.ntMsg = { text: `Renamed to ${ed.name}` }; }
+  try { noteRenamed(w, ed, await postJSON("/api/notes/rename", { name: was, to: was.replace(/\.[^.]*$/, "") + "." + extOf(lang) }), was); w.ntMsg = { text: `Renamed to ${ed.name}` }; }
   catch (e) { w.ntMsg = { text: e.message, warn: true }; }
   notesPaint(w);
 }
@@ -384,7 +366,7 @@ export async function noteDelete(w) {
   const ok = await noteDialog(ed.name
     ? { title: "Delete note", msg: `Delete ${ed.name}? The file is removed from the notes folder.`, ok: "Delete", danger: true, act: async () => {
         clearTimeout(ed.timer); notesSt.dirty.delete(ed); while (ed.busy) await ed.busy;
-        await api("/api/notes/delete", { name: ed.name });
+        await postJSON("/api/notes/delete", { name: ed.name });
         notesSt.list = (notesSt.list || []).filter(n => n.name !== ed.name);
       } }
     : { title: "Discard note", msg: "Discard the note from the link? It isn't saved anywhere else.", ok: "Discard", danger: true, act: async () => { notesSt.draft = null; } });
@@ -397,7 +379,7 @@ export async function noteDelete(w) {
 export async function noteKeep(w) {
   const ed = w.ed; if (!ed || ed.name) return;
   await noteDialog({ title: "Save as note", msg: "Name:", value: `From link.${extOf(ed.lang)}`, ok: "Save", act: async v => {
-    const info = await api("/api/notes", { name: noteFileName(v, ed.lang), text: ed.text, create: true });
+    const info = await postJSON("/api/notes", { name: noteFileName(v, ed.lang), text: ed.text, create: true });
     notesSt.draft = null;
     Object.assign(ed, { name: info.name, saved: ed.text, lang: langOfName(info.name), state: "saved" });
     w.sel = info.name; w.ntMsg = { text: `Saved as ${info.name}` }; save();
@@ -444,7 +426,7 @@ export function notesRender(w) {
     if (it) { if (it.dataset.ntItem !== w.sel || !w.ed) noteShow(w, it.dataset.ntItem); box.focus({ preventScroll: true }); return; }
     const b = e.target.closest("button[data-nt]"); if (!b) return;
     ({ new: noteNew, use: noteUseAsPrompt, keep: noteKeep, rename: noteRename, delete: noteDelete, link: noteCopyLink, reload: notesLoad,
-      finder: () => api("/api/notes/reveal", w.ed?.name ? { name: w.ed.name } : {}).catch(err => { w.ntMsg = { text: err.message, warn: true }; noteStatus(w); }) })[b.dataset.nt]?.(w);
+      finder: () => postJSON("/api/notes/reveal", w.ed?.name ? { name: w.ed.name } : {}).catch(err => { w.ntMsg = { text: err.message, warn: true }; noteStatus(w); }) })[b.dataset.nt]?.(w);
   });
   w.body.addEventListener("change", e => {
     if (e.target.matches('[data-nt="lang"]')) noteLang(w, e.target.value);
@@ -516,6 +498,7 @@ export const noteHash = location.hash; // read now, before anything can change i
 
 export function init() {
   RENDER.notes = w => notesRender(w);
+  KINDS.notes.title = w => (noteTitle(w) ? `Notes — ${noteTitle(w)}` : "Notes");
   try { S.notePref = { ...S.notePref, ...JSON.parse(localStorage.getItem(NOTE_PREF)) }; } catch {}
   addEventListener("pagehide", () => notesSt.dirty.forEach(ed => {
     if (ed.name && ed.text !== ed.saved) fetch("/api/notes", { method: "POST", keepalive: true, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: ed.name, text: ed.text }) }).catch(() => {});
@@ -524,5 +507,4 @@ export function init() {
   desk.addEventListener("click", e => { const a = e.target.closest("[data-note-open]"); if (a) openNote(a.dataset.noteOpen, a); });
   setTimeout(() => { notesLoad(); noteFromHash(noteHash); }, 0);
   addEventListener("hashchange", () => noteFromHash(location.hash));
-  SIG.notes = () => "";
 }
