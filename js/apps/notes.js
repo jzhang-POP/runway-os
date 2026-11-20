@@ -169,13 +169,28 @@ export function noteFill(w) {
   sc.scrollTop = 0; sc.scrollLeft = 0;
   notePaint(w); notesPaint(w);
 }
-// the highlighted copy and the line numbers, under the textarea
+// the highlighted copy and the line numbers, under the textarea. Only the lines that changed are replaced: the
+// unchanged lines before and after the edit keep their elements (line numbers are a CSS counter, so they follow).
+const hlLines = new WeakMap(); // .nt-hl -> the line HTML it shows
+export const nlCount = (text, end = text.length) => { let n = 0, i = -1; while ((i = text.indexOf("\n", i + 1)) !== -1 && i < end) n++; return n; };
+const lineHTML = l => `<div class="nl"><span class="nn"></span>${l}</div>`;
 export function notePaint(w) {
   const ta = $(".nt-ta", w.body), hl = $(".nt-hl", w.body), sc = $(".nt-scroll", w.body);
   if (!ta || !w.ed) return;
-  const lines = noteHL(ta.value, w.ed.lang).split("\n");
-  hl.innerHTML = lines.map((l, i) => `<div class="nl"><span class="nn">${i + 1}</span>${l}</div>`).join("");
-  sc.style.setProperty("--nt-d", Math.max(2, String(lines.length).length));
+  const lines = noteHL(ta.value, w.ed.lang).split("\n"), old = hlLines.get(hl);
+  hlLines.set(hl, lines);
+  if (!old || hl.children.length !== old.length) hl.innerHTML = lines.map(lineHTML).join("");
+  else {
+    const n = Math.min(old.length, lines.length);
+    let a = 0, b = 0;
+    while (a < n && old[a] === lines[a]) a++;
+    while (b < n - a && old[old.length - 1 - b] === lines[lines.length - 1 - b]) b++;
+    for (let i = old.length - b - 1; i >= a; i--) hl.children[i].remove();
+    const html = lines.slice(a, lines.length - b).map(lineHTML).join("");
+    if (html) { const next = hl.children[a]; next ? next.insertAdjacentHTML("beforebegin", html) : hl.insertAdjacentHTML("beforeend", html); }
+  }
+  const d = String(Math.max(2, String(lines.length).length));
+  if (sc.style.getPropertyValue("--nt-d") !== d) sc.style.setProperty("--nt-d", d);
   ta.scrollTop = 0; ta.scrollLeft = 0; // the textarea is as big as its text: it never scrolls itself, .nt-scroll does
 }
 // keep the caret in view: the textarea never scrolls (it's as big as its text), so .nt-scroll has to follow the caret.
@@ -184,8 +199,8 @@ export function noteReveal(w) {
   const ta = $(".nt-ta", w.body), sc = $(".nt-scroll", w.body), hl = $(".nt-hl", w.body);
   if (!ta || document.activeElement !== ta) return;
   const v = ta.value, s = ta.selectionDirection === "backward" ? ta.selectionStart : ta.selectionEnd;
-  const a = v.lastIndexOf("\n", s - 1) + 1, el = hl.children[v.slice(0, a).split("\n").length - 1]; if (!el) return;
-  const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, { acceptNode: n => (n.parentElement.classList.contains("nn") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+  const a = v.lastIndexOf("\n", s - 1) + 1, el = hl.children[nlCount(v, a)]; if (!el) return;
+  const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
   let left = s - a, node, rect = null;
   while ((node = walk.nextNode()) && left > node.length) left -= node.length;
   if (node) { const r = document.createRange(); r.setStart(node, left); r.collapse(true); rect = r.getClientRects()[0] || r.getBoundingClientRect(); }
@@ -199,15 +214,15 @@ export function noteReveal(w) {
 export function noteStatus(w) {
   const segs = $$(".statusbar .seg", w.body); if (segs.length < 3) return;
   const ed = w.ed, [msg, pos, st] = segs, m = w.ntMsg;
-  const lines = ed ? ed.text.split("\n").length : 0;
+  const lines = ed ? nlCount(ed.text) + 1 : 0;
   msg.textContent = m ? m.text : ed ? `${fmt(lines)} line${lines === 1 ? "" : "s"}, ${fmt(ed.text.length)} character${ed.text.length === 1 ? "" : "s"}`
     : notesSt.list ? `${notesSt.list.length} note${notesSt.list.length === 1 ? "" : "s"}` : "";
   msg.title = msg.textContent;
   msg.classList.toggle("why", !!m?.warn);
   const ta = $(".nt-ta", w.body);
   if (ed && ta) {
-    const s = ta.selectionStart, before = ed.text.slice(0, s);
-    pos.textContent = `Ln ${fmt(before.split("\n").length)}, Col ${fmt(s - before.lastIndexOf("\n"))}`;
+    const s = ta.selectionStart;
+    pos.textContent = `Ln ${fmt(nlCount(ed.text, s) + 1)}, Col ${fmt(s - (s ? ed.text.lastIndexOf("\n", s - 1) : -1))}`;
   }
   st.textContent = ed ? { draft: "Not saved", unsaved: "Unsaved", saving: "Saving…", saved: "Saved", error: "Not saved" }[ed.state] : "";
   pos.hidden = st.hidden = !ed;
@@ -448,7 +463,8 @@ export function notesRender(w) {
       clearTimeout(ed.timer);
       if (ed.text !== ed.saved) { notesSt.dirty.add(ed); ed.timer = setTimeout(() => noteSave(ed), 800); }
     }
-    notePaint(w); noteStatus(w); noteReveal(w);
+    // one frame's worth of typing is painted once, just before the frame is drawn
+    if (!w.ntRaf) w.ntRaf = requestAnimationFrame(() => { w.ntRaf = 0; notePaint(w); noteStatus(w); noteReveal(w); });
   });
   ta.addEventListener("keydown", e => {
     const mod = (e.metaKey || e.ctrlKey) && !e.altKey, k = e.key.toLowerCase();
