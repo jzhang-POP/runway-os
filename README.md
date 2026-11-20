@@ -18,3 +18,8 @@ Add your Runway API key from **Start → Runway API key…**, or put it in a fil
 - `index.html`, `app.js`: the desktop (window manager, Generate, Jobs, galleries, Terminal, Options).
 - `fonts/`: bundled fonts (MS Sans Serif pixel font from 98.css, MIT; IBM Plex Sans and Atkinson Hyperlegible, SIL OFL).
 - `runs.json`: your job log (created on first job, not committed).
+- `tests/`: the smoke test.
+
+## Smoke test
+
+Run `tests/smoke.sh` (macOS; needs Google Chrome, Node and Python 3; about 40 s). It starts its own `server.py` copies on free ports in a temp folder: one empty, like a fresh clone (no job log, no model list, no key), and one with a read-only copy of your `runs.json`, notes and media (from this checkout, else the main git worktree, or `SMOKE_DATA_DIR`). It never touches your data, never uses your API key and never submits a job. In headless Chrome it passes the boot screen, then for each theme (Dark, Classic, Storm, Eggplant, Marine, Pumpkin, high contrast and a large Scale) opens every window, plus Viewer and Properties for real jobs, the Start menu and right-click menus, and checks the keyboard shortcuts (Alt+letter apps, Alt+W, F1, Cmd+,, Cmd+I, Ctrl+Esc) through your keyboard layout. It exits non-zero, naming the theme and window, on any uncaught error, unhandled rejection, `console.error`, failed request, empty window or window bigger than the screen. Screenshots go to `tests/out/` (not committed).

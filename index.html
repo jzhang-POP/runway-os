@@ -716,6 +716,7 @@
   #tray-run { color: var(--run); font-weight: 700; }
   .clock { padding: 0 var(--s2); font-variant-numeric: tabular-nums; cursor: default; }
   .startmenu { position: fixed; left: max(var(--s1), env(safe-area-inset-left, 0px)); bottom: calc(var(--bar) + env(safe-area-inset-bottom, 0px) - 2px); z-index: 100001; padding: 3px; min-width: round(calc(210 * var(--u)), 1px); display: flex; flex-direction: column; }
+  .startmenu { max-height: calc(100dvh - var(--bar) - env(safe-area-inset-bottom, 0px) + 2px); overflow-y: auto; } /* short screens and large Scale: scroll instead of running off the top */
   .startmenu button { display: flex; align-items: center; gap: var(--s3); padding: var(--s2) var(--s4) var(--s2) var(--s3); background: none; border: 0; text-align: left; cursor: pointer; }
   .startmenu button svg { width: round(calc(22 * var(--u)), 1px); height: round(calc(22 * var(--u)), 1px); }
   .startmenu button:hover, .startmenu button:focus-visible { background: var(--sel); color: #fff; outline: none; }

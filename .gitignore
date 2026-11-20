@@ -41,3 +41,6 @@ _h.js
 
 # your notes (Notes window)
 notes/
+
+# smoke test screenshots (tests/smoke.sh)
+tests/out/
