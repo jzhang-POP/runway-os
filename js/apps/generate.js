@@ -351,8 +351,8 @@ export function genAddExtra(w, name) {
 export function genRefresh(w, fromPrice) {
   const f = w.body, hint = $(".ghint", f); if (!hint) return;
   const why = genBlock(w), btn = $(".btn-go", f);
-  const key = !why && curModel(w) ? JSON.stringify(genBody(w)) : "";
-  if (!fromPrice && key) genPrice(w, key);
+  const body = !why && curModel(w) ? genBody(w) : null, key = body ? priceKey(body) : "";
+  if (!fromPrice && key) genPrice(w, key, body);
   const fresh = !!key && w.priceFor === key, pr = fresh ? w.price : null;
   let text = why;
   if (!why) {
@@ -390,9 +390,11 @@ export function genBody(w) {
   Object.keys(extra).forEach(k => { delete values[k]; delete media[k]; });
   return { endpoint: t.endpoint, model: m.id, values, media, extra };
 }
-// exact price from the server's pricing table, refreshed shortly after each change
+// exact price from the server's pricing table, asked for 400 ms after the last change. Pricing only ever looks at the
+// length of a text (per-character models), so the cache key holds long texts as their length.
+export const priceKey = body => JSON.stringify(body, (k, v) => (typeof v === "string" && v.length > 40 ? `\u0000${v.length} chars` : v));
 export const priceCache = new Map();
-export function genPrice(w, key) {
+export function genPrice(w, key, body) {
   clearTimeout(w.priceT);
   if (!key || key === w.priceFor || key === w.priceKey) return;
   if (priceCache.has(key)) { w.price = priceCache.get(key); w.priceFor = key; w.priceKey = key; genRefresh(w, true); return; }
@@ -401,11 +403,11 @@ export function genPrice(w, key) {
     w.priceKey = key;
     w.priceCtl?.abort(); const ctl = w.priceCtl = new AbortController();
     let out = null;
-    try { out = await api("/api/price", JSON.parse(key), { signal: ctl.signal }); } catch (e) { if (e.name === "AbortError") return; }
-    if (out) priceCache.set(key, out);
+    try { out = await api("/api/price", body, { signal: ctl.signal }); } catch (e) { if (e.name === "AbortError") return; }
+    if (out) { priceCache.set(key, out); if (priceCache.size > 200) priceCache.delete(priceCache.keys().next().value); }
     if (w.priceKey !== key) return;
     w.price = out; w.priceFor = key; genRefresh(w, true);
-  }, 200);
+  }, 400);
 }
 
 export async function genSubmit(w) {
