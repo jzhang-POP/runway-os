@@ -1,301 +1,22 @@
 import { S, ready, wins } from "./core/state.js";
-import { $, $$, cap, clampN, desk, esc, fmt, icoLabel, menuEl, reduced, startBtn, startMenu, tasksEl } from "./core/dom.js";
+import { $, $$, cap, clampN, desk, esc, fmt, icoLabel, menuEl, reduced, startBtn, startMenu } from "./core/dom.js";
 import { OFFLINE, api } from "./core/api.js";
 import { FAV, R_BITS, ledHTML, logoSVG, spark } from "./core/graphics.js";
 import { morph } from "./core/morph.js";
 import { ACTIVE, QUEUED, assetsOf, childrenOf, costHTML, costOf, createdMs, fileItem, filesOf, miniThumb, nameOf, newestFirst, plural, relHTML, runOf, runSig, statusHTML, statusInfo, thumbInner, thumbOf, typeIcon, typicalMs } from "./core/status.js";
 import { absTime, ago, dur, sleep, tOf, upTo } from "./core/time.js";
+import { GEN_BTN, announce, balloon, copyJob, copyText, emptyAct, fileAction, itemId, loadingOr, init as uiInit } from "./core/ui.js";
 import { D, px } from "./wm/geometry.js";
 import { APP_KEYS, KINDS, RENDER, SIG } from "./wm/kinds.js";
+import { KEY, resetLayout, restoreLayout, save } from "./wm/persist.js";
+import { CMP_BTN, CMP_MAX, MULTI, activeSync, cmpBase, cmpBtnSync, extendSel, isSel, menuSelect, moveSel, multiClick, selIds, selNote, select, selectAll } from "./wm/selection.js";
+import { sheetHTML, sheetKeys } from "./wm/sheet.js";
+import { renderTasks, renderTray, setStart, init as taskbarInit } from "./wm/taskbar.js";
+import { cascadeAll, close, defaultOpen, fit, fitActions, focus, focusInto, frontWin, minOf, minimize, open, place, renderWin, restore, retitle, snapHalf, tileAll, toggleMax, winOf, init as windowsInit } from "./wm/windows.js";
+import { arrangeIcons, layoutIcons, init as iconsInit } from "./desktop/icons.js";
 
-const KEY = "runway-os-layout-v3";
-const SNAP = 6;
-const minOf = (w, d) => [Math.min(Math.max(px(KINDS[w.kind].min[0]), w.minW || 0), d.w), Math.min(px(KINDS[w.kind].min[1]), d.h)];
-
-/* ---------- window lifecycle ---------- */
-function make(kind, arg, g = {}) {
-  const id = arg ? `${kind}:${arg}` : kind, tid = "tt-" + ++S.uid;
-  const el = document.createElement("section");
-  el.className = "window raised";
-  el.dataset.id = id;
-  el.setAttribute("role", "dialog");
-  el.setAttribute("aria-labelledby", tid);
-  el.tabIndex = -1; // focus can rest on the window itself when it has no control to take it
-  el.innerHTML = `
-      <div class="titlebar"><span class="t"><svg class="ico ticon" title="Double-click to close"><use href="#i-film"/></svg><span class="tt" id="${tid}"></span></span>
-        <span class="ctl"><button class="raised" data-act="min" aria-label="Minimize" title="Minimize"><i class="g-min"></i></button><button class="raised" data-act="max" aria-label="Maximize" title="Maximize"><i class="g-max"></i></button><span class="ctl-gap"></span><button class="raised" data-act="close" aria-label="Close" title="Close (Alt+W)"><i class="g-close"></i></button></span></div>
-      <div class="wbody"></div>
-      ${["n", "s", "e", "w", "ne", "nw", "se", "sw"].map(d => `<div class="rz ${d}" data-dir="${d}"></div>`).join("")}`;
-  const num = (v, f) => (Number.isFinite(v) ? v : f);
-  const w = {
-    id, kind, arg: arg || null, el, body: $(".wbody", el), prev: null, rendered: null, shell: false,
-    x: num(g.x, 40), y: num(g.y, 40), wd: num(g.wd, 480), ht: num(g.ht, 320),
-    max: !!g.max, minimized: !!g.minimized, snapped: !!g.snapped, pre: g.pre || null,
-    filter: g.filter || "all", q: g.q || "", sort: g.sort || { key: "created", dir: -1 }, size: num(g.size, 132), sel: g.sel || null, tab: g.tab || "general", days: [7, 30, 90].includes(g.days) ? g.days : undefined, act: g.act, solo: !!g.solo, cmp: g.cmp || null,
-    gen: { cat: "Video", ep: {}, model: {}, vals: {}, media: {}, adv: false, pending: null, ...(g.gen || {}) },
-  };
-  w.seq = num(g.seq, ++S.seqTop); S.seqTop = Math.max(S.seqTop, w.seq);
-  w.z = ++S.zTop;
-  wins.set(id, w);
-  desk.append(el);
-  bind(w);
-  // remember the control used last, to give it focus again when the window comes back to the front;
-  // Tab moving focus into a window behind others brings that window to the front
-  el.addEventListener("focusin", e => {
-    if (w.body.contains(e.target)) w.lastFocus = e.target;
-    if (S.tabbing && !w.minimized && w !== frontWin()) { focus(w); save(); }
-  });
-  // a title bar press keeps focus where it is (for dragging): bring it in when it's in another window (not on touch, to keep the keyboard down)
-  $(".titlebar", el).addEventListener("pointerdown", e => { if (e.pointerType !== "touch" && !e.target.closest(".ctl") && !el.contains(document.activeElement)) focusInto(w); });
-  fit(w); place(w); renderWin(w);
-  return w;
-}
-
-function open(kind, arg, src) {
-  const id = arg ? `${kind}:${arg}` : kind, have = wins.get(id);
-  if (have) { have.minimized ? restore(have) : (focus(have), save(), focusInto(have)); return have; }
-  const d = D(), w = make(kind, arg, { ...KINDS[kind].geo(d), max: d.w < 600 });
-  focus(w); save();
-  flyIn(w, src?.getBoundingClientRect());
-  return w;
-}
-const defaultOpen = (r, src) => open(r.asset ? "viewer" : "props", r.taskId, src);
-
-function close(w) { w.el.remove(); wins.delete(w.id); refreshFront(); save(); refocus(() => startBtn); }
-function minimize(w, animate = true) {
-  const from = $(".titlebar", w.el).getBoundingClientRect();
-  w.minimized = true; place(w); refreshFront(); save(); refocus(() => taskBtn(w));
-  if (animate) fly(from, taskBtn(w)?.getBoundingClientRect(), w);
-}
-function restore(w) { w.minimized = false; place(w); focus(w); save(); flyIn(w, taskBtn(w)?.getBoundingClientRect()); }
-function toggleMax(w) {
-  if (w.snapped && !w.max) { unsnap(w); place(w); save(); return; }
-  w.max = !w.max; place(w); focus(w); save();
-}
-function unsnap(w) {
-  if (w.pre) Object.assign(w, { wd: w.pre.wd, ht: w.pre.ht, x: w.pre.x, y: w.pre.y });
-  w.snapped = false; w.pre = null; fit(w);
-}
-
-const frontWin = () => [...wins.values()].filter(w => !w.minimized).sort((a, b) => b.z - a.z)[0] || null;
-function focus(w) {
-  if (w.z !== S.zTop) { w.z = ++S.zTop; w.el.style.zIndex = w.z; }
-  refreshFront();
-}
-function refreshFront() {
-  const f = frontWin();
-  wins.forEach(w => w.el.classList.toggle("front", w === f));
-  renderTasks();
-}
-// keyboard focus follows the front window: the control used last, else the window's main control, else its first one, else the window itself
-const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), summary, audio[controls], video[controls], [tabindex]:not([tabindex="-1"])';
-function focusInto(w) {
-  if (!w || w.minimized || wins.get(w.id) !== w) return;
-  const b = w.body, last = w.lastFocus?.isConnected && b.contains(w.lastFocus) ? w.lastFocus : null;
-  for (const el of [last, $(".t-in", b), $("textarea", b), $(".table", b), $(".gridwrap", b), $(".tree-wrap:not(.empty)", b), ...$$(FOCUSABLE, b), w.el]) {
-    if (!el) continue;
-    el.focus({ preventScroll: true });
-    if (document.activeElement === el) return; // hidden or disabled controls refuse focus: try the next one
-  }
-}
-// after a close or minimize, once the caller is done (it may raise another window): focus the front window, else none()
-const refocus = none => queueMicrotask(() => { const f = frontWin(); f ? focusInto(f) : none()?.focus(); });
-
-/* ---------- geometry ---------- */
-function fit(w) {
-  const d = D(), [mw, mh] = minOf(w, d);
-  w.wd = Math.round(clampN(w.wd, mw, d.w));
-  w.ht = Math.round(clampN(w.ht, mh, d.h));
-  w.x = Math.round(clampN(w.x, 0, d.w - w.wd));
-  w.y = Math.round(clampN(w.y, 0, d.h - w.ht));
-}
-// Properties: measure the one-line button row and keep the window at least that wide
-function fitActions(w) {
-  const rows = $$(".pwrap .actions", w.body), p = rows[0]?.parentElement;
-  if (!p || !p.clientWidth) return;
-  const ps = getComputedStyle(p), width = a => { const kids = [...a.children], gap = parseFloat(getComputedStyle(a).columnGap) || 0; return kids.reduce((s, b) => s + b.getBoundingClientRect().width, 0) + gap * Math.max(0, kids.length - 1); };
-  w.minW = Math.ceil(Math.max(...rows.map(width)) + parseFloat(ps.paddingLeft) + parseFloat(ps.paddingRight) + w.el.offsetWidth - p.clientWidth);
-  rows.forEach(a => a.classList.toggle("wrap", w.minW > D().w)); // at large Scale sizes the icon buttons wrap instead of running off screen
-  if (!w.max && w.wd < w.minW) { fit(w); place(w); }
-}
-function place(w) {
-  const d = D(), s = w.el.style, g = w.max ? { x: 0, y: 0, wd: d.w, ht: d.h } : w;
-  s.left = g.x + "px"; s.top = g.y + "px"; s.width = g.wd + "px"; s.height = g.ht + "px"; s.zIndex = w.z;
-  w.el.classList.toggle("max", w.max);
-  w.el.hidden = w.minimized;
-  const mb = $('[data-act="max"]', w.el), label = w.max ? "Restore" : "Maximize";
-  if (mb.title !== label) { mb.title = label; mb.setAttribute("aria-label", label); }
-}
-
-const preview = $("#snap");
-function snapZone(px, py, d) {
-  if (py <= SNAP) return { x: 0, y: 0, wd: d.w, ht: d.h, max: true };
-  if (px <= SNAP) return { x: 0, y: 0, wd: Math.round(d.w / 2), ht: d.h };
-  if (px >= d.w - SNAP) return { x: d.w - Math.round(d.w / 2), y: 0, wd: Math.round(d.w / 2), ht: d.h };
-  return null;
-}
-
-// move (mode "move") or resize (mode = edge letters), with pointer capture and a drag threshold
-function gesture(w, e, mode) {
-  if (e.button !== 0 || (w.max && mode !== "move")) return;
-  e.preventDefault();
-  const t = e.currentTarget, d = D(), dr = desk.getBoundingClientRect();
-  const sx = e.clientX, sy = e.clientY, [mw, mh] = minOf(w, d);
-  const threshold = e.pointerType === "touch" ? 8 : 4;
-  let s = { x: w.x, y: w.y, wd: w.wd, ht: w.ht }, started = false, zone = null, raf = 0, last = null;
-  t.setPointerCapture(e.pointerId);
-  const apply = () => {
-    raf = 0;
-    const ev = last, dx = Math.round(ev.clientX - sx), dy = Math.round(ev.clientY - sy);
-    if (mode === "move") {
-      w.x = clampN(s.x + dx, 0, d.w - s.wd); w.y = clampN(s.y + dy, 0, d.h - s.ht);
-      zone = snapZone(ev.clientX - dr.left, ev.clientY - dr.top, d);
-      preview.hidden = !zone;
-      if (zone) Object.assign(preview.style, { left: zone.x + "px", top: zone.y + "px", width: zone.wd + "px", height: zone.ht + "px" });
-    } else {
-      if (mode.includes("e")) w.wd = clampN(s.wd + dx, mw, d.w - s.x);
-      if (mode.includes("s")) w.ht = clampN(s.ht + dy, mh, d.h - s.y);
-      if (mode.includes("w")) { const nx = clampN(s.x + dx, 0, s.x + s.wd - mw); w.wd = s.wd + s.x - nx; w.x = nx; }
-      if (mode.includes("n")) { const ny = clampN(s.y + dy, 0, s.y + s.ht - mh); w.ht = s.ht + s.y - ny; w.y = ny; }
-      w.snapped = false; w.pre = null;
-    }
-    place(w);
-  };
-  const move = ev => {
-    if (!started) {
-      if (Math.abs(ev.clientX - sx) < threshold && Math.abs(ev.clientY - sy) < threshold) return;
-      started = true; document.body.classList.add("dragging"); w.el.classList.add("busy");
-      if (mode === "move" && (w.max || w.snapped)) {
-        // pulling a maximized or snapped window off the edge restores its size under the cursor
-        const ratio = clampN((sx - w.el.getBoundingClientRect().left) / w.el.offsetWidth, 0, 1);
-        if (w.snapped) unsnap(w);
-        w.max = false;
-        s = { wd: w.wd, ht: w.ht, x: Math.round(sx - dr.left - w.wd * ratio), y: Math.round(sy - dr.top - 12) };
-      }
-    }
-    last = ev;
-    if (!raf) raf = requestAnimationFrame(apply);
-  };
-  const up = () => {
-    t.removeEventListener("pointermove", move);
-    if (raf) { cancelAnimationFrame(raf); apply(); }
-    document.body.classList.remove("dragging"); w.el.classList.remove("busy"); preview.hidden = true;
-    if (!started) return;
-    if (zone) {
-      if (zone.max) w.max = true;
-      else { w.pre = { x: w.x, y: w.y, wd: s.wd, ht: s.ht }; Object.assign(w, { x: zone.x, y: zone.y, wd: zone.wd, ht: zone.ht, snapped: true }); }
-      place(w);
-    }
-    save();
-  };
-  t.addEventListener("pointermove", move);
-  t.addEventListener("pointerup", up, { once: true });
-  t.addEventListener("pointercancel", up, { once: true });
-}
-
-function bind(w) {
-  const el = w.el, bar = $(".titlebar", el);
-  el.addEventListener("pointerdown", () => focus(w), true);
-  bar.addEventListener("pointerdown", e => { if (!e.target.closest(".ctl")) gesture(w, e, "move"); });
-  bar.addEventListener("dblclick", e => {
-    if (e.target.closest(".ctl")) return;
-    e.target.closest(".ticon") ? close(w) : toggleMax(w);
-  });
-  bar.addEventListener("contextmenu", e => { if (!e.target.closest(".ctl")) { e.preventDefault(); windowMenu(w, e.clientX, e.clientY); } });
-  $$(".rz", el).forEach(h => h.addEventListener("pointerdown", e => gesture(w, e, h.dataset.dir)));
-  $(".ctl", el).addEventListener("click", e => {
-    const b = e.target.closest("button[data-act]");
-    if (b) ({ min: minimize, max: toggleMax, close })[b.dataset.act](w);
-  });
-  $(".ctl", el).addEventListener("dblclick", e => e.stopPropagation());
-}
-
-/* ---------- caption flight (Win95 minimize/restore animation) ---------- */
-function fly(a, b, w) {
-  if (calm() || !a || !b || !a.width || !b.width) return Promise.resolve();
-  const o = document.createElement("div");
-  o.className = "flycap";
-  o.innerHTML = `<svg class="ico"><use href="#${KINDS[w.kind].icon(w)}"/></svg><span>${esc(KINDS[w.kind].title(w))}</span>`;
-  document.body.append(o);
-  const kf = [a, b].map(r => ({ left: r.left + "px", top: r.top + "px", width: r.width + "px", height: Math.min(r.height, px(22)) + "px" }));
-  const anim = o.animate(kf, { duration: 220, easing: "linear", fill: "forwards" });
-  return new Promise(res => {
-    let done = false;
-    const end = () => { if (done) return; done = true; o.remove(); res(); };
-    anim.onfinish = end; anim.oncancel = end;
-    setTimeout(end, 500); // never leave a stray caption if the timeline stalls
-  });
-}
-// the window takes keyboard focus once it shows (a hidden one can't), unless focus went elsewhere during the flight
-function flyIn(w, from) {
-  if (calm() || !from) { focusInto(w); return; }
-  w.el.style.visibility = "hidden";
-  const was = document.activeElement;
-  fly(from, $(".titlebar", w.el).getBoundingClientRect(), w).then(() => {
-    w.el.style.visibility = "";
-    const a = document.activeElement;
-    if (frontWin() === w && (a === was || a === document.body || w.el.contains(a))) focusInto(w);
-  });
-}
-
-/* ---------- rendering ---------- */
-function retitle(w) {
-  const K = KINDS[w.kind];
-  $(".tt", w.el).textContent = K.title(w);
-  $(".t use", w.el).setAttribute("href", "#" + K.icon(w));
-}
-function renderWin(w) {
-  retitle(w);
-  const keep = $$("[data-keep]", w.body).map(e => [e.dataset.keep, e.scrollTop, e.scrollLeft]);
-  RENDER[w.kind](w);
-  keep.forEach(([k, top, left]) => { const e = $(`[data-keep="${k}"]`, w.body); if (e) { e.scrollTop = top; e.scrollLeft = left; } });
-}
-// Win95 property sheet: tabs, a raised panel, and a footer ending in OK
-// ARIA tablist with a roving tabindex: only the selected tab is in the Tab order; sheetKeys adds the arrow keys
-const sheetHTML = (tabs, cur, panel, foot = "") => { const sid = "sh" + ++S.uid; return `
-    <div class="sheet">
-      <div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button class="tab" role="tab" data-tab="${k}" id="${sid}-${k}" aria-controls="${sid}-p" aria-selected="${k === cur}" tabindex="${k === cur ? 0 : -1}">${l}</button>`).join("")}</div>
-      <div class="tabpanel raised" role="tabpanel" id="${sid}-p" aria-labelledby="${sid}-${cur}" data-keep="panel-${cur}">${panel}</div>
-      <div class="sheet-foot">${foot}<button class="raised btn-ok" data-close>OK</button></div>
-    </div>`; };
-// switch a property sheet's tab like a click on it does, then put focus on the new tab
-function sheetTab(w, key) {
-  w.tab = key; renderWin(w); save();
-  $('[role="tab"][aria-selected="true"]', w.body)?.focus();
-}
-// keyboard for property sheets, bound once per window body: ←/→ and Home/End on a tab, Ctrl+Tab and Ctrl+Shift+Tab anywhere in the sheet.
-// Every render replaces the tabs, so focus that was on a tab goes back to the selected one afterwards.
-function sheetKeys(w) {
-  if (w.onTab && (!document.activeElement || document.activeElement === document.body)) $('[role="tab"][aria-selected="true"]', w.body)?.focus({ preventScroll: true });
-  if (w.sheetBound) return;
-  w.sheetBound = true;
-  w.body.addEventListener("focusin", e => { w.onTab = e.target.matches('[role="tab"]'); });
-  w.body.addEventListener("focusout", e => {
-    if (e.relatedTarget) { if (!w.body.contains(e.relatedTarget)) w.onTab = false; return; }
-    queueMicrotask(() => { if (e.target.isConnected) w.onTab = false; }); // a real blur, not a render removing the tab
-  });
-  w.body.addEventListener("keydown", e => {
-    const sheet = e.target.closest(".sheet"); if (!sheet || e.altKey || e.metaKey) return;
-    const tabs = $$('[role="tab"]', sheet), cur = tabs.findIndex(t => t.getAttribute("aria-selected") === "true"), n = tabs.length;
-    let i = null;
-    if (e.key === "Tab" && e.ctrlKey) i = cur + (e.shiftKey ? -1 : 1);
-    else if (!e.ctrlKey && !e.shiftKey && e.target.matches('[role="tab"]')) {
-      const at = tabs.indexOf(e.target);
-      i = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: n - 1 }[e.key] ?? null;
-    }
-    if (i == null || !n) return;
-    e.preventDefault();
-    sheetTab(w, tabs[(i + n) % n].dataset.tab);
-  });
-}
 // drag and drop of saved files between windows (Jobs rows, gallery tiles, the viewer) into Generate's inputs
 const DRAG_TYPE = "application/x-runway-run";
-const loadingOr = msg => `<div class="empty-list">${S.loaded ? msg : "Loading…"}</div>`;
-// a button under an empty list's message
-const emptyAct = html => `<div class="empty-act">${html}</div>`;
-const GEN_BTN = '<button class="raised btn-s b-default" data-open="generate"><svg class="ico" aria-hidden="true"><use href="#i-wand"/></svg><span>Open Generate</span></button>';
-// id of a row or tile, stable for the window's life, so the list can point aria-activedescendant at it
-const itemId = (w, id) => `it${w.oid ||= ++S.uid}-${String(id).replace(/[^\w-]/g, "_")}`;
 
 /* jobs table */
 const COLS = [
@@ -2418,7 +2139,7 @@ const OPT_DEFAULT = { textPx: 0, textSize: "medium", font: "plex", contrast: fal
 const THEMES = [["dark", "Dark"], ["classic", "Classic"], ["storm", "Storm"], ["eggplant", "Eggplant"], ["marine", "Marine"], ["pumpkin", "Pumpkin"]];
 const DESKS = [["#0b2e2e", "Teal night"], ["#008080", "Classic teal"], ["#000000", "Black"], ["#10204a", "Navy"], ["#3a1f3d", "Plum"], ["#2b2b2b", "Graphite"]];
 const TERMS = [["dos", "DOS gray"], ["green", "Green phosphor"], ["amber", "Amber"], ["blue", "Blue screen"]];
-const calm = () => S.opts.motion === "reduce" || (S.opts.motion === "system" && reduced.matches);
+export const calm = () => S.opts.motion === "reduce" || (S.opts.motion === "system" && reduced.matches);
 
 // text sizes that land on whole screen pixels for the pixel font (11 px design size)
 function textSizes() {
@@ -2488,7 +2209,7 @@ function setOpt(k, v) {
 // A failed or cancelled job plays the low two-note tone instead, so the two never sound alike.
 // A fresh Audio each time lets chimes overlap; if the file can't load or play (autoplay blocked
 // before the first click or key press), the Web Audio tones play instead.
-function chime(ok = true) {
+export function chime(ok = true) {
   if (!ok) { chimeTone(false); return null; }
   const a = new Audio("sounds/chime.mp3");
   a.volume = 0.6;
@@ -2859,103 +2580,6 @@ function keyRender(w) {
 }
 const keyPost = body => api("/api/key", body).catch(err => ({ error: err.message }));
 function keyMsg(w, text) { const m = $(".kmsg", w.body); if (m) { m.hidden = !text; m.textContent = text || ""; } }
-
-/* ---------- selection in lists and galleries ---------- */
-// keep: leave a multi-selection (Cmd+click, Shift+click) as it is and only move the focused item
-function select(w, id, scroll, keep) {
-  w.sel = id;
-  if (!keep) { w.multi = null; w.anchor = id; }
-  $$("[data-id].row, [data-id].tile, [data-id].tnode", w.body).forEach(el => { const on = isSel(w, el.dataset.id); el.classList.toggle("sel", on); el.setAttribute("aria-selected", on); if (el.dataset.id === id && scroll) el.scrollIntoView({ block: "nearest" }); });
-  activeSync(w);
-  const seg = $(".statusbar .seg", w.body);
-  if (seg) seg.textContent = seg.textContent.replace(/ · .* selected$/, "") + selNote(w);
-  cmpBtnSync(w);
-  save();
-}
-// the focusable list (.table grid or .gridwrap listbox) names the selected row or tile as its active descendant
-function activeSync(w) {
-  const box = $(".table, .gridwrap, .tree-wrap", w.body); if (!box) return;
-  const el = w.sel && $$("[data-id].row, [data-id].tile, [data-id].tnode", w.body).find(x => x.dataset.id === w.sel);
-  el ? box.setAttribute("aria-activedescendant", el.id) : box.removeAttribute("aria-activedescendant");
-}
-// delta: ±1 next/previous item, ±2 one grid row up/down, ±1e6 first/last
-function moveSel(w, delta) {
-  const items = $$("[data-id].row, [data-id].tile", w.body);
-  if (!items.length) return;
-  const i = items.findIndex(el => el.dataset.id === w.sel);
-  let n;
-  if (Math.abs(delta) >= 1e6) n = delta < 0 ? 0 : items.length - 1;
-  else if (Math.abs(delta) === 2) {
-    const cols = Math.max(1, Math.round($(".grid", w.body).clientWidth / (items[0].offsetWidth + 14)));
-    n = i < 0 ? 0 : i + Math.sign(delta) * cols;
-  } else n = i < 0 ? 0 : i + delta;
-  select(w, items[clampN(n, 0, items.length - 1)].dataset.id, true);
-}
-
-/* ---------- multi-select (Jobs, Images, Videos, Audio) and the Compare window ---------- */
-// w.sel stays the focused item (Enter, Cmd+I, the job menu); w.multi, when set, is the whole selection and w.anchor where Shift ranges start
-const MULTI = new Set(["jobs", "images", "videos", "audio"]);
-const CMP_MAX = 12;
-const CMP_BTN = `<button type="button" class="raised btn-s" data-compare-sel disabled title="Pick two or more with Cmd+click or Shift+click, then see them side by side (Alt+C)">${icoLabel("i-compare", "Compare")}</button>`;
-const cmpBase = id => String(id ?? "").split("~")[0];
-const isSel = (w, id) => (w.multi ? w.multi.has(id) : id != null && id === w.sel);
-const listIds = w => $$("[data-id].row, [data-id].tile", w.body).map(el => el.dataset.id);
-// the selected items in list order (only the ones the list shows)
-function selIds(w) {
-  if (!w.multi) return w.sel && runOf(w.sel) ? [w.sel] : [];
-  return listIds(w).filter(id => w.multi.has(id));
-}
-function selNote(w) {
-  const n = MULTI.has(w.kind) ? selIds(w).length : 0;
-  if (n > 1) return ` · ${n} selected`;
-  const r = runOf(w.sel);
-  return r ? ` · ${r.asset || r.taskId} selected` : "";
-}
-function cmpBtnSync(w) {
-  const b = $("[data-compare-sel]", w.body); if (!b) return;
-  const n = selIds(w).length, t = n > 1 ? `Compare (${n})` : "Compare", s = $("span", b);
-  b.disabled = n < 2;
-  if (s.textContent !== t) s.textContent = t;
-}
-// Cmd+click adds or removes one item, Shift+click selects the range from the anchor (with Cmd, adds it); true when handled
-function multiClick(w, id, e) {
-  const add = MAC ? e.metaKey : e.ctrlKey;
-  if (!w || !MULTI.has(w.kind) || (!add && !e.shiftKey)) return false;
-  if (e.shiftKey) {
-    const ids = listIds(w), b = ids.indexOf(id);
-    let a = ids.indexOf(w.anchor ?? w.sel);
-    if (a < 0) { a = b; w.anchor = id; }
-    const range = ids.slice(Math.min(a, b), Math.max(a, b) + 1);
-    w.multi = new Set(add ? [...selIds(w), ...range] : range);
-    select(w, id, false, true);
-  } else {
-    const m = new Set(selIds(w));
-    m.has(id) ? m.delete(id) : m.add(id);
-    w.multi = m; w.anchor = id;
-    select(w, m.has(id) ? id : [...m].pop() ?? null, false, true);
-  }
-  getSelection()?.removeAllRanges();
-  return true;
-}
-// right-click on an item of a multi-selection keeps the selection (the menu then offers Compare)
-function menuSelect(w, id) {
-  if (w && MULTI.has(w.kind) && isSel(w, id) && selIds(w).length > 1) select(w, id, false, true);
-  else select(w, id);
-}
-function selectAll(w) {
-  const ids = listIds(w); if (!ids.length) return;
-  w.multi = new Set(ids);
-  select(w, w.multi.has(w.sel) ? w.sel : ids[0], false, true);
-}
-// Shift+arrow keys: move like the arrow keys, then select from the anchor to there
-function extendSel(w, delta) {
-  const anchor = w.anchor ?? w.sel;
-  moveSel(w, delta);
-  const ids = listIds(w), a = ids.indexOf(anchor), b = ids.indexOf(w.sel);
-  if (a < 0 || b < 0) return;
-  w.multi = new Set(ids.slice(Math.min(a, b), Math.max(a, b) + 1)); w.anchor = anchor;
-  select(w, w.sel, false, true);
-}
 function compare(ids, src) {
   ids = [...new Set(ids)].filter(id => runOf(id));
   if (ids.length < 2) return null;
@@ -3272,8 +2896,8 @@ function showMenu(x, y, items) {
   menuEl.style.top = clampN(y, 0, innerHeight - r.height) + "px";
   $("button:not(:disabled)", menuEl)?.focus();
 }
-const hideMenu = () => { if (!menuEl.hidden) { menuEl.hidden = true; S.menuReturn?.focus?.(); } };
-const menuKeys = (root, e) => {
+export const hideMenu = () => { if (!menuEl.hidden) { menuEl.hidden = true; S.menuReturn?.focus?.(); } };
+export const menuKeys = (root, e) => {
   const items = $$("button:not(:disabled)", root), i = items.indexOf(document.activeElement);
   if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); items[(i + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus(); }
   if (e.key === "Home") { e.preventDefault(); items[0]?.focus(); }
@@ -3301,7 +2925,7 @@ function runMenu(r, x, y, src) {
     { label: "Open in default app", icon: "i-open", disabled: !r.asset, act: () => fileAction("open", r.asset) },
   ]);
 }
-function windowMenu(w, x, y) {
+export function windowMenu(w, x, y) {
   showMenu(x, y, [
     { label: "Restore", disabled: !w.max && !w.snapped && !w.minimized, act: () => (w.minimized ? restore(w) : toggleMax(w)) },
     { label: "Move", disabled: w.max || w.minimized, act: () => kbStart(w, "move") },
@@ -3333,7 +2957,7 @@ function kbEnd(keep) {
   if (keep) save();
   const b = $("#balloon"); if (b && !b.hidden && b.textContent.includes(KB_HINT)) b.hidden = true; // the hint no longer applies
 }
-const deskMenu = (x, y) => showMenu(x, y, [
+export const deskMenu = (x, y) => showMenu(x, y, [
   { label: "Arrange icons", act: () => arrangeIcons() },
   { sep: true },
   { label: "Cascade windows", act: cascadeAll },
@@ -3344,133 +2968,17 @@ const deskMenu = (x, y) => showMenu(x, y, [
   { label: "Show folder in Finder", act: () => fileAction("reveal", "runs.json") },
 ]);
 
-function cascadeAll() {
-  const d = D(), list = [...wins.values()].sort((a, b) => a.z - b.z);
-  list.forEach((w, i) => {
-    Object.assign(w, { minimized: false, max: false, snapped: false, pre: null, x: px(104 + i * 26), y: px(12 + i * 26), wd: Math.min(w.wd, Math.round(d.w * .62)), ht: Math.min(w.ht, Math.round(d.h * .7)) });
-    fit(w); place(w);
-  });
-  refreshFront(); save();
-}
-function tileAll() {
-  const d = D(), list = [...wins.values()].sort((a, b) => a.seq - b.seq);
-  if (!list.length) return;
-  const cols = Math.ceil(Math.sqrt(list.length)), rows = Math.ceil(list.length / cols), cw = Math.floor(d.w / cols), rh = Math.floor(d.h / rows);
-  list.forEach((w, i) => {
-    Object.assign(w, { minimized: false, max: false, snapped: false, pre: null, x: (i % cols) * cw, y: Math.floor(i / cols) * rh, wd: cw, ht: rh });
-    fit(w); place(w);
-  });
-  refreshFront(); save();
-}
-function resetLayout() {
-  [...wins.values()].forEach(w => { w.el.remove(); wins.delete(w.id); });
-  refreshFront(); save(); startBtn.focus();
-}
-
-const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+export const MAC = /Mac|iPhone|iPad/.test(navigator.platform);
 // the letter printed on the key, whatever the layout (Option on a Mac changes e.key, so go through the code)
 const letterOf = ev => String(S.layoutMap?.get(ev.code) || (ev.code?.startsWith("Key") ? ev.code.slice(3) : ev.key) || "").toLowerCase();
 const codesFor = letters => { const out = []; S.layoutMap?.forEach((k, code) => { if (letters.includes(k)) out.push(code); }); return out.length ? out : letters.map(l => "Key" + l.toUpperCase()); };
-async function toggleFullScreen() {
+export async function toggleFullScreen() {
   try {
     if (document.fullscreenElement) { navigator.keyboard?.unlock?.(); await document.exitFullscreen(); return; }
     await document.documentElement.requestFullscreen({ navigationUI: "hide" });
     await navigator.keyboard?.lock?.([...codesFor(["w", "n", "t", "m"]), "Backquote"]);
     balloon({ title: "Full screen", text: "Cmd+W now closes the window in Runway OS. Hold Esc to leave full screen.", ms: 3600 });
   } catch (err) { balloon({ title: "Couldn't go full screen", text: err.message, ms: 3000 }); }
-}
-
-/* ---------- clipboard, files, balloons ---------- */
-// a copied job is its task ID as text; Cmd+V in Generate turns it back into an input
-function copyJob(r) {
-  const id = r._of ? `${r._of}~${r._n}` : r.taskId;
-  navigator.clipboard?.writeText(id).then(
-    () => balloon({ title: `Copied ${r.asset || nameOf(r)}`, text: "In Generate, press Cmd+V to use it as an input.", ms: 3200 }),
-    () => balloon({ title: "Couldn't copy", text: "The browser blocked the clipboard.", ms: 2600 }));
-}
-function snapHalf(w, side) {
-  const d = D();
-  if (w.minimized) restore(w);
-  if (!w.snapped) w.pre = { x: w.x, y: w.y, wd: w.wd, ht: w.ht };
-  const half = Math.round(d.w / 2);
-  Object.assign(w, { max: false, snapped: true, x: side === "left" ? 0 : d.w - half, y: 0, wd: half, ht: d.h });
-  place(w); focus(w); save();
-}
-function copyText(text, done = "Copied") {
-  navigator.clipboard?.writeText(text).then(() => balloon({ title: done, text: text.length > 80 ? text.slice(0, 80) + "…" : text, ms: 2200 }))
-    .catch(() => balloon({ title: "Couldn't copy", text: "The browser blocked clipboard access.", ms: 3000 }));
-}
-async function fileAction(action, name) {
-  try { await api(`/api/${action}`, { file: name }); }
-  catch {
-    balloon({ title: "Couldn't open the file", text: `${name} isn't in the Runway folder, or the server is offline.`, ms: 4000 });
-  }
-}
-// the balloon stays at least 5 s; hovering it or focusing inside it pauses the countdown, leaving resumes what was left
-const balloonEl = $("#balloon"), srStatus = $("#sr-status");
-function balloonRun() { clearTimeout(S.balloonT); S.balloonAt = Date.now(); S.balloonT = setTimeout(() => { S.balloonT = 0; balloonEl.hidden = true; }, S.balloonLeft); }
-function balloonPause() { if (!S.balloonT) return; clearTimeout(S.balloonT); S.balloonT = 0; S.balloonLeft = Math.max(0, S.balloonLeft - (Date.now() - S.balloonAt)); }
-const balloonResume = () => { if (!balloonEl.hidden && !S.balloonT) balloonRun(); };
-function balloon({ title, text, icon = "i-doc", ms = 8000, onOpen }) {
-  const b = balloonEl;
-  b.innerHTML = `<svg class="ico"><use href="#${icon}"/></svg><div class="bt"><b id="balloon-t">${esc(title)}</b><span id="balloon-x">${esc(text)}</span>${onOpen ? '<button class="raised btn-s bopen" aria-describedby="balloon-t balloon-x">Open</button>' : ""}</div><button class="raised bx" aria-label="Dismiss"><i class="g-close"></i></button>`;
-  b.hidden = false;
-  b.classList.toggle("clickable", !!onOpen);
-  b.onclick = e => { b.hidden = true; if (!e.target.closest(".bx") && onOpen) onOpen(); };
-  // screen readers get it from the always-present live region: empty it, then fill it a frame later so a repeat is announced again
-  const n = ++S.srSeq;
-  srStatus.textContent = "";
-  requestAnimationFrame(() => requestAnimationFrame(() => { if (n === S.srSeq) srStatus.textContent = `${title}. ${text}`; }));
-  clearTimeout(S.balloonT); S.balloonT = 0;
-  S.balloonLeft = Math.max(5000, ms);
-  if (!b.matches(":hover") && !b.contains(document.activeElement)) balloonRun();
-}
-function announce(r) {
-  const ok = r.status === "succeeded";
-  if (S.opts.sound) chime(ok);
-  if (S.opts.notify && document.hidden && "Notification" in window && Notification.permission === "granted") {
-    try { const n = new Notification(ok ? `${cap(r.type)} finished` : `Job ${r.status}`, { body: ok ? `${r.asset || r.taskId}${r.credits != null ? ` · ${fmt(r.credits)} credits` : ""}` : (r.failure || r.taskId), tag: r.taskId });
-      n.onclick = () => { window.focus(); open(ok && r.asset ? "viewer" : "props", r.taskId); n.close(); }; } catch {}
-  }
-  if (document.hidden) { S.unseen++; setTitle(); }
-  if (!S.opts.balloons) return;
-  balloon({
-    title: ok ? `${cap(r.type)} finished` : `Job ${r.status}`,
-    text: ok ? `${r.asset || r.taskId}${r.credits != null ? ` · ${fmt(r.credits)} credits` : ""}` : (r.failure || r.taskId),
-    icon: ok ? typeIcon(r.type) : "i-doc", ms: 9000,
-    onOpen: () => open(ok && r.asset ? "viewer" : "props", r.taskId, $("#tray-run")),
-  });
-}
-function setTitle() {
-  const active = S.data.runs.filter(r => ACTIVE.has(r.status)).length;
-  document.title = "[POP] Runway OS";
-  const want = active ? "busy" : "idle";
-  if (want !== S.favState) { S.favState = want; $("#favicon").href = "data:image/svg+xml," + encodeURIComponent(FAV[want]); }
-}
-
-/* ---------- taskbar, tray, start menu ---------- */
-const taskBtn = w => $(`[data-task="${CSS.escape(w.id)}"]`, tasksEl);
-function renderTasks() {
-  const f = frontWin();
-  tasksEl.innerHTML = [...wins.values()].sort((a, b) => a.seq - b.seq).map(w => {
-    const K = KINDS[w.kind], title = K.title(w);
-    return `<button class="task raised" data-task="${esc(w.id)}" aria-pressed="${w === f}" title="${esc(title)}"><svg class="ico"><use href="#${K.icon(w)}"/></svg><span>${esc(title)}</span></button>`;
-  }).join("");
-}
-
-function renderTray() {
-  setTitle();
-  const active = S.data.runs.filter(r => ACTIVE.has(r.status)).length, run = $("#tray-run"), bal = $("#tray-bal");
-  run.hidden = !active;
-  $("span", run).textContent = active;
-  run.title = `${active} job${active === 1 ? "" : "s"} rendering or queued. Open Jobs`;
-  $("span", bal).textContent = S.data.balance == null ? "—" : fmt(S.data.balance);
-}
-
-function setStart(on) {
-  startMenu.hidden = !on;
-  startBtn.setAttribute("aria-expanded", on);
-  if (on) $("button", startMenu).focus();
 }
 
 /* ---------- spending guard: a daily credit limit for the whole org (Options → Spending) ----------
@@ -3588,7 +3096,7 @@ function restart(mode) {
   } catch {}
   location.reload();
 }
-function shutdownDialog() {
+export function shutdownDialog() {
   if ($("#shutdown")) return;
   const back = document.activeElement;
   const d = document.createElement("div");
@@ -3628,28 +3136,6 @@ function shutdownDialog() {
   d.addEventListener("click", e => { const b = e.target.closest("[data-sd]"); if (b) done(b.dataset.sd === "ok"); });
   $('input[name="sd"]:checked', d).focus();
 }
-const icons = $("#icons");
-/* icon grid: icons fill columns top to bottom in order, unless moved; a moved icon keeps its slot (col,row), saved per launcher */
-const ICON_KEY = "runway-os-icons-v1";
-const iconGrid = () => {
-  const list = $$(".dicon", icons), w = Math.max(...list.map(b => b.offsetWidth), 1), h = Math.max(...list.map(b => b.offsetHeight), 1), gap = px(10), pad = px(10);
-  return { cw: w + gap, ch: h + gap, pad, cols: Math.max(1, Math.floor((desk.clientWidth - pad) / (w + gap))), rows: Math.max(1, Math.floor((desk.clientHeight - pad) / (h + gap))) };
-};
-function layoutIcons() {
-  const g = iconGrid(), list = $$(".dicon", icons), taken = new Set(), slot = {};
-  // moved icons first (clamped to the visible grid), then the others in order into the free slots
-  list.forEach(b => { const s = S.iconSlots[b.dataset.launch]; if (!s) return; let c = clampN(s.col, 0, g.cols - 1), r = clampN(s.row, 0, g.rows - 1);
-    while (taken.has(c + "," + r)) { r++; if (r >= g.rows) { r = 0; c = (c + 1) % g.cols; } }
-    taken.add(c + "," + r); slot[b.dataset.launch] = [c, r]; });
-  let c = 0, r = 0;
-  list.forEach(b => { if (slot[b.dataset.launch]) return;
-    while (taken.has(c + "," + r)) { r++; if (r >= g.rows) { r = 0; c++; } }
-    taken.add(c + "," + r); slot[b.dataset.launch] = [c, r]; });
-  list.forEach(b => { const [cc, rr] = slot[b.dataset.launch]; b.style.transform = `translate(${g.pad + cc * g.cw}px, ${g.pad + rr * g.ch}px)`; b.dataset.slot = cc + "," + rr; });
-  icons.classList.add("ready");
-}
-const saveIcons = () => { try { localStorage.setItem(ICON_KEY, JSON.stringify(S.iconSlots)); } catch {} };
-const arrangeIcons = () => { S.iconSlots = {}; saveIcons(); layoutIcons(); };
 
 /* ---------- right-click: an in-app menu everywhere; Shift + right-click keeps the browser's own menu ---------- */
 async function pasteInto(el) {
@@ -3668,26 +3154,6 @@ function textMenu(el, x, y) {
     { sep: true },
     { label: "Select all", hint: "Cmd+A", disabled: !el.value, act: () => { el.focus(); el.select(); } },
   ]);
-}
-
-/* ---------- clicks inside windows ---------- */
-const winOf = el => wins.get(el.closest(".window")?.dataset.id);
-
-/* ---------- persistence ---------- */
-function save() {
-  clearTimeout(S.saveT);
-  if (S.resetting) return;
-  S.saveT = setTimeout(() => {
-    const list = [...wins.values()].map(w => ({ kind: w.kind, arg: w.arg, x: w.x, y: w.y, wd: w.wd, ht: w.ht, max: w.max, minimized: w.minimized, snapped: w.snapped, pre: w.pre, z: w.z, seq: w.seq, filter: w.filter, q: w.q, sort: w.sort, size: w.size, sel: w.sel, tab: w.tab, days: w.days, act: w.kind === "activity" ? w.act : undefined, solo: w.kind === "tree" ? !!w.solo : undefined, gen: w.kind === "generate" ? w.gen : undefined, cmp: w.kind === "compare" ? w.cmp : undefined }));
-    try { localStorage.setItem(KEY, JSON.stringify(list)); } catch {}
-  }, 150);
-}
-function restoreLayout() {
-  let saved = null;
-  try { saved = JSON.parse(localStorage.getItem(KEY)); } catch {}
-  if (!Array.isArray(saved)) { open("terminal"); return; } // first launch: just the terminal
-  saved.filter(s => KINDS[s.kind] && (s.kind === "viewer" || s.kind === "props" || s.kind === "compare" ? s.arg : true)).sort((a, b) => a.z - b.z).forEach(s => make(s.kind, s.arg, s));
-  refreshFront();
 }
 // first launch (no saved layout, so restoreLayout opens just the terminal): once the first state poll answers
 // and there is no API key, open the key window on top as well. Later loads have a saved layout and skip this.
@@ -3857,10 +3323,10 @@ const modelsLoaded = fetch("/api/models").then(r => { if (!r.ok) throw new Error
 
 
 // start: every module's listeners and saved state, in the order the single-file app had them
-
-// true while a Tab keypress moves focus
-addEventListener("keydown", e => { S.tabbing = e.key === "Tab"; }, true);
-addEventListener("keyup", () => { S.tabbing = false; }, true);
+windowsInit();
+uiInit();
+taskbarInit();
+iconsInit();
 addEventListener("dragstart", e => {
   const src = e.target.closest?.("[draggable][data-id]"); if (!src) return;
   const r = runOf(src.dataset.id); if (!r?.asset) { e.preventDefault(); return; }
@@ -4007,37 +3473,6 @@ addEventListener("paste", ev => {
   if (r) { ev.preventDefault(); genDropRun(f, text); }
   else if (text) genMsg(f, "To use a job as an input, select it in Jobs, a gallery or the Job tree and press Cmd+C first.", true);
 });
-balloonEl.addEventListener("pointerenter", balloonPause);
-balloonEl.addEventListener("pointerleave", () => { if (!balloonEl.contains(document.activeElement)) balloonResume(); });
-balloonEl.addEventListener("focusin", balloonPause);
-balloonEl.addEventListener("focusout", e => { if (!balloonEl.contains(e.relatedTarget) && !balloonEl.matches(":hover")) balloonResume(); });
-document.addEventListener("visibilitychange", () => { if (!document.hidden) { S.unseen = 0; setTitle(); } });
-tasksEl.addEventListener("pointerdown", e => { if (e.target.closest("[data-task]")) e.preventDefault(); });
-tasksEl.addEventListener("click", e => {
-  const b = e.target.closest("[data-task]"); if (!b) return;
-  const w = wins.get(b.dataset.task); if (!w) return;
-  if (w.minimized) restore(w);
-  else if (w === frontWin()) minimize(w);
-  else { focus(w); save(); focusInto(w); }
-});
-$(".taskbar").addEventListener("contextmenu", e => {
-  e.preventDefault();
-  const b = e.target.closest("[data-task]");
-  b && wins.get(b.dataset.task) ? windowMenu(wins.get(b.dataset.task), e.clientX, e.clientY - 4) : deskMenu(e.clientX, e.clientY - 4);
-});
-$("#tray-run").addEventListener("click", e => open("activity", null, e.currentTarget));
-$("#tray-bal").addEventListener("click", e => open("overview", null, e.currentTarget));
-startBtn.addEventListener("click", () => setStart(startMenu.hidden));
-startMenu.addEventListener("click", e => {
-  const b = e.target.closest("button"); if (!b) return;
-  setStart(false);
-  if (b.dataset.launch) open(b.dataset.launch, null, startBtn);
-  if (b.dataset.cmd === "folder") fileAction("reveal", "runs.json");
-  if (b.dataset.cmd === "cascade") cascadeAll();
-  if (b.dataset.cmd === "tile") tileAll();
-  if (b.dataset.cmd === "fullscreen") toggleFullScreen();
-  if (b.dataset.cmd === "shutdown") shutdownDialog();
-});
 // Options → Spending: the limit field saves on change (Enter or leaving the field)
 document.addEventListener("change", e => {
   const el = e.target.closest?.("[data-limit]"); if (!el) return;
@@ -4046,54 +3481,6 @@ document.addEventListener("change", e => {
   if (had) $("[data-limit]")?.focus({ preventScroll: true });
   spendRefresh();
 });
-startMenu.addEventListener("keydown", e => menuKeys(startMenu, e));
-$$("[data-launch]", startMenu).forEach(b => { const k = APP_KEYS[b.dataset.launch]; if (k && !$("kbd", b)) b.insertAdjacentHTML("beforeend", `<kbd>Alt+${k}</kbd>`); });
-document.addEventListener("pointerdown", e => {
-  if (!startMenu.hidden && !e.target.closest("#startmenu, #start")) setStart(false);
-  if (!menuEl.hidden && !e.target.closest("#ctxmenu")) hideMenu();
-});
-
-/* ---------- desktop icons: click selects, double-click / Enter / tap opens ---------- */
-addEventListener("pointerdown", e => { S.lastPointer = e.pointerType; }, true);
-try { S.iconSlots = JSON.parse(localStorage.getItem(ICON_KEY)) || {}; } catch {}
-// drag an icon: it follows the pointer after a few pixels, then snaps to the nearest free slot; a plain click stays a click
-icons.addEventListener("pointerdown", e => {
-  const b = e.target.closest(".dicon"); if (!b || e.button !== 0) return;
-  const sx = e.clientX, sy = e.clientY, m = /translate\(([-\d.]+)px, ([-\d.]+)px\)/.exec(b.style.transform) || [0, 0, 0], ox = +m[1], oy = +m[2];
-  let moving = false;
-  const move = ev => {
-    if (!moving && Math.hypot(ev.clientX - sx, ev.clientY - sy) < (ev.pointerType === "touch" ? 8 : 4)) return;
-    if (!moving) { moving = true; b.setPointerCapture(ev.pointerId); b.classList.add("dragging"); }
-    b.style.transform = `translate(${ox + ev.clientX - sx}px, ${oy + ev.clientY - sy}px)`;
-  };
-  const up = ev => {
-    removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", up);
-    if (!moving) return;
-    b.classList.remove("dragging"); S.iconDragged = true; setTimeout(() => { S.iconDragged = false; }, 0);
-    const g = iconGrid();
-    let col = clampN(Math.round((ox + ev.clientX - sx - g.pad) / g.cw), 0, g.cols - 1), row = clampN(Math.round((oy + ev.clientY - sy - g.pad) / g.ch), 0, g.rows - 1);
-    // taken by another icon: the nearest free slot instead
-    const used = new Set($$(".dicon", icons).filter(x => x !== b).map(x => x.dataset.slot));
-    if (used.has(col + "," + row)) {
-      let best = null;
-      for (let c = 0; c < g.cols; c++) for (let r = 0; r < g.rows; r++) if (!used.has(c + "," + r)) { const d = Math.hypot(c - col, r - row); if (!best || d < best.d) best = { c, r, d }; }
-      if (best) { col = best.c; row = best.r; }
-    }
-    // keep every icon where it is now, so the others don't reflow around the moved one
-    $$(".dicon", icons).forEach(x => { const [c, r] = x.dataset.slot.split(",").map(Number); S.iconSlots[x.dataset.launch] = { col: c, row: r }; });
-    S.iconSlots[b.dataset.launch] = { col, row };
-    saveIcons(); layoutIcons(); b.focus();
-  };
-  addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);
-});
-icons.addEventListener("click", e => { if (S.iconDragged) { e.stopPropagation(); return; } const b = e.target.closest("[data-launch]"); if (b && (e.detail === 0 || S.lastPointer === "touch")) open(b.dataset.launch, null, b); }, true);
-icons.addEventListener("dblclick", e => { const b = e.target.closest("[data-launch]"); if (b) open(b.dataset.launch, null, b); });
-icons.addEventListener("keydown", e => {
-  const items = $$(".dicon", icons), i = items.indexOf(document.activeElement);
-  if (["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft"].includes(e.key) && i >= 0) { e.preventDefault(); items[clampN(i + (e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : -1), 0, items.length - 1)].focus(); }
-});
-desk.addEventListener("pointerdown", e => { if (e.target === desk) document.activeElement?.blur(); });
-desk.addEventListener("contextmenu", e => { if (e.target === desk || e.target.closest(".icons")) { e.preventDefault(); deskMenu(e.clientX, e.clientY); } });
 addEventListener("contextmenu", e => {
   if (e.defaultPrevented || e.shiftKey) return; // handled by a more specific menu, or Shift asks for the browser's own
   e.preventDefault();
@@ -4251,7 +3638,6 @@ ready.then(() => {
   const prev = frontWin(), aw = open("activity");
   if (prev && prev !== aw) { focus(prev); focusInto(prev); }
 });
-addEventListener("resize", () => { wins.forEach(w => { fit(w); place(w); }); layoutIcons(); });
 SIG.options = () => "";
 SIG.terminal = () => "";
 SIG.usage = () => "";
