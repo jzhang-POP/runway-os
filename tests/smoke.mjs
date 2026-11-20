@@ -397,6 +397,9 @@ async function featureChecks(runs) {
     measure("live update: rows/tiles/tree nodes kept", `${after.rowsKept}/${after.rows}`, `(jobs ${before.jobs}, images ${before.images}, tree ${before.tree}; same node, same item)`);
     measure("live update: <img> kept", `${after.imgsKept}/${after.imgs}`);
     measure("live update: image requests", imgReqs, "(one new job that reuses an existing file)");
+    // the keyed morph keeps every existing row and picture when one job is added above them
+    if (after.rows && after.rowsKept < 0.9 * after.rows) fail(`one new job replaced ${after.rows - after.rowsKept} of ${after.rows} existing rows/tiles/tree nodes (morph should keep 90% or more)`);
+    if (after.imgs && after.imgsKept < 0.9 * after.imgs) fail(`one new job reloaded ${after.imgs - after.imgsKept} of ${after.imgs} existing thumbnails (morph should keep 90% or more)`);
   });
 
   await check("budget", async () => {
