@@ -1,5 +1,6 @@
 import { S, wins } from "../core/state.js";
 import { $, $$, esc, fmt } from "../core/dom.js";
+import { modal } from "../core/modal.js";
 import { newestFirst } from "../core/status.js";
 import { curModel, curTask, genBody, genRefresh, secondsOf, shownVal, vals } from "./generate.js";
 import { setOpt } from "./options.js";
@@ -65,31 +66,17 @@ export function spendCheck(w) {
   return spendDialog(lead, `Spent today: ${fmt(s)} credits, by the whole Runway org since midnight. ${job}`);
 }
 export function spendDialog(lead, detail) {
-  return new Promise(resolve => {
-    $("#spendguard")?.remove();
-    const back = document.activeElement, d = document.createElement("div");
-    d.id = "spendguard"; d.className = "shutdown";
-    d.innerHTML = `
-        <div class="sd-win window front raised" role="alertdialog" aria-modal="true" aria-labelledby="sg-t" aria-describedby="sg-lead sg-detail">
-          <div class="titlebar"><span class="t"><svg class="ico ticon" aria-hidden="true"><use href="#i-coin"/></svg><span class="tt" id="sg-t">Daily credit limit</span></span></div>
-          <div class="sd-body">
-            <svg class="sd-ico" aria-hidden="true"><use href="#i-coin"/></svg>
-            <div class="sg-text"><p id="sg-lead">${esc(lead)}</p><p class="muted" id="sg-detail">${esc(detail)}</p></div>
-          </div>
-          <div class="sheet-foot"><span class="grow"></span><button class="raised btn-ok" data-sg="go">Generate anyway</button><button class="raised btn-ok b-default" data-sg="cancel">Cancel</button></div>
-        </div>`;
-    document.body.append(d);
-    const done = ok => { removeEventListener("keydown", onKey, true); d.remove(); back?.focus?.(); resolve(ok); };
-    // modal: it takes every key while open; Esc cancels, Tab stays on the two buttons, Enter presses the focused one
-    const onKey = e => {
-      e.stopPropagation();
-      if (e.key === "Escape") { e.preventDefault(); done(false); return; }
-      if (e.key === "Tab") { const f = $$("button", d), i = f.indexOf(document.activeElement); e.preventDefault(); f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus(); }
-    };
-    addEventListener("keydown", onKey, true);
-    d.addEventListener("click", e => { const b = e.target.closest("[data-sg]"); if (b) done(b.dataset.sg === "go"); });
-    $('[data-sg="cancel"]', d).focus();
-  });
+  $("#spendguard")?.remove();
+  // Cancel is the default and has focus; Enter presses the focused button
+  return modal({ id: "spendguard", html: `
+      <div class="sd-win window front raised" role="alertdialog" aria-modal="true" aria-labelledby="sg-t" aria-describedby="sg-lead sg-detail">
+        <div class="titlebar"><span class="t"><svg class="ico ticon" aria-hidden="true"><use href="#i-coin"/></svg><span class="tt" id="sg-t">Daily credit limit</span></span></div>
+        <div class="sd-body">
+          <svg class="sd-ico" aria-hidden="true"><use href="#i-coin"/></svg>
+          <div class="sg-text"><p id="sg-lead">${esc(lead)}</p><p class="muted" id="sg-detail">${esc(detail)}</p></div>
+        </div>
+        <div class="sheet-foot"><span class="grow"></span><button class="raised btn-ok" data-m="go">Generate anyway</button><button class="raised btn-ok b-default" data-m="cancel">Cancel</button></div>
+      </div>` }).then(v => v === "go");
 }
 // terminal: one line for balance and cost
 export function spendTerm() {

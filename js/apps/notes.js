@@ -1,6 +1,7 @@
 import { S, wins } from "../core/state.js";
 import { $, $$, clampN, desk, esc, fmt, icoLabel } from "../core/dom.js";
 import { OFFLINE, api } from "../core/api.js";
+import { modal } from "../core/modal.js";
 import { morph } from "../core/morph.js";
 import { relHTML } from "../core/status.js";
 import { sleep } from "../core/time.js";
@@ -285,46 +286,34 @@ export function noteIndent(ta, out) {
    act runs on OK; when it throws, its message shows in the dialog and the dialog stays open. */
 export function noteDialog({ title, msg, value, ok, danger, act }) {
   if ($("#notedlg")) return Promise.resolve(false);
-  return new Promise(resolve => {
-    const back = document.activeElement, ask = value != null, d = document.createElement("div");
-    d.id = "notedlg"; d.className = "shutdown";
-    d.innerHTML = `
-        <div class="sd-win window front raised" role="${ask ? "dialog" : "alertdialog"}" aria-modal="true" aria-labelledby="nd-t" aria-describedby="nd-m">
-          <div class="titlebar"><span class="t"><svg class="ico ticon" aria-hidden="true"><use href="#i-notes"/></svg><span class="tt" id="nd-t">${esc(title)}</span></span></div>
-          <div class="sd-body">
-            <svg class="sd-ico" aria-hidden="true"><use href="#${danger ? "i-remove" : "i-notes"}"/></svg>
-            <div class="nd-col">
-              ${ask ? `<label for="nd-in" id="nd-m">${esc(msg)}</label><input class="field" id="nd-in" spellcheck="false" autocomplete="off" maxlength="100">` : `<p id="nd-m">${esc(msg)}</p>`}
-              <div class="gmsg" role="alert" hidden></div>
-            </div>
+  const ask = value != null;
+  let busy = false;
+  return modal({
+    id: "notedlg", noMenu: true, html: `
+      <div class="sd-win window front raised" role="${ask ? "dialog" : "alertdialog"}" aria-modal="true" aria-labelledby="nd-t" aria-describedby="nd-m">
+        <div class="titlebar"><span class="t"><svg class="ico ticon" aria-hidden="true"><use href="#i-notes"/></svg><span class="tt" id="nd-t">${esc(title)}</span></span></div>
+        <div class="sd-body">
+          <svg class="sd-ico" aria-hidden="true"><use href="#${danger ? "i-remove" : "i-notes"}"/></svg>
+          <div class="nd-col">
+            ${ask ? `<label for="nd-in" id="nd-m">${esc(msg)}</label><input class="field" id="nd-in" spellcheck="false" autocomplete="off" maxlength="100">` : `<p id="nd-m">${esc(msg)}</p>`}
+            <div class="gmsg" role="alert" hidden></div>
           </div>
-          <div class="sheet-foot"><span class="grow"></span><button class="raised btn-ok b-default" data-nd="ok">${esc(ok)}</button><button class="raised btn-ok" data-nd="cancel">Cancel</button></div>
-        </div>`;
-    document.body.append(d);
-    const inp = $("#nd-in", d), err = $(".gmsg", d), okBtn = $('[data-nd="ok"]', d);
-    if (inp) { inp.value = value; const dot = value.lastIndexOf("."); inp.focus(); inp.setSelectionRange(0, dot > 0 ? dot : value.length); } else okBtn.focus();
-    let busy = false;
-    const finish = res => { removeEventListener("keydown", onKey, true); d.remove(); back?.focus?.({ preventScroll: true }); resolve(res); };
-    const submit = async () => {
+        </div>
+        <div class="sheet-foot"><span class="grow"></span><button class="raised btn-ok b-default" data-m="ok">${esc(ok)}</button><button class="raised btn-ok" data-m="cancel">Cancel</button></div>
+      </div>`,
+    focus: d => {
+      const inp = $("#nd-in", d); if (!inp) return $('[data-m="ok"]', d);
+      inp.value = value; const dot = value.lastIndexOf("."); inp.focus(); inp.setSelectionRange(0, dot > 0 ? dot : value.length);
+    },
+    // OK runs act; the dialog stays open with its message if that throws
+    onPress: async (v, close) => {
       if (busy) return;
+      const d = $("#notedlg"), inp = $("#nd-in", d), err = $(".gmsg", d), okBtn = $('[data-m="ok"]', d);
       busy = true; okBtn.disabled = true; err.hidden = true;
-      try { await act(inp ? inp.value : true); finish(true); }
+      try { await act(inp ? inp.value : true); close("ok"); }
       catch (e) { err.textContent = e.message; err.hidden = false; busy = false; okBtn.disabled = false; (inp || okBtn).focus(); }
-    };
-    // modal: takes every key while open; Tab stays inside
-    const onKey = e => {
-      e.stopPropagation();
-      if (e.key === "Escape") { e.preventDefault(); finish(false); return; }
-      if (e.key === "Enter" && !e.target.closest('[data-nd="cancel"]')) { e.preventDefault(); submit(); return; }
-      if (e.key === "Tab") {
-        const f = $$("input, button:not(:disabled)", d), i = f.indexOf(document.activeElement);
-        e.preventDefault(); f[(i + (e.shiftKey ? -1 : 1) + f.length) % f.length].focus();
-      }
-    };
-    addEventListener("keydown", onKey, true);
-    d.addEventListener("click", e => { const b = e.target.closest("[data-nd]"); if (b) b.dataset.nd === "ok" ? submit() : finish(false); });
-    d.addEventListener("contextmenu", e => { if (!e.shiftKey) e.preventDefault(); }); // the in-app menu would open under the dialog
-  });
+    },
+  }).then(v => v === "ok");
 }
 
 /* toolbar actions */
