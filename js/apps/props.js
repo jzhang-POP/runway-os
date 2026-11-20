@@ -1,6 +1,6 @@
 import { cap, esc, fmt, icoLabel } from "../core/dom.js";
 import { morph } from "../core/morph.js";
-import { ACTIVE, childrenOf, filesOf, miniThumb, nameOf, relHTML, runOf, runSig, statusHTML, thumbInner, thumbOf, typeIcon } from "../core/status.js";
+import { ACTIVE, cancellable, childrenOf, filesOf, miniThumb, nameOf, relHTML, runOf, runSig, statusHTML, thumbInner, thumbOf, typeIcon } from "../core/status.js";
 import { absTime, dur, tOf } from "../core/time.js";
 import { loadingOr } from "../core/ui.js";
 import { RENDER, SIG } from "../wm/kinds.js";
@@ -34,7 +34,7 @@ export function propsRender(w) {
           <div class="promptbox sunken">${esc(r.prompt)}</div>
           <div class="actions" role="group" aria-label="This file">
             ${r.asset ? `<button class="raised btn-s b-default" data-open="viewer" data-id="${esc(r.taskId)}">${icoLabel(typeIcon(r.type), "Open")}</button><button class="raised btn-s" data-file="reveal" data-name="${esc(r.asset)}">${icoLabel("i-finder", "Show in Finder")}</button>` : ""}
-            ${ACTIVE.has(r.status) ? `<button class="raised btn-s b-danger" data-cancel="${esc(r.taskId)}">${icoLabel("i-stop", "Cancel job")}</button>` : ""}
+            ${cancellable(r) ? `<button class="raised btn-s b-danger" data-cancel="${esc(r.taskId)}">${icoLabel("i-stop", "Cancel job")}</button>` : ""}
             <button class="raised btn-s" data-copy="${esc(r.prompt)}" data-done="Prompt copied">${icoLabel("i-copy", "Copy prompt")}</button>
             <button class="raised btn-s" data-copy="${esc(r._of || r.taskId)}" data-done="ID copied">${icoLabel("i-copy", "Copy task ID")}</button>
             ${r.failure ? `<button class="raised btn-s" data-copy="${esc(r.failure)}" data-done="Error copied">${icoLabel("i-copy", "Copy error")}</button>` : ""}

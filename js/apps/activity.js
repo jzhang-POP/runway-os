@@ -1,7 +1,7 @@
 import { S, wins } from "../core/state.js";
 import { $, $$, cap, esc, fmt, icoLabel } from "../core/dom.js";
 import { morph } from "../core/morph.js";
-import { ACTIVE, createdMs, miniThumb, relHTML, runOf, statusInfo, typeIcon, typicalMs } from "../core/status.js";
+import { ACTIVE, cancellable, createdMs, miniThumb, relHTML, runOf, statusInfo, typeIcon, typicalMs } from "../core/status.js";
 import { dur } from "../core/time.js";
 import { GEN_BTN, emptyAct } from "../core/ui.js";
 import { D, px } from "../wm/geometry.js";
@@ -31,7 +31,7 @@ export function genSentItem(w, r) {
     if (s.cls === "running") st += `<span class="mprog sunken" aria-hidden="true"><i style="width:${s.p ?? 8}%" class="${s.p == null ? "ind" : ""}"></i></span>`;
     st += `<small class="muted">${relHTML(r.createdAt || r.date, "elapsed")}${typ ? ` · <span data-eta="${end}">${etaText(end)}</span>` : ""}</small>`;
     const busy = w.gsBusy?.has(r.taskId);
-    acts = `<button type="button" class="raised btn-s b-danger" data-gs="cancel" data-run="${id}" aria-label="${busy ? "Cancelling" : "Cancel"} ${esc(name)}" ${busy ? "disabled" : ""}>${icoLabel("i-stop", busy ? "Cancelling…" : "Cancel")}</button>`;
+    if (cancellable(r)) acts = `<button type="button" class="raised btn-s b-danger" data-gs="cancel" data-run="${id}" aria-label="${busy ? "Cancelling" : "Cancel"} ${esc(name)}" ${busy ? "disabled" : ""}>${icoLabel("i-stop", busy ? "Cancelling…" : "Cancel")}</button>`;
   } else if (r.status === "succeeded") {
     const c = r.credits, q = r.quotedCredits;
     const cost = c != null ? `${fmt(c)} credits${q != null ? (c === q ? ", as quoted" : `, quoted ${r.quoteExact ? "" : "≈"}${fmt(q)}`) : ""}`
